@@ -85,6 +85,10 @@ This project is licensed under the MIT License.
 
 See the [LICENSE](LICENSE) file for details.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and feature changes.
+
 ## Author
 
 **Norman Daniel L. — mrRoot**
