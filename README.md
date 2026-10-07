@@ -11,7 +11,6 @@
             WinSec-Analyzer v0.8
                  mrRoot
 
-           Windows Security Assessment Tool
 PowerShell-based Windows security auditing toolkit.
 
         linkedin.com/in/normandaniell
@@ -68,7 +67,7 @@ cd WinSec-Analyzer
 Run WinSec-Analyzer:
 
 ```powershell
-.\src\winsec-analyzer.ps1
+.\run.ps1
 ```
 
 ## Security and Responsible Use

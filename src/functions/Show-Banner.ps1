@@ -16,7 +16,6 @@ function Show-Banner {
     Write-Host "            WinSec-Analyzer v$Version" -ForegroundColor White
     Write-Host "                 mrRoot" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "                   Windows Security Assessment Tool" -ForegroundColor Gray
-    Write-Host "PowerShell-based Windows security auditing toolkit." -ForegroundColor DarkGray
+    Write-Host " PowerShell-based Windows security auditing toolkit" -ForegroundColor DarkGray
     Write-Host "                      linkedin.com/in/normandaniell" -ForegroundColor DarkCyan
 }

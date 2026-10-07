@@ -8,10 +8,43 @@ function Show-MainMenu {
 
     Show-Banner -Version $Version
 
-    Show-SectionHeader -Title "MAIN MENU"
+    $MenuWidth = 58
+
+    function Write-CenteredTitle {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Title
+        )
+
+        $Padding = [math]::Max(
+            0,
+            [math]::Floor(($MenuWidth - $Title.Length) / 2)
+        )
+
+        Write-Host (" " * $Padding) -NoNewline
+        Write-Host $Title -ForegroundColor Yellow
+    }
+
+    # ========================================================
+    # SYSTEM
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "SYSTEM"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
 
     Write-Host " [1] " -ForegroundColor Cyan -NoNewline
     Write-Host "System Information"
+
+    Write-Host ""
+
+    # ========================================================
+    # NETWORK SECURITY
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "NETWORK SECURITY"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
 
     Write-Host " [2] " -ForegroundColor Cyan -NoNewline
     Write-Host "Windows Firewall"
@@ -19,10 +52,27 @@ function Show-MainMenu {
     Write-Host " [3] " -ForegroundColor Cyan -NoNewline
     Write-Host "Open Ports"
 
+    Write-Host ""
+
+    # ========================================================
+    # ENDPOINT SECURITY
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "ENDPOINT SECURITY"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
     Write-Host " [4] " -ForegroundColor Cyan -NoNewline
     Write-Host "Windows Defender"
 
     Write-Host ""
+
+    # ========================================================
+    # EXIT
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
     Write-Host " [0] " -ForegroundColor Red -NoNewline
     Write-Host "Exit"
 
