@@ -54,7 +54,8 @@ $RequiredFunctions = @(
     'Test-WindowsFirewall',
     'Test-OpenPorts',
     'Test-WindowsDefender',
-    'Test-BitLocker'
+    'Test-BitLocker',
+    'Test-SMB'
     
 
 )
@@ -333,17 +334,95 @@ do {
         }
 
         # ====================================================
+        # OPTION 6 - SMB SECURITY
+        # ====================================================
+
+        '6' {
+
+            Clear-Host
+
+            Show-Banner -Version $WinSecVersion
+            Show-SectionHeader -Title "SMB SECURITY"
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Reading SMB configuration..." `
+                -PercentComplete 20
+
+            Start-Sleep -Milliseconds 250
+
+            $SMBResults = @(
+                Test-SMB
+            )
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Analyzing SMB protocols..." `
+                -PercentComplete 50
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Checking signing and guest authentication..." `
+                -PercentComplete 75
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Evaluating SMB security posture..." `
+                -PercentComplete 90
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "SMB assessment completed" `
+                -PercentComplete 100
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Completed
+
+            Show-AssessmentResults `
+                -Title "SMB Security" `
+                -Results $SMBResults `
+                -TableColumns @(
+                    'Control',
+                    'Status',
+                    'Severity',
+                    'Score',
+                    'MaxScore'
+                )
+
+            Write-Host ""
+            Read-Host "Press Enter to return to the menu"
+        }
+
+        # ====================================================
         # OPTION 0 - EXIT
         # ====================================================
 
         '0' {
-
+            
             Clear-Host
+            Write-Host ""
+            Write-Host "██╗    ██╗██╗███╗   ██╗███████╗███████╗ ██████╗" -ForegroundColor Cyan
+            Write-Host "██║    ██║██║████╗  ██║██╔════╝██╔════╝██╔════╝" -ForegroundColor Cyan
+            Write-Host "██║ █╗ ██║██║██╔██╗ ██║███████╗█████╗  ██║     " -ForegroundColor Cyan
+            Write-Host "██║███╗██║██║██║╚██╗██║╚════██║██╔══╝  ██║     " -ForegroundColor Cyan
+            Write-Host "╚███╔███╔╝██║██║ ╚████║███████║███████╗╚██████╗" -ForegroundColor Cyan
+            Write-Host " ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ ╚═════╝" -ForegroundColor Cyan
 
             Write-Host ""
-            Write-Host "========================================"
-            Write-Host "          WinSec Analyzer"
-            Write-Host "========================================"
+            Write-Host "            WinSec-Analyzer v$Version" -ForegroundColor White
+            Write-Host "                 mrRoot" -ForegroundColor DarkGray
+            Write-Host ""
+            Write-Host "PowerShell-based Windows security auditing toolkit" -ForegroundColor DarkGray
+            Write-Host "      linkedin.com/in/normandaniell" -ForegroundColor DarkCyan
             Write-Host ""
             Write-Host "Exiting..."
             Write-Host ""
