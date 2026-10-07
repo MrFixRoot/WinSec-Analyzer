@@ -71,6 +71,19 @@ function Show-MainMenu {
     Write-Host ""
 
     # ========================================================
+    # WINDOWS HARDENING
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "WINDOWS HARDENING"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [6] " -ForegroundColor Cyan -NoNewline
+    Write-Host "SMB Security"
+
+    Write-Host ""
+
+    # ========================================================
     # EXIT
     # ========================================================
 
