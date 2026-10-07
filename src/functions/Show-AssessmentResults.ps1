@@ -19,8 +19,6 @@ function Show-AssessmentResults {
     Write-Host "========================================"
     Write-Host "       $Title"
     Write-Host "========================================"
-    Write-Host ""
-
     $Results |
         Format-Table -Property $TableColumns -AutoSize
 
@@ -236,11 +234,9 @@ function Show-AssessmentResults {
     # DISPLAY SUMMARY
     # ========================================================
 
-    Write-Host ""
     Write-Host "========================================"
     Write-Host "             Summary"
     Write-Host "========================================"
-    Write-Host ""
 
     Write-Host "PASS    : $PassCount"
     Write-Host "WARNING : $WarningCount"
