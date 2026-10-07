@@ -1,28 +1,30 @@
 function Show-MainMenu {
     [CmdletBinding()]
-    param()
+    param(
+        [string]$Version = '0.8'
+    )
 
     Clear-Host
 
-    Write-Host "========================================"
-    Write-Host "          WinSec Analyzer"
-    Write-Host "========================================"
-    Write-Host " Windows Security Assessment Tool"
-    Write-Host ""
+    Show-Banner -Version $Version
 
-    Write-Host "SYSTEM"
-    Write-Host "[1] System Information"
-    Write-Host ""
+    Show-SectionHeader -Title "MAIN MENU"
 
-    Write-Host "SECURITY CONTROLS"
-    Write-Host "[2] Windows Firewall"
-    Write-Host "[3] Open Ports"
-    Write-Host ""
+    Write-Host " [1] " -ForegroundColor Cyan -NoNewline
+    Write-Host "System Information"
 
-    Write-Host "ASSESSMENT"
-    Write-Host "[4] Full Security Assessment"
-    Write-Host ""
+    Write-Host " [2] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Windows Firewall"
 
-    Write-Host "[0] Exit"
+    Write-Host " [3] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Open Ports"
+
+    Write-Host " [4] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Windows Defender"
+
+    Write-Host ""
+    Write-Host " [0] " -ForegroundColor Red -NoNewline
+    Write-Host "Exit"
+
     Write-Host ""
 }
