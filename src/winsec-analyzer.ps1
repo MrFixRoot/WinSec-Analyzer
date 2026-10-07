@@ -126,40 +126,69 @@ do {
             Write-Host "========================================"
             Write-Host ""
 
-            # STEP 1
+            # --------------------------------------------------------
+            # Progress
+            # --------------------------------------------------------
+
             Write-Progress `
                 -Activity "WinSec Analyzer" `
-                -Status "Initializing Firewall assessment..." `
+                -Status "Checking Windows Firewall service..." `
                 -PercentComplete 10
 
             Start-Sleep -Milliseconds 300
 
-            # STEP 2
             Write-Progress `
                 -Activity "WinSec Analyzer" `
-                -Status "Reading Windows Firewall profiles..." `
-                -PercentComplete 35
+                -Status "Reading Firewall profiles..." `
+                -PercentComplete 30
 
             Start-Sleep -Milliseconds 300
 
-            # STEP 3
             Write-Progress `
                 -Activity "WinSec Analyzer" `
-                -Status "Analyzing Firewall configuration..." `
-                -PercentComplete 60
+                -Status "Analyzing Firewall policies..." `
+                -PercentComplete 50
 
-            # HERE THE REAL TOOL RUNS
-            $FirewallResult = Test-WindowsFirewall
+            # Run the real assessment
+            $FirewallResults = Test-WindowsFirewall
 
-            # STEP 4
             Write-Progress `
                 -Activity "WinSec Analyzer" `
-                -Status "Evaluating security status..." `
-                -PercentComplete 85
+                -Status "Analyzing inbound Firewall rules..." `
+                -PercentComplete 75
 
             Start-Sleep -Milliseconds 300
 
-            # STEP 5
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Calculating Firewall security score..." `
+                -PercentComplete 90
+
+            # --------------------------------------------------------
+            # Calculate score
+            # --------------------------------------------------------
+
+            $ObtainedPoints = (
+                $FirewallResults |
+                    Measure-Object -Property Score -Sum
+            ).Sum
+
+            $MaximumPoints = (
+                $FirewallResults |
+                    Measure-Object -Property MaxScore -Sum
+            ).Sum
+
+            if ($MaximumPoints -gt 0) {
+
+                $FirewallScore = [math]::Round(
+                    ($ObtainedPoints / $MaximumPoints) * 100
+                )
+            }
+            else {
+
+                $FirewallScore = 0
+            }
+
             Write-Progress `
                 -Activity "WinSec Analyzer" `
                 -Status "Assessment completed" `
@@ -167,22 +196,62 @@ do {
 
             Start-Sleep -Milliseconds 300
 
-            # REMOVE PROGRESS BAR
             Write-Progress `
                 -Activity "WinSec Analyzer" `
                 -Completed
 
-            # SHOW RESULTS
-            $FirewallResult |
-                Format-Table Control, Status, Severity, Score, MaxScore -AutoSize
+            # --------------------------------------------------------
+            # Display results
+            # --------------------------------------------------------
 
             Write-Host ""
-            Write-Host "Evidence:"
-            Write-Host $FirewallResult.Evidence
+            Write-Host "Firewall Security Controls"
+            Write-Host "--------------------------"
+            Write-Host ""
+
+            $FirewallResults |
+                Format-Table `
+                    Control,
+                    Status,
+                    Severity,
+                    Score,
+                    MaxScore `
+                    -AutoSize
 
             Write-Host ""
-            Write-Host "Recommendation:"
-            Write-Host $FirewallResult.Recommendation
+            Write-Host "Firewall Security Score: $FirewallScore/100"
+
+            # --------------------------------------------------------
+            # Display findings
+            # --------------------------------------------------------
+
+            $Findings = @(
+                $FirewallResults |
+                    Where-Object {
+                        $_.Status -eq 'FAIL' -or
+                        $_.Status -eq 'WARNING' -or
+                        $_.Status -eq 'ERROR'
+                    }
+            )
+
+            if ($Findings.Count -gt 0) {
+
+                Write-Host ""
+                Write-Host "Security Findings"
+                Write-Host "-----------------"
+
+                foreach ($Finding in $Findings) {
+
+                    Write-Host ""
+                    Write-Host "[$($Finding.Status)] $($Finding.Control)"
+
+                    Write-Host "Evidence:"
+                    Write-Host "  $($Finding.Evidence)"
+
+                    Write-Host "Recommendation:"
+                    Write-Host "  $($Finding.Recommendation)"
+                }
+            }
 
             Write-Host ""
             Read-Host "Press Enter to return to the menu"
