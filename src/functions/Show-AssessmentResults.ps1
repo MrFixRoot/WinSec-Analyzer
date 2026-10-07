@@ -19,8 +19,6 @@ function Show-AssessmentResults {
     Write-Host "========================================"
     Write-Host "       $Title"
     Write-Host "========================================"
-    Write-Host ""
-
     $Results |
         Format-Table -Property $TableColumns -AutoSize
 
@@ -220,20 +218,25 @@ function Show-AssessmentResults {
         }
     }
     else {
+        
+        $securityScore = $null = $null
 
-        $SecurityScore = $null
-        $RiskLevel = 'INFORMATIONAL'
+        if ($ErrorCount -gt 0) {
+            $RiskLevel = 'NOT ASSESSED'
+        }
+        else {
+            $RiskLevel = 'INFORMATIONAL'
+        }
+
     }
 
     # ========================================================
     # DISPLAY SUMMARY
     # ========================================================
 
-    Write-Host ""
     Write-Host "========================================"
     Write-Host "             Summary"
     Write-Host "========================================"
-    Write-Host ""
 
     Write-Host "PASS    : $PassCount"
     Write-Host "WARNING : $WarningCount"
@@ -251,6 +254,6 @@ function Show-AssessmentResults {
     else {
 
         Write-Host "Security Score : N/A"
-        Write-Host "Assessment     : Informational"
+        Write-Host "Assessment     : $RiskLevel"
     }
 }

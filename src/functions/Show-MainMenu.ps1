@@ -65,6 +65,37 @@ function Show-MainMenu {
     Write-Host " [4] " -ForegroundColor Cyan -NoNewline
     Write-Host "Windows Defender"
 
+    Write-Host " [5] " -ForegroundColor Cyan -NoNewline
+    Write-Host "BitLocker"
+
+    Write-Host ""
+
+    # ========================================================
+    # WINDOWS HARDENING
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "WINDOWS HARDENING"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [6] " -ForegroundColor Cyan -NoNewline
+    Write-Host "SMB Security"
+
+    Write-Host ""
+
+    Write-Host ""
+
+    # ========================================================
+    # IDENTITY & ACCESS
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "IDENTITY & ACCESS"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [7] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Local Users & Administrators"
+
     Write-Host ""
 
     # ========================================================
