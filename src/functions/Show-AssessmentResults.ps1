@@ -220,9 +220,16 @@ function Show-AssessmentResults {
         }
     }
     else {
+        
+        $securityScore = $null = $null
 
-        $SecurityScore = $null
-        $RiskLevel = 'INFORMATIONAL'
+        if ($ErrorCount -gt 0) {
+            $RiskLevel = 'NOT ASSESSED'
+        }
+        else {
+            $RiskLevel = 'INFORMATIONAL'
+        }
+
     }
 
     # ========================================================
@@ -251,6 +258,6 @@ function Show-AssessmentResults {
     else {
 
         Write-Host "Security Score : N/A"
-        Write-Host "Assessment     : Informational"
+        Write-Host "Assessment     : $RiskLevel"
     }
 }

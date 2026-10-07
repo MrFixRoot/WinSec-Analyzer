@@ -65,6 +65,9 @@ function Show-MainMenu {
     Write-Host " [4] " -ForegroundColor Cyan -NoNewline
     Write-Host "Windows Defender"
 
+    Write-Host " [5] " -ForegroundColor Cyan -NoNewline
+    Write-Host "BitLocker"
+
     Write-Host ""
 
     # ========================================================

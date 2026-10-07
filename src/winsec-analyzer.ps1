@@ -53,7 +53,8 @@ $RequiredFunctions = @(
     'Get-SystemInfo',
     'Test-WindowsFirewall',
     'Test-OpenPorts',
-    'Test-WindowsDefender'
+    'Test-WindowsDefender',
+    'Test-BitLocker'
     
 
 )
@@ -266,6 +267,59 @@ do {
             Show-AssessmentResults `
                 -Title "Windows Defender" `
                 -Results $DefenderResults `
+                -TableColumns @(
+                    'Control',
+                    'Status',
+                    'Severity',
+                    'Score',
+                    'MaxScore'
+                )
+
+            Write-Host ""
+            Read-Host "Press Enter to return to the menu"
+        }
+
+        # ====================================================
+        # OPTION 5 - BITLOCKER
+        # ====================================================
+
+        '5' {
+
+            Clear-Host
+
+            Show-Banner -Version $WinSecVersion
+            Show-SectionHeader -Title "BITLOCKER"
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Analyzing BitLocker..." `
+                -PercentComplete 30
+
+            $BitLockerResults = @(
+                Test-BitLocker
+            )
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Processing BitLocker findings..." `
+                -PercentComplete 80
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Completed" `
+                -PercentComplete 100
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Completed
+
+            Show-AssessmentResults `
+                -Title "BitLocker Assessment" `
+                -Results $BitLockerResults `
                 -TableColumns @(
                     'Control',
                     'Status',
