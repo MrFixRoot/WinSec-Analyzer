@@ -16,10 +16,11 @@ function Show-MainMenu {
 
     Write-Host "SECURITY CONTROLS"
     Write-Host "[2] Windows Firewall"
+    Write-Host "[3] Open Ports"
     Write-Host ""
 
     Write-Host "ASSESSMENT"
-    Write-Host "[3] Full Security Assessment"
+    Write-Host "[4] Full Security Assessment"
     Write-Host ""
 
     Write-Host "[0] Exit"
