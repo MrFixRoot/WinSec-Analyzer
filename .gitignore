@@ -1,0 +1,36 @@
+# VS Code
+.vscode/
+
+# PowerShell temporary files
+*.tmp
+*.temp
+
+# Logs
+*.log
+
+# Generated reports
+reports/
+output/
+
+# Test results
+TestResults/
+coverage.xml
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Sensitive files
+.env
+*.secret
+secrets.json
+credentials.json
+
+# Certificates and private keys
+*.pfx
+*.p12
+*.pem
+*.key
