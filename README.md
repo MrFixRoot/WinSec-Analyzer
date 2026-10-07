@@ -12,7 +12,6 @@
                  mrRoot
 
 PowerShell-based Windows security auditing toolkit.
-
         linkedin.com/in/normandaniell
 ```
 
