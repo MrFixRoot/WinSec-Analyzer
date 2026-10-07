@@ -55,8 +55,8 @@ $RequiredFunctions = @(
     'Test-OpenPorts',
     'Test-WindowsDefender',
     'Test-BitLocker',
-    'Test-SMB'
-    
+    'Test-SMB',
+    'Test-LocalUsersAdministrators'
 
 )
 
@@ -390,6 +390,68 @@ do {
             Show-AssessmentResults `
                 -Title "SMB Security" `
                 -Results $SMBResults `
+                -TableColumns @(
+                    'Control',
+                    'Status',
+                    'Severity',
+                    'Score',
+                    'MaxScore'
+                )
+
+            Write-Host ""
+            Read-Host "Press Enter to return to the menu"
+        }
+
+        # ====================================================
+        # OPTION 7 - LOCAL USERS & ADMINISTRATORS
+        # ====================================================
+
+        '7' {
+
+            Clear-Host
+
+            Show-Banner -Version $WinSecVersion
+            Show-SectionHeader -Title "LOCAL USERS & ADMINISTRATORS"
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Enumerating local user accounts..." `
+                -PercentComplete 20
+
+            Start-Sleep -Milliseconds 250
+
+            $AccountResults = @(
+                Test-LocalUsersAdministrators
+            )
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Analyzing local administrator membership..." `
+                -PercentComplete 55
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Evaluating account security settings..." `
+                -PercentComplete 80
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Account assessment completed" `
+                -PercentComplete 100
+
+            Start-Sleep -Milliseconds 250
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Completed
+
+            Show-AssessmentResults `
+                -Title "Local Users & Administrators" `
+                -Results $AccountResults `
                 -TableColumns @(
                     'Control',
                     'Status',

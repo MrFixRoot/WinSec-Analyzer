@@ -83,6 +83,21 @@ function Show-MainMenu {
 
     Write-Host ""
 
+    Write-Host ""
+
+    # ========================================================
+    # IDENTITY & ACCESS
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "IDENTITY & ACCESS"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [7] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Local Users & Administrators"
+
+    Write-Host ""
+
     # ========================================================
     # EXIT
     # ========================================================
