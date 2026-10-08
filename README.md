@@ -26,7 +26,7 @@ It is intended for defensive security, system administration, hardening reviews,
 
 ## Project Status
 
-🚧 **Early Development**
+**Early Development**
 
 Current version: **v0.8**
 
