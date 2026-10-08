@@ -36,8 +36,6 @@ function Show-MainMenu {
     Write-Host " [1] " -ForegroundColor Cyan -NoNewline
     Write-Host "System Information"
 
-    Write-Host ""
-
     # ========================================================
     # NETWORK SECURITY
     # ========================================================
@@ -51,8 +49,6 @@ function Show-MainMenu {
 
     Write-Host " [3] " -ForegroundColor Cyan -NoNewline
     Write-Host "Open Ports"
-
-    Write-Host ""
 
     # ========================================================
     # ENDPOINT SECURITY
@@ -68,8 +64,6 @@ function Show-MainMenu {
     Write-Host " [5] " -ForegroundColor Cyan -NoNewline
     Write-Host "BitLocker"
 
-    Write-Host ""
-
     # ========================================================
     # WINDOWS HARDENING
     # ========================================================
@@ -80,10 +74,6 @@ function Show-MainMenu {
 
     Write-Host " [6] " -ForegroundColor Cyan -NoNewline
     Write-Host "SMB Security"
-
-    Write-Host ""
-
-    Write-Host ""
 
     # ========================================================
     # IDENTITY & ACCESS
@@ -96,8 +86,6 @@ function Show-MainMenu {
     Write-Host " [7] " -ForegroundColor Cyan -NoNewline
     Write-Host "Local Users & Administrators"
 
-    Write-Host ""
-
     # ========================================================
     # EXIT
     # ========================================================
@@ -106,6 +94,7 @@ function Show-MainMenu {
 
     Write-Host " [0] " -ForegroundColor Red -NoNewline
     Write-Host "Exit"
-
     Write-Host ""
+    
+
 }
