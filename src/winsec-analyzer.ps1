@@ -10,7 +10,7 @@
 .NOTES
     Project: WinSec-Analyzer
     Author: Norman Daniel L.
-    LinkedIn: https://www.linkedin.com/in/normandaniell/
+    LinkedIn: https://www.linkedin.com/in/normanlp/
 #>
 
 [CmdletBinding()]
@@ -478,13 +478,12 @@ do {
             Write-Host "██║███╗██║██║██║╚██╗██║╚════██║██╔══╝  ██║     " -ForegroundColor Cyan
             Write-Host "╚███╔███╔╝██║██║ ╚████║███████║███████╗╚██████╗" -ForegroundColor Cyan
             Write-Host " ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ ╚═════╝" -ForegroundColor Cyan
-
-            Write-Host ""
             Write-Host "            WinSec-Analyzer v$Version" -ForegroundColor White
             Write-Host "                 mrRoot" -ForegroundColor DarkGray
             Write-Host ""
             Write-Host "PowerShell-based Windows security auditing toolkit" -ForegroundColor DarkGray
-            Write-Host "      linkedin.com/in/normandaniell" -ForegroundColor DarkCyan
+            Write-Host "      https://github.com/MrFixRoot/WinSec-Analyzer" -ForegroundColor DarkCyan
+            Write-Host "             https://www.linkedin.com/in/normanlp/" -ForegroundColor DarkCyan
             Write-Host ""
             Write-Host "Exiting..."
             Write-Host ""
