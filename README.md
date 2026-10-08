@@ -12,7 +12,7 @@
                  mrRoot
 
  PowerShell-based Windows security auditing toolkit
-        linkedin.com/in/normandaniell
+        https://www.linkedin.com/in/normanlp/
 ```
 
 **WinSec-Analyzer** is a modular PowerShell-based Windows security assessment tool designed to collect, analyze, and report security-related configuration information.
@@ -20,7 +20,7 @@
 It is intended for defensive security, system administration, hardening reviews, educational use, and authorized security assessments.
 
 **Author:** Norman Daniel L. / **mrRoot**  
-**LinkedIn:** [linkedin.com/in/normandaniell](https://www.linkedin.com/in/normandaniell/)
+**LinkedIn:** [linkedin.com/in/normandaniell](https://www.linkedin.com/in/normanlp/)
 
 ---
 
@@ -397,7 +397,7 @@ See the [LICENSE](LICENSE) file for details.
 
 **Norman Daniel L. — mrRoot**
 
-[LinkedIn](https://www.linkedin.com/in/normandaniell/)
+[LinkedIn](https://www.linkedin.com/in/normanlp/)
 
 ---
 
