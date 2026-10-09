@@ -499,14 +499,15 @@ function Test-LocalUsersAdministrators {
         $LocalUsers |
             Where-Object {
                 $_.Enabled -eq $true -and
-                $_.PasswordRequired -eq $false
+                $_.PasswordRequired -eq $false -and
+                $_.SID -notmatch '-501$'
             }
     )
 
     if ($EnabledUsersWithoutPasswordRequirement.Count -eq 0) {
 
         $Results += New-IdentityResult @{
-            Control        = 'Enabled Local Accounts Require Password'
+            Control        = 'Non-Guest Local Accounts Require Password'
             Status         = 'PASS'
             Severity       = 'High'
             Score          = 25
@@ -522,13 +523,13 @@ function Test-LocalUsersAdministrators {
         )
 
         $Results += New-IdentityResult @{
-            Control        = 'Enabled Local Accounts Require Password'
+            Control        = 'Non-Guest Local Accounts Require Password'
             Status         = 'FAIL'
             Severity       = 'High'
             Score          = 0
             MaxScore       = 25
-            Evidence       = "Enabled local accounts without a password requirement: $Names"
-            Recommendation = 'Require passwords for all enabled local interactive accounts unless a documented exception exists.'
+            Evidence       = "Enabled non-Guest local accounts without a password requirement: $Names"
+            Recommendation = 'Require passwords for all enabled non-Guest local accounts unless a documented exception exists.'
         }
     }
 
@@ -729,13 +730,13 @@ function Test-LocalUsersAdministrators {
         ) -join '; '
 
         $Results += New-IdentityResult @{
-            Control        = 'Inactive Local Administrator Accounts'
-            Status         = 'WARNING'
-            Severity       = 'Medium'
+            Control        = 'Administrator Last Logon Review'
+            Status         = 'INFO'
+            Severity       = 'Info'
             Score          = 0
             MaxScore       = 0
-            Evidence       = "Enabled local administrators with no logon in the last $InactiveAdminDays days: $InactiveEvidence"
-            Recommendation = 'Confirm that inactive privileged accounts are still required. Disable or remove unnecessary privileged accounts.'
+            Evidence       = "Administrators with recorded LastLogon older than $InactiveAdminDays days: $InactiveEvidence"
+            Recommendation = 'The recorded LastLogon value does not conclusively prove inactivity. Verify account activity using Windows security events before disabling or removing accounts.'
         }
     }
     elseif ($LocalAdministratorUsers.Count -gt 0) {
