@@ -19,7 +19,7 @@
 
 It is intended for defensive security, system administration, hardening reviews, educational use, and authorized security assessments.
 
-**Author:** Norman Daniel L. / **mrRoot**  
+**Author:** Norman López P. / **mrRoot**  
 **LinkedIn:** [linkedin.com/in/normanlp](https://www.linkedin.com/in/normanlp/)
 
 ---
@@ -395,7 +395,7 @@ See the [LICENSE](LICENSE) file for details.
 
 ## Author
 
-**Norman Daniel L. — mrRoot**
+**Norman López P. — mrRoot**
 
 [LinkedIn](https://www.linkedin.com/in/normanlp/)
 

@@ -9,7 +9,7 @@
 
 .NOTES
     Project: WinSec-Analyzer
-    Author: Norman Daniel L.
+    Author: Norman López P.
     LinkedIn: https://www.linkedin.com/in/normanlp/
 #>
 
