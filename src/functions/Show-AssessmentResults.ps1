@@ -219,7 +219,7 @@ function Show-AssessmentResults {
     }
     else {
         
-        $securityScore = $null = $null
+        $securityScore = $null
 
         if ($ErrorCount -gt 0) {
             $RiskLevel = 'NOT ASSESSED'
@@ -246,14 +246,25 @@ function Show-AssessmentResults {
 
     Write-Host ""
 
+    
+
     if ($null -ne $SecurityScore) {
 
         Write-Host "Security Score : $SecurityScore/100"
         Write-Host "Risk Level     : $RiskLevel"
+
+        if ($ErrorCount -gt 0) {
+
+            Write-Host ""
+            Write-Host "Assessment     : PARTIAL" -ForegroundColor Yellow
+            Write-Host "Unevaluated    : $ErrorCount control(s) returned ERROR"
+            Write-Host "Note           : Score covers evaluated controls only."
+        }
     }
     else {
 
         Write-Host "Security Score : N/A"
         Write-Host "Assessment     : $RiskLevel"
     }
+
 }

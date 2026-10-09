@@ -64,7 +64,23 @@ function Test-PowerShellSecurity {
 
             $Path = Join-Path $RegistrySource.Root $Section
 
-            if (-not (Test-Path -LiteralPath $Path)) {
+            try {
+                $PathExists = Test-Path `
+                    -LiteralPath $Path `
+                    -ErrorAction Stop
+            }
+            catch {
+                return [PSCustomObject]@{
+                    State           = 'ERROR'
+                    Enabled         = $null
+                    Source          = $RegistrySource.Source
+                    Details         = $_.Exception.Message
+                    Modules         = @()
+                    OutputDirectory = ''
+                }
+            }
+
+            if (-not $PathExists) {
                 continue
             }
 
@@ -208,7 +224,25 @@ function Test-PowerShellSecurity {
 
         foreach ($ConfigSource in $ConfigSources) {
 
-            if (-not (Test-Path -LiteralPath $ConfigSource.Path)) {
+            try {
+
+                $ConfigExists = Test-Path `
+                    -LiteralPath $ConfigSource.Path `
+                    -ErrorAction Stop
+            }
+            catch {
+
+                return [PSCustomObject]@{
+                    State           = 'ERROR'
+                    Enabled         = $null
+                    Source          = $ConfigSource.Source
+                    Details         = $_.Exception.Message
+                    Modules         = @()
+                    OutputDirectory = ''
+                }
+            }
+
+            if (-not $ConfigExists) {
                 continue
             }
 
