@@ -220,24 +220,42 @@ function Test-PowerShellSecurity {
                     -ErrorAction Stop |
                     ConvertFrom-Json -AsHashtable -ErrorAction Stop
 
+                # Support PowerShellPolicies and root-level policies.
+
+if ($Config -isnot [System.Collections.IDictionary]) {
+    continue
+}
+
+$SectionData = $null
+
+# Check nested PowerShellPolicies first.
+if ($Config.Contains('PowerShellPolicies')) {
+
+    $Policies = $Config['PowerShellPolicies']
+
+    if (
+        $Policies -is [System.Collections.IDictionary] -and
+        $Policies.Contains($Section)
+    ) {
+
+        $Candidate = $Policies[$Section]
+
+        if (
+            $Candidate -is [System.Collections.IDictionary] -and
+            $Candidate.Contains($Setting)
+        ) {
+            $SectionData = $Candidate
+        }
+    }
+}
+
+                # Check root-level configuration as fallback.
                 if (
-                    $null -eq $Config -or
-                    -not $Config.Contains('PowerShellPolicies')
+                    $null -eq $SectionData -and
+                    $Config.Contains($Section)
                 ) {
-                    continue
+                    $SectionData = $Config[$Section]
                 }
-
-                $Policies = $Config['PowerShellPolicies']
-
-                if ($Policies -isnot [System.Collections.IDictionary]) {
-                    continue
-                }
-
-                if (-not $Policies.Contains($Section)) {
-                    continue
-                }
-
-                $SectionData = $Policies[$Section]
 
                 if ($SectionData -isnot [System.Collections.IDictionary]) {
                     continue

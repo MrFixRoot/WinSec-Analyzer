@@ -56,7 +56,8 @@ $RequiredFunctions = @(
     'Test-WindowsDefender',
     'Test-BitLocker',
     'Test-SMB',
-    'Test-LocalUsersAdministrators'
+    'Test-LocalUsersAdministrators',
+    'Test-PowerShellSecurity'
 
 )
 
@@ -452,6 +453,55 @@ do {
             Show-AssessmentResults `
                 -Title "Local Users & Administrators" `
                 -Results $AccountResults `
+                -TableColumns @(
+                    'Control',
+                    'Status',
+                    'Severity',
+                    'Score',
+                    'MaxScore'
+                )
+
+            Write-Host ""
+            Read-Host "Press Enter to return to the menu"
+        }
+
+        # ====================================================
+        # OPTION 8 - POWERSHELL SECURITY SETTINGS
+        # ====================================================
+
+        '8' {
+
+            Clear-Host
+
+            Show-Banner -Version $WinSecVersion
+            Show-SectionHeader -Title "POWERSHELL SECURITY SETTINGS"
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Analyzing PowerShell 7 security policies..." `
+                -PercentComplete 20
+
+            $PowerShellResults = @(
+                Test-PowerShellSecurity
+            )
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Processing PowerShell logging findings..." `
+                -PercentComplete 80
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "PowerShell security assessment completed" `
+                -PercentComplete 100
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Completed
+
+            Show-AssessmentResults `
+                -Title "PowerShell Security Settings" `
+                -Results $PowerShellResults `
                 -TableColumns @(
                     'Control',
                     'Status',

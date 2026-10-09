@@ -87,6 +87,19 @@ function Show-MainMenu {
     Write-Host "Local Users & Administrators"
 
     # ========================================================
+    # LOGGING & AUDITING
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "LOGGING & AUDITING"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [8] " -ForegroundColor Cyan -NoNewline
+    Write-Host "PowerShell Security Settings"
+
+    Write-Host ""
+
+    # ========================================================
     # EXIT
     # ========================================================
 
