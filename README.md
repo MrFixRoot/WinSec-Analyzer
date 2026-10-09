@@ -20,7 +20,7 @@
 It is intended for defensive security, system administration, hardening reviews, educational use, and authorized security assessments.
 
 **Author:** Norman Daniel L. / **mrRoot**  
-**LinkedIn:** [linkedin.com/in/normandaniell](https://www.linkedin.com/in/normanlp/)
+**LinkedIn:** [linkedin.com/in/normanlp](https://www.linkedin.com/in/normanlp/)
 
 ---
 
