@@ -1,5 +1,322 @@
+
 {
-  "maximumScore": 100,
-  "sectionWeights": {},
-  "notes": "Definir ponderaciones y reglas antes de calcular calificaciones."
+  "schemaVersion": "1.0.0",
+  "projectVersion": "0.9.0",
+  "name": "WinSec Analyzer Security Scoring Policy",
+  "description": "Evidence-based Windows security configuration assessment scoring.",
+
+  "enabled": true,
+
+  "methodology": {
+    "id": "XCCDF_FLAT_UNWEIGHTED_ADAPTED",
+    "name": "XCCDF 1.2 Flat Unweighted Scoring",
+    "standard": "NISTIR 7275 Revision 4",
+    "standardVersion": "XCCDF 1.2",
+    "scoringModel": "urn:xccdf:scoring:flat-unweighted",
+
+    "implementationType": "Adapted",
+    "xccdfConformant": false,
+    "cisCertified": false,
+
+    "description": "WinSec Analyzer applies a rule-based scoring methodology inspired by the XCCDF flat-unweighted model and CIS Benchmark assessment practices.",
+
+    "scoringUnit": "CheckId",
+    "unitWeight": 1,
+
+    "allowCustomWeights": false,
+    "allowSeverityWeights": false,
+    "allowFrameworkWeights": false,
+    "allowPartialCredit": false,
+
+    "scoreMinimum": 0,
+    "scoreMaximum": 100,
+    "decimalPlaces": 2,
+
+    "formula": "(passedRules / scoredRules) * 100",
+
+    "zeroDenominatorResult": null
+  },
+
+  "statusDefinitions": {
+    "PASS": {
+      "description": "All required assessment conditions have been satisfied.",
+      "scoreValue": 1,
+      "includedInScore": true,
+      "verified": true
+    },
+
+    "FAIL": {
+      "description": "At least one required assessment condition has failed.",
+      "scoreValue": 0,
+      "includedInScore": true,
+      "verified": true
+    },
+
+    "ERROR": {
+      "description": "The assessment encountered an execution or collection error.",
+      "scoreValue": 0,
+      "includedInScore": true,
+      "verified": false
+    },
+
+    "UNKNOWN": {
+      "description": "The system configuration could not be determined reliably.",
+      "scoreValue": 0,
+      "includedInScore": true,
+      "verified": false
+    },
+
+    "PENDING": {
+      "description": "The security check has not been executed.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    },
+
+    "NOT_CHECKED": {
+      "description": "The security check was selected but not evaluated.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    },
+
+    "NOT_APPLICABLE": {
+      "description": "The security check is not applicable to the assessed device.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    },
+
+    "NOT_SELECTED": {
+      "description": "The security check is outside the selected assessment scope.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    },
+
+    "MANUAL": {
+      "description": "The check requires a manual assessment.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    },
+
+    "INFORMATIONAL": {
+      "description": "The check provides information without a compliance assessment.",
+      "scoreValue": null,
+      "includedInScore": false,
+      "verified": false
+    }
+  },
+
+  "scoringRules": {
+    "includedStatuses": [
+      "PASS",
+      "FAIL",
+      "ERROR",
+      "UNKNOWN"
+    ],
+
+    "excludedStatuses": [
+      "PENDING",
+      "NOT_CHECKED",
+      "NOT_APPLICABLE",
+      "NOT_SELECTED",
+      "MANUAL",
+      "INFORMATIONAL"
+    ],
+
+    "unsupportedStatusPolicy": "REJECT",
+    "warningAsPartialCredit": false,
+
+    "passScore": 1,
+    "nonPassScore": 0,
+
+    "evaluateEachCheckOnce": true,
+    "requireUniqueCheckId": true,
+    "requireEvidenceForPass": true,
+
+    "conditionAggregation": {
+      "passRequirement": "ALL_REQUIRED_CONDITIONS_PASS",
+      "failRequirement": "ANY_REQUIRED_CONDITION_FAIL",
+      "errorPolicy": "ERROR_IF_NO_FAILURE_AND_EXECUTION_ERROR",
+      "unknownPolicy": "UNKNOWN_IF_RESULT_CANNOT_BE_DETERMINED",
+      "emptyConditionsResult": "UNKNOWN"
+    },
+
+    "readOnlyAssessment": true,
+    "automaticRemediation": false
+  },
+
+  "coverage": {
+    "enabled": true,
+    "name": "Assessment Coverage",
+    "measurementStandard": "NIST SP 800-55 Volume 1",
+    "measurementType": "WinSec-defined technical coverage metric",
+
+    "description": "Percentage of selected applicable automated checks that produced a verified PASS or FAIL result.",
+
+    "numeratorStatuses": [
+      "PASS",
+      "FAIL"
+    ],
+
+    "denominatorStatuses": [
+      "PASS",
+      "FAIL",
+      "ERROR",
+      "UNKNOWN",
+      "PENDING",
+      "NOT_CHECKED"
+    ],
+
+    "excludedStatuses": [
+      "NOT_APPLICABLE",
+      "NOT_SELECTED",
+      "MANUAL",
+      "INFORMATIONAL"
+    ],
+
+    "formula": "(verifiedChecks / selectedApplicableChecks) * 100",
+
+    "zeroDenominatorResult": null,
+    "decimalPlaces": 2,
+
+    "showCoverageWithScore": true,
+    "showUnverifiedChecks": true,
+    "showManualChecks": true,
+
+    "incompleteAssessmentStatus": "PROVISIONAL",
+    "completeAssessmentStatus": "COMPLETE"
+  },
+
+  "aggregation": {
+    "method": "FLAT_UNWEIGHTED",
+
+    "sectionScoring": {
+      "enabled": true,
+      "groupBy": "SectionKey",
+      "method": "RULE_LEVEL_AGGREGATION",
+      "formula": "(sectionPassedRules / sectionScoredRules) * 100"
+    },
+
+    "deviceScoring": {
+      "enabled": true,
+      "groupBy": [
+        "DeviceId",
+        "ScanId"
+      ],
+      "method": "RULE_LEVEL_AGGREGATION",
+      "formula": "(devicePassedRules / deviceScoredRules) * 100"
+    },
+
+    "equalSectionWeights": false,
+    "averageSectionScores": false,
+
+    "allowCrossDeviceAggregation": false,
+    "allowCrossScanAggregation": false,
+
+    "requireDeviceId": true,
+    "requireScanId": true,
+    "requireCheckId": true
+  },
+
+  "applicability": {
+    "evaluatePerDevice": true,
+
+    "considerOperatingSystem": true,
+    "considerWindowsEdition": true,
+    "considerWindowsVersion": true,
+    "considerSystemRole": true,
+
+    "unknownApplicabilityPolicy": "UNKNOWN",
+    "requireNotApplicableReason": true,
+
+    "selectedBenchmarkProfile": null,
+    "selectedBenchmarkVersion": null
+  },
+
+  "frameworkIntegration": {
+    "cisBenchmarks": {
+      "enabled": true,
+      "role": "Configuration assessment criteria",
+      "requireVerifiedMapping": true,
+      "requireBenchmarkVersion": true,
+      "affectsScoreWeight": false
+    },
+
+    "cisControls": {
+      "enabled": true,
+      "version": "8.1",
+      "role": "Safeguard classification and prioritization",
+      "affectsScoreWeight": false
+    },
+
+    "nistCSF": {
+      "enabled": true,
+      "version": "2.0",
+      "role": "Cybersecurity risk management mapping",
+      "affectsScoreWeight": false
+    },
+
+    "mitreATTACK": {
+      "enabled": true,
+      "role": "Adversary technique and defensive context",
+      "affectsScoreWeight": false
+    }
+  },
+
+  "reporting": {
+    "scoreLabel": "WinSec Configuration Assessment Score",
+    "coverageLabel": "Assessment Coverage",
+
+    "showScore": true,
+    "showCoverage": true,
+    "showAssessmentStatus": true,
+
+    "showPassedCount": true,
+    "showFailedCount": true,
+    "showErrorCount": true,
+    "showUnknownCount": true,
+    "showPendingCount": true,
+    "showManualCount": true,
+    "showNotApplicableCount": true,
+
+    "showDeviceId": true,
+    "showScanId": true,
+    "showAssessmentTimestamp": true,
+
+    "requireEvidenceTraceability": true,
+    "includeScoringMethodology": true,
+    "includeFrameworkReferences": true,
+
+    "displayScoreWhenNoChecksEvaluated": false,
+    "displayIncompleteAssessmentWarning": true,
+
+    "claimFullCISCompliance": false,
+    "claimNISTCertification": false,
+    "claimCompleteSystemSecurity": false
+  },
+
+  "references": [
+    {
+      "organization": "NIST",
+      "document": "NISTIR 7275 Revision 4",
+      "title": "Specification for the Extensible Configuration Checklist Description Format (XCCDF) Version 1.2",
+      "section": "7.3.2.4",
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/IR/nistir7275r4.pdf"
+    },
+    {
+      "organization": "CIS",
+      "document": "CIS-CAT Pro Assessor Documentation",
+      "title": "Assessment Results and Scoring",
+      "url": "https://ciscat-assessor.docs.cisecurity.org/en/latest/ReportHTML/"
+    },
+    {
+      "organization": "NIST",
+      "document": "NIST SP 800-55 Volume 1",
+      "title": "Measurement Guide for Information Security",
+      "url": "https://csrc.nist.gov/pubs/sp/800/55/v1/final"
+    }
+  ]
 }
