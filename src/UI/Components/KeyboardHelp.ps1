@@ -6,13 +6,18 @@
 # Author    : mrRoot
 #
 # Description:
-# Context-aware keyboard shortcuts for terminal UI.
-# Supports multi-device navigation and adaptive layouts.
+# Context-aware keyboard shortcuts for the terminal UI.
+#
+# Supports:
+# - Multi-device navigation
+# - Screen history navigation
+# - Adaptive terminal layouts
+# - Conditional availability of commands
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Get available shortcuts for current screen
+# Get available keyboard shortcuts
 # ------------------------------------------------------------
 
 function Get-WinSecKeyboardShortcuts {
@@ -27,69 +32,218 @@ function Get-WinSecKeyboardShortcuts {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'Devices'
+        [string]$Screen = 'Devices',
+
+        [switch]$EnableExport,
+
+        [switch]$EnableRescan,
+
+        [switch]$EnableSettingsEdit
     )
 
     $shortcuts = switch ($Screen) {
 
+        # ----------------------------------------------------
+        # Device selection
+        # ----------------------------------------------------
+
         'Devices' {
             @(
-                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'ENTER';   Action = 'Select Device' }
-                @{ Key = 'Q';       Action = 'Exit' }
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Navigate'
+                }
+                @{
+                    Key    = 'ENTER'
+                    Action = 'Select Device'
+                }
+                @{
+                    Key    = 'Q'
+                    Action = 'Exit'
+                }
             )
         }
+
+        # ----------------------------------------------------
+        # Main dashboard
+        # ----------------------------------------------------
 
         'MainMenu' {
-            @(
-                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'ENTER';   Action = 'Open Section' }
-                @{ Key = 'H';       Action = 'Findings' }
-                @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'R';       Action = 'Rescan' }
-                @{ Key = 'ESC';     Action = 'Devices' }
-                @{ Key = 'Q';       Action = 'Exit' }
+
+            $items = @(
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Navigate'
+                }
+                @{
+                    Key    = 'ENTER'
+                    Action = 'Open Section'
+                }
+                @{
+                    Key    = 'H'
+                    Action = 'Findings'
+                }
             )
+
+            if ($EnableExport) {
+                $items += @{
+                    Key    = 'P'
+                    Action = 'Export TXT'
+                }
+            }
+
+            if ($EnableRescan) {
+                $items += @{
+                    Key    = 'R'
+                    Action = 'Rescan'
+                }
+            }
+
+            $items += @(
+                @{
+                    Key    = 'ESC'
+                    Action = 'Back'
+                }
+                @{
+                    Key    = 'Q'
+                    Action = 'Exit'
+                }
+            )
+
+            $items
         }
+
+        # ----------------------------------------------------
+        # Security section
+        # ----------------------------------------------------
 
         'Section' {
-            @(
-                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'H';       Action = 'Findings' }
-                @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Dashboard' }
+
+            $items = @(
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Navigate'
+                }
+                @{
+                    Key    = 'H'
+                    Action = 'Findings'
+                }
             )
+
+            if ($EnableExport) {
+                $items += @{
+                    Key    = 'P'
+                    Action = 'Export TXT'
+                }
+            }
+
+            $items += @{
+                Key    = 'ESC'
+                Action = 'Back'
+            }
+
+            $items
         }
 
+        # ----------------------------------------------------
+        # Security findings
+        # ----------------------------------------------------
+
         'Findings' {
-            @(
-                @{ Key = 'UP/DOWN'; Action = 'Scroll' }
-                @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Dashboard' }
+
+            $items = @(
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Scroll'
+                }
             )
+
+            if ($EnableExport) {
+                $items += @{
+                    Key    = 'P'
+                    Action = 'Export TXT'
+                }
+            }
+
+            $items += @{
+                Key    = 'ESC'
+                Action = 'Back'
+            }
+
+            $items
         }
+
+        # ----------------------------------------------------
+        # Audit progress
+        # ----------------------------------------------------
 
         'Audit' {
             @(
-                @{ Key = 'ESC'; Action = 'Dashboard' }
+                @{
+                    Key    = 'ESC'
+                    Action = 'Back'
+                }
             )
         }
+
+        # ----------------------------------------------------
+        # Assessment results
+        # ----------------------------------------------------
 
         'Results' {
-            @(
-                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'H';       Action = 'Findings' }
-                @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Dashboard' }
+
+            $items = @(
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Navigate'
+                }
+                @{
+                    Key    = 'H'
+                    Action = 'Findings'
+                }
             )
+
+            if ($EnableExport) {
+                $items += @{
+                    Key    = 'P'
+                    Action = 'Export TXT'
+                }
+            }
+
+            $items += @{
+                Key    = 'ESC'
+                Action = 'Back'
+            }
+
+            $items
         }
 
+        # ----------------------------------------------------
+        # Application settings
+        # ----------------------------------------------------
+
         'Settings' {
-            @(
-                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'ENTER';   Action = 'Select' }
-                @{ Key = 'ESC';     Action = 'Dashboard' }
+
+            $items = @(
+                @{
+                    Key    = 'UP/DOWN'
+                    Action = 'Navigate'
+                }
             )
+
+            if ($EnableSettingsEdit) {
+                $items += @{
+                    Key    = 'ENTER'
+                    Action = 'Select'
+                }
+            }
+
+            $items += @{
+                Key    = 'ESC'
+                Action = 'Back'
+            }
+
+            $items
         }
     }
 
@@ -115,11 +269,21 @@ function Get-WinSecKeyboardLabels {
         )]
         [string]$Screen = 'Devices',
 
-        [string[]]$HiddenKeys = @()
+        [string[]]$HiddenKeys = @(),
+
+        [switch]$EnableExport,
+
+        [switch]$EnableRescan,
+
+        [switch]$EnableSettingsEdit
     )
 
     $shortcuts = @(
-        Get-WinSecKeyboardShortcuts -Screen $Screen
+        Get-WinSecKeyboardShortcuts `
+            -Screen $Screen `
+            -EnableExport:$EnableExport `
+            -EnableRescan:$EnableRescan `
+            -EnableSettingsEdit:$EnableSettingsEdit
     )
 
     $labels = @(
@@ -140,7 +304,7 @@ function Get-WinSecKeyboardLabels {
 
 
 # ------------------------------------------------------------
-# Calculate keyboard help lines
+# Calculate keyboard help height
 # ------------------------------------------------------------
 
 function Get-WinSecKeyboardHelpHeight {
@@ -159,7 +323,13 @@ function Get-WinSecKeyboardHelpHeight {
 
         [string[]]$HiddenKeys = @(),
 
-        [int]$Width = 0
+        [int]$Width = 0,
+
+        [switch]$EnableExport,
+
+        [switch]$EnableRescan,
+
+        [switch]$EnableSettingsEdit
     )
 
     if ($Width -le 0) {
@@ -171,7 +341,10 @@ function Get-WinSecKeyboardHelpHeight {
     $labels = @(
         Get-WinSecKeyboardLabels `
             -Screen $Screen `
-            -HiddenKeys $HiddenKeys
+            -HiddenKeys $HiddenKeys `
+            -EnableExport:$EnableExport `
+            -EnableRescan:$EnableRescan `
+            -EnableSettingsEdit:$EnableSettingsEdit
     )
 
     if ($labels.Count -eq 0) {
@@ -190,18 +363,20 @@ function Get-WinSecKeyboardHelpHeight {
             continue
         }
 
-        $requiredLength = $currentLength + 3 + $labelLength
+        $nextLength = $currentLength + 3 + $labelLength
 
-        if ($requiredLength -le $Width) {
-            $currentLength = $requiredLength
+        if ($nextLength -le $Width) {
+
+            $currentLength = $nextLength
         }
         else {
+
             $lines++
             $currentLength = $labelLength
         }
     }
 
-    # Blank line + separator + shortcut lines
+    # Blank line + divider + shortcut lines
     return (2 + $lines)
 }
 
@@ -224,7 +399,13 @@ function Write-WinSecKeyboardHelp {
         )]
         [string]$Screen = 'Devices',
 
-        [string[]]$HiddenKeys = @()
+        [string[]]$HiddenKeys = @(),
+
+        [switch]$EnableExport,
+
+        [switch]$EnableRescan,
+
+        [switch]$EnableSettingsEdit
     )
 
     $terminal = Get-WinSecTerminalSize
@@ -237,7 +418,10 @@ function Write-WinSecKeyboardHelp {
     $labels = @(
         Get-WinSecKeyboardLabels `
             -Screen $Screen `
-            -HiddenKeys $HiddenKeys
+            -HiddenKeys $HiddenKeys `
+            -EnableExport:$EnableExport `
+            -EnableRescan:$EnableRescan `
+            -EnableSettingsEdit:$EnableSettingsEdit
     )
 
     if ($labels.Count -eq 0) {
@@ -261,6 +445,7 @@ function Write-WinSecKeyboardHelp {
         $candidate = $line + $separator + $label
 
         if ($candidate.Length -le $width) {
+
             $line = $candidate
         }
         else {

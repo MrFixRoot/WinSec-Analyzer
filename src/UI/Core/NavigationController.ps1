@@ -6,8 +6,12 @@
 # Author    : mrRoot
 #
 # Description:
-# Manages multi-device navigation, screen transitions,
-# selected items and pending application commands.
+# Manages multi-device navigation, screen history,
+# selected items and application commands.
+#
+# Navigation:
+# Devices -> MainMenu -> Section -> Findings
+# ESC returns to the previous screen.
 # ============================================================
 
 
@@ -21,15 +25,14 @@ function New-WinSecNavigationState {
 
     return [PSCustomObject]@{
 
-        # Initial screen
         Screen = 'Devices'
 
-        # Device selection
+        # Device context
         DeviceIndex        = 0
         SelectedDeviceId   = $null
         SelectedDeviceName = $null
 
-        # Security section navigation
+        # Security navigation
         SectionIndex  = 0
         ControlIndex  = 0
         SettingsIndex = 0
@@ -38,7 +41,10 @@ function New-WinSecNavigationState {
         FindingsOffset = 0
         FindingsScope  = 'Section'
 
-        # Application commands
+        # Screen navigation history
+        History = [System.Collections.ArrayList]::new()
+
+        # Pending application commands
         PendingCommand = $null
         PendingScope   = $null
 
@@ -67,9 +73,9 @@ function Get-WinSecNextIndex {
         return 0
     }
 
-    # Circular navigation
     $nextIndex = $CurrentIndex + $Direction
 
+    # Circular navigation
     if ($nextIndex -ge $ItemCount) {
         return 0
     }
@@ -83,7 +89,7 @@ function Get-WinSecNextIndex {
 
 
 # ------------------------------------------------------------
-# Read a device property
+# Read device property
 # ------------------------------------------------------------
 
 function Get-WinSecNavigationDeviceValue {
@@ -120,7 +126,35 @@ function Get-WinSecNavigationDeviceValue {
 
 
 # ------------------------------------------------------------
-# Change active screen
+# Create navigation snapshot
+# ------------------------------------------------------------
+
+function Get-WinSecNavigationSnapshot {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$State
+    )
+
+    return [PSCustomObject]@{
+        Screen             = $State.Screen
+
+        DeviceIndex        = $State.DeviceIndex
+        SelectedDeviceId   = $State.SelectedDeviceId
+        SelectedDeviceName = $State.SelectedDeviceName
+
+        SectionIndex       = $State.SectionIndex
+        ControlIndex       = $State.ControlIndex
+        SettingsIndex      = $State.SettingsIndex
+
+        FindingsOffset     = $State.FindingsOffset
+        FindingsScope      = $State.FindingsScope
+    }
+}
+
+
+# ------------------------------------------------------------
+# Navigate to another screen
 # ------------------------------------------------------------
 
 function Set-WinSecNavigationScreen {
@@ -139,11 +173,27 @@ function Set-WinSecNavigationScreen {
             'Results',
             'Settings'
         )]
-        [string]$Screen
+        [string]$Screen,
+
+        [switch]$SkipHistory
     )
+
+    if ($State.Screen -eq $Screen) {
+        return $State
+    }
+
+    # Save previous screen and selections
+    if (-not $SkipHistory) {
+
+        $snapshot = Get-WinSecNavigationSnapshot `
+            -State $State
+
+        $null = $State.History.Add($snapshot)
+    }
 
     $State.Screen = $Screen
 
+    # Reset findings cursor on new entry
     if ($Screen -eq 'Findings') {
         $State.FindingsOffset = 0
     }
@@ -153,7 +203,64 @@ function Set-WinSecNavigationScreen {
 
 
 # ------------------------------------------------------------
-# Process navigation action
+# Restore previous screen
+# ------------------------------------------------------------
+
+function Restore-WinSecNavigationScreen {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$State
+    )
+
+    # Restore most recent navigation snapshot
+    if ($State.History.Count -gt 0) {
+
+        $lastIndex = $State.History.Count - 1
+
+        $previous = $State.History[$lastIndex]
+
+        $State.History.RemoveAt($lastIndex)
+
+        $State.Screen = $previous.Screen
+
+        $State.DeviceIndex = $previous.DeviceIndex
+        $State.SelectedDeviceId = $previous.SelectedDeviceId
+        $State.SelectedDeviceName = $previous.SelectedDeviceName
+
+        $State.SectionIndex = $previous.SectionIndex
+        $State.ControlIndex = $previous.ControlIndex
+        $State.SettingsIndex = $previous.SettingsIndex
+
+        $State.FindingsOffset = $previous.FindingsOffset
+        $State.FindingsScope = $previous.FindingsScope
+
+        return $State
+    }
+
+    # Safe fallback when no history exists
+    if ($State.Screen -eq 'MainMenu') {
+
+        $State.Screen = 'Devices'
+        $State.SelectedDeviceId = $null
+        $State.SelectedDeviceName = $null
+    }
+    elseif ($State.Screen -ne 'Devices') {
+
+        if ($State.SelectedDeviceId) {
+            $State.Screen = 'MainMenu'
+        }
+        else {
+            $State.Screen = 'Devices'
+        }
+    }
+
+    return $State
+}
+
+
+# ------------------------------------------------------------
+# Process navigation actions
 # ------------------------------------------------------------
 
 function Invoke-WinSecNavigationAction {
@@ -177,7 +284,7 @@ function Invoke-WinSecNavigationAction {
         [int]$SettingsCount = 0
     )
 
-    # Reset previous command
+    # Clear previously processed commands
     $State.PendingCommand = $null
     $State.PendingScope = $null
 
@@ -185,7 +292,6 @@ function Invoke-WinSecNavigationAction {
         return $State
     }
 
-    # Normalize item counts
     $deviceCount = @($Devices).Count
 
     $SectionCount = [Math]::Max(0, $SectionCount)
@@ -193,86 +299,73 @@ function Invoke-WinSecNavigationAction {
     $FindingCount = [Math]::Max(0, $FindingCount)
     $SettingsCount = [Math]::Max(0, $SettingsCount)
 
+    # --------------------------------------------------------
+    # Handle list navigation
+    # --------------------------------------------------------
+
+    if ($Action -in @('MoveUp', 'MoveDown')) {
+
+        $direction = if ($Action -eq 'MoveUp') {
+            -1
+        }
+        else {
+            1
+        }
+
+        switch ($State.Screen) {
+
+            'Devices' {
+
+                $State.DeviceIndex = Get-WinSecNextIndex `
+                    -CurrentIndex $State.DeviceIndex `
+                    -ItemCount $deviceCount `
+                    -Direction $direction
+            }
+
+            'MainMenu' {
+
+                $State.SectionIndex = Get-WinSecNextIndex `
+                    -CurrentIndex $State.SectionIndex `
+                    -ItemCount $SectionCount `
+                    -Direction $direction
+            }
+
+            'Section' {
+
+                $State.ControlIndex = Get-WinSecNextIndex `
+                    -CurrentIndex $State.ControlIndex `
+                    -ItemCount $ControlCount `
+                    -Direction $direction
+            }
+
+            'Results' {
+
+                $State.ControlIndex = Get-WinSecNextIndex `
+                    -CurrentIndex $State.ControlIndex `
+                    -ItemCount $ControlCount `
+                    -Direction $direction
+            }
+
+            'Settings' {
+
+                $State.SettingsIndex = Get-WinSecNextIndex `
+                    -CurrentIndex $State.SettingsIndex `
+                    -ItemCount $SettingsCount `
+                    -Direction $direction
+            }
+        }
+
+        return $State
+    }
+
+    # --------------------------------------------------------
+    # Process remaining actions
+    # --------------------------------------------------------
+
     switch ($Action) {
 
         # ----------------------------------------------------
-        # Navigate up
-        # ----------------------------------------------------
-
-        'MoveUp' {
-
-            switch ($State.Screen) {
-
-                'Devices' {
-                    $State.DeviceIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.DeviceIndex `
-                        -ItemCount $deviceCount `
-                        -Direction -1
-                }
-
-                'MainMenu' {
-                    $State.SectionIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.SectionIndex `
-                        -ItemCount $SectionCount `
-                        -Direction -1
-                }
-
-                { $_ -in @('Section', 'Results') } {
-                    $State.ControlIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.ControlIndex `
-                        -ItemCount $ControlCount `
-                        -Direction -1
-                }
-
-                'Settings' {
-                    $State.SettingsIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.SettingsIndex `
-                        -ItemCount $SettingsCount `
-                        -Direction -1
-                }
-            }
-        }
-
-        # ----------------------------------------------------
-        # Navigate down
-        # ----------------------------------------------------
-
-        'MoveDown' {
-
-            switch ($State.Screen) {
-
-                'Devices' {
-                    $State.DeviceIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.DeviceIndex `
-                        -ItemCount $deviceCount `
-                        -Direction 1
-                }
-
-                'MainMenu' {
-                    $State.SectionIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.SectionIndex `
-                        -ItemCount $SectionCount `
-                        -Direction 1
-                }
-
-                { $_ -in @('Section', 'Results') } {
-                    $State.ControlIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.ControlIndex `
-                        -ItemCount $ControlCount `
-                        -Direction 1
-                }
-
-                'Settings' {
-                    $State.SettingsIndex = Get-WinSecNextIndex `
-                        -CurrentIndex $State.SettingsIndex `
-                        -ItemCount $SettingsCount `
-                        -Direction 1
-                }
-            }
-        }
-
-        # ----------------------------------------------------
-        # Select device or open section
+        # Open device or security section
         # ----------------------------------------------------
 
         'Open' {
@@ -299,34 +392,41 @@ function Invoke-WinSecNavigationAction {
                         -Device $device `
                         -Property 'DeviceId'
 
+                    if ([string]::IsNullOrWhiteSpace($deviceId)) {
+                        break
+                    }
+
                     $hostname = Get-WinSecNavigationDeviceValue `
                         -Device $device `
                         -Property 'Hostname'
 
-                    if ([string]::IsNullOrWhiteSpace($hostname)) {
+                    if (-not $hostname) {
                         $hostname = Get-WinSecNavigationDeviceValue `
                             -Device $device `
                             -Property 'Name'
                     }
 
-                    # Require an identifiable registered device
-                    if ([string]::IsNullOrWhiteSpace($deviceId)) {
-                        break
+                    if (-not $hostname) {
+                        $hostname = $deviceId
                     }
 
+                    # Save Devices screen before changing context
+                    $State = Set-WinSecNavigationScreen `
+                        -State $State `
+                        -Screen 'MainMenu'
+
+                    # Set active device
                     $State.DeviceIndex = $index
                     $State.SelectedDeviceId = $deviceId
                     $State.SelectedDeviceName = $hostname
 
-                    # Reset security navigation
+                    # Initialize device navigation
                     $State.SectionIndex = 0
                     $State.ControlIndex = 0
                     $State.FindingsOffset = 0
                     $State.FindingsScope = 'Section'
 
-                    $State.Screen = 'MainMenu'
-
-                    # Request loading of device-specific data
+                    # Request device-specific results
                     $State.PendingCommand = 'SelectDevice'
                     $State.PendingScope = 'Device'
                 }
@@ -335,16 +435,18 @@ function Invoke-WinSecNavigationAction {
 
                     if ($SectionCount -gt 0) {
 
-                        $State.ControlIndex = 0
+                        $State = Set-WinSecNavigationScreen `
+                            -State $State `
+                            -Screen 'Section'
 
-                        $State.Screen = 'Section'
+                        $State.ControlIndex = 0
                     }
                 }
             }
         }
 
         # ----------------------------------------------------
-        # Show findings
+        # Open security findings
         # ----------------------------------------------------
 
         'ShowFindings' {
@@ -355,30 +457,42 @@ function Invoke-WinSecNavigationAction {
 
                     if ($SectionCount -gt 0) {
 
-                        $State.FindingsScope = 'Section'
-
                         $State = Set-WinSecNavigationScreen `
                             -State $State `
                             -Screen 'Findings'
+
+                        $State.FindingsScope = 'Section'
                     }
                 }
 
-                { $_ -in @('Section', 'Results') } {
+                'Section' {
 
                     if ($ControlCount -gt 0) {
-
-                        $State.FindingsScope = 'Control'
 
                         $State = Set-WinSecNavigationScreen `
                             -State $State `
                             -Screen 'Findings'
+
+                        $State.FindingsScope = 'Control'
+                    }
+                }
+
+                'Results' {
+
+                    if ($ControlCount -gt 0) {
+
+                        $State = Set-WinSecNavigationScreen `
+                            -State $State `
+                            -Screen 'Findings'
+
+                        $State.FindingsScope = 'Control'
                     }
                 }
             }
         }
 
         # ----------------------------------------------------
-        # Scroll findings
+        # Scroll through findings
         # ----------------------------------------------------
 
         'ScrollUp' {
@@ -409,7 +523,7 @@ function Invoke-WinSecNavigationAction {
         }
 
         # ----------------------------------------------------
-        # Export security assessment
+        # Export security report
         # ----------------------------------------------------
 
         'ExportTXT' {
@@ -419,14 +533,25 @@ function Invoke-WinSecNavigationAction {
                 'MainMenu' {
 
                     if ($SectionCount -gt 0) {
+
                         $State.PendingCommand = 'ExportTXT'
                         $State.PendingScope = 'Section'
                     }
                 }
 
-                { $_ -in @('Section', 'Results') } {
+                'Section' {
 
                     if ($SectionCount -gt 0) {
+
+                        $State.PendingCommand = 'ExportTXT'
+                        $State.PendingScope = 'Section'
+                    }
+                }
+
+                'Results' {
+
+                    if ($SectionCount -gt 0) {
+
                         $State.PendingCommand = 'ExportTXT'
                         $State.PendingScope = 'Section'
                     }
@@ -441,12 +566,15 @@ function Invoke-WinSecNavigationAction {
         }
 
         # ----------------------------------------------------
-        # Request new assessment
+        # Request security rescan
         # ----------------------------------------------------
 
         'Rescan' {
 
-            if ($State.Screen -eq 'MainMenu') {
+            if (
+                $State.Screen -eq 'MainMenu' -and
+                $State.SelectedDeviceId
+            ) {
 
                 $State.PendingCommand = 'Rescan'
                 $State.PendingScope = 'Device'
@@ -454,7 +582,7 @@ function Invoke-WinSecNavigationAction {
         }
 
         # ----------------------------------------------------
-        # Select setting
+        # Select application setting
         # ----------------------------------------------------
 
         'Select' {
@@ -463,41 +591,22 @@ function Invoke-WinSecNavigationAction {
                 $State.Screen -eq 'Settings' -and
                 $SettingsCount -gt 0
             ) {
+
                 $State.PendingCommand = 'SelectSetting'
                 $State.PendingScope = 'Settings'
             }
         }
 
         # ----------------------------------------------------
-        # Return to dashboard or device selection
+        # Return to previous screen
         # ----------------------------------------------------
 
         'Back' {
 
-            switch ($State.Screen) {
+            if ($State.Screen -ne 'Devices') {
 
-                'MainMenu' {
-
-                    $State.Screen = 'Devices'
-
-                    # Clear active device context
-                    $State.SelectedDeviceId = $null
-                    $State.SelectedDeviceName = $null
-
-                    $State.SectionIndex = 0
-                    $State.ControlIndex = 0
-                }
-
-                'Devices' {
-                    # No previous screen
-                }
-
-                default {
-
-                    # Return directly to dashboard
-                    $State.Screen = 'MainMenu'
-                    $State.FindingsOffset = 0
-                }
+                $State = Restore-WinSecNavigationScreen `
+                    -State $State
             }
         }
 
@@ -516,12 +625,8 @@ function Invoke-WinSecNavigationAction {
             }
         }
 
-        # ----------------------------------------------------
-        # Ignore unsupported actions
-        # ----------------------------------------------------
-
         default {
-            # No action required
+            # Ignore unsupported actions
         }
     }
 

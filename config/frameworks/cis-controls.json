@@ -1,0 +1,25 @@
+
+{
+    "schemaVersion": "1.0.0",
+    "frameworkId": "cis-controls",
+    "name": "CIS Controls",
+    "frameworkVersion": "8.1",
+    "organization": "Center for Internet Security",
+    "description": "Prioritized cybersecurity safeguards mapped to WinSec Analyzer security checks.",
+    "enabled": true,
+    "source": {
+        "name": "CIS Critical Security Controls",
+        "url": "https://www.cisecurity.org/controls"
+    },
+    "controls": [],
+    "safeguards": [],
+    "mappings": [],
+    "mappingRules": {
+        "matchBy": "checkId",
+        "requireFrameworkVersion": true,
+        "requireSafeguardId": true,
+        "allowMultipleReferences": true,
+        "includeInFindings": true,
+        "includeInReports": true
+    }
+}

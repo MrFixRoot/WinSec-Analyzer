@@ -2,24 +2,35 @@
 WinSec-Analyzer
 Copyright 2026 Norman López P. (mrRoot / MrFixRoot)
 
-Original Project:
-WinSec-Analyzer
-
 Original Author and Creator:
 Norman López P. (mrRoot / MrFixRoot)
 
-Original Repository:
+Original Project:
+WinSec-Analyzer
+
+Official Repository:
 https://github.com/MrFixRoot/WinSec-Analyzer
 
-This software was originally created and developed by
+WinSec-Analyzer was originally created and developed by
 Norman López P., also known as mrRoot (MrFixRoot).
 
-This attribution notice identifies the original author
-and copyright holder of WinSec-Analyzer.
+This software is licensed under the Apache License,
+Version 2.0.
+
+This notice identifies the original author and copyright
+holder of WinSec-Analyzer.
 
 Redistributions and derivative works must preserve
 applicable copyright and attribution notices in
-accordance with the Apache License, Version 2.0.
+accordance with Section 4 of the Apache License,
+Version 2.0.
 
-Modifications made by third parties do not transfer
-ownership of the original copyrighted contributions.
+Third-party contributors may identify their own
+modifications and contributions separately.
+
+Copyright ownership of the original contributions
+remains with their respective copyright holder.
+
+This NOTICE file is provided for attribution purposes
+and does not modify the terms of the Apache License,
+Version 2.0.

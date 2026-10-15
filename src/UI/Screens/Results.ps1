@@ -6,8 +6,15 @@
 # Author    : mrRoot
 #
 # Description:
-# Displays security controls, scores and assessment
-# results for the selected security section.
+# Displays security controls for the selected section.
+#
+# Features:
+# - Multi-device assessment context
+# - Five security sections
+# - Individual control scores
+# - Adaptive terminal layout
+# - Keyboard navigation
+# - Persistent control selection
 # ============================================================
 
 
@@ -32,207 +39,242 @@ function Get-WinSecSectionControls {
         [object[]]$ControlResults = @()
     )
 
-    $definitions = @()
+    # --------------------------------------------------------
+    # Security control definitions
+    # --------------------------------------------------------
 
-    switch ($SectionKey) {
+    $definitions = switch ($SectionKey) {
 
         'SystemSecurity' {
-            $definitions = @(
+            @(
                 @{
-                    Id = '01'
                     Key = 'Defender'
                     Name = 'Windows Defender'
-                    CheckFile = 'src/Checks/Defender/Test-Defender.ps1'
+                    File = 'src/Checks/Defender/Test-Defender.ps1'
                 }
                 @{
-                    Id = '02'
                     Key = 'BitLocker'
                     Name = 'BitLocker'
-                    CheckFile = 'src/Checks/BitLocker/Test-BitLocker.ps1'
+                    File = 'src/Checks/BitLocker/Test-BitLocker.ps1'
                 }
                 @{
-                    Id = '03'
                     Key = 'WindowsUpdate'
                     Name = 'Windows Update'
-                    CheckFile = 'src/Checks/System/Test-WindowsUpdate.ps1'
+                    File = 'src/Checks/System/Test-WindowsUpdate.ps1'
                 }
             )
         }
 
         'NetworkSecurity' {
-            $definitions = @(
+            @(
                 @{
-                    Id = '01'
                     Key = 'Firewall'
                     Name = 'Windows Firewall'
-                    CheckFile = 'src/Checks/Firewall/Test-Firewall.ps1'
+                    File = 'src/Checks/Firewall/Test-Firewall.ps1'
                 }
                 @{
-                    Id = '02'
                     Key = 'SMBv1'
                     Name = 'SMBv1'
-                    CheckFile = 'src/Checks/Network/Test-SMBv1.ps1'
+                    File = 'src/Checks/Network/Test-SMBv1.ps1'
                 }
                 @{
-                    Id = '03'
                     Key = 'RemoteDesktop'
                     Name = 'Remote Desktop'
-                    CheckFile = 'src/Checks/Network/Test-RDP.ps1'
+                    File = 'src/Checks/Network/Test-RDP.ps1'
                 }
                 @{
-                    Id = '04'
                     Key = 'OpenPorts'
                     Name = 'Open Ports'
-                    CheckFile = 'src/Checks/Network/Test-OpenPorts.ps1'
+                    File = 'src/Checks/Network/Test-OpenPorts.ps1'
                 }
                 @{
-                    Id = '05'
                     Key = 'NetworkConfiguration'
                     Name = 'Network Configuration'
-                    CheckFile = ''
+                    File = ''
                 }
             )
         }
 
         'IdentityAccess' {
-            $definitions = @(
+            @(
                 @{
-                    Id = '01'
                     Key = 'LocalAdministrators'
                     Name = 'Local Administrators'
-                    CheckFile = 'src/Checks/Accounts/Test-LocalAdmins.ps1'
+                    File = 'src/Checks/Accounts/Test-LocalAdmins.ps1'
                 }
                 @{
-                    Id = '02'
                     Key = 'GuestAccount'
                     Name = 'Guest Account'
-                    CheckFile = 'src/Checks/Accounts/Test-GuestAccount.ps1'
+                    File = 'src/Checks/Accounts/Test-GuestAccount.ps1'
                 }
                 @{
-                    Id = '03'
                     Key = 'PasswordPolicy'
                     Name = 'Password Policies'
-                    CheckFile = 'src/Checks/Policies/Test-PasswordPolicy.ps1'
+                    File = 'src/Checks/Policies/Test-PasswordPolicy.ps1'
                 }
             )
         }
 
         'LoggingAuditing' {
-            $definitions = @(
+            @(
                 @{
-                    Id = '01'
                     Key = 'PowerShellLogging'
                     Name = 'PowerShell Logging'
-                    CheckFile = 'src/Checks/System/Test-PowerShellLogging.ps1'
+                    File = 'src/Checks/System/Test-PowerShellLogging.ps1'
                 }
                 @{
-                    Id = '02'
                     Key = 'AuditPolicy'
                     Name = 'Windows Audit Policies'
-                    CheckFile = 'src/Checks/Policies/Test-AuditPolicy.ps1'
+                    File = 'src/Checks/Policies/Test-AuditPolicy.ps1'
                 }
             )
         }
 
         'ServicesHardening' {
-            $definitions = @(
+            @(
                 @{
-                    Id = '01'
                     Key = 'WindowsServices'
                     Name = 'Windows Services'
-                    CheckFile = ''
+                    File = ''
                 }
             )
         }
     }
 
-    $controls = @(
-        foreach ($definition in $definitions) {
+    # --------------------------------------------------------
+    # Normalize controls and assessment results
+    # --------------------------------------------------------
 
-            $score = '--/100'
+    $index = 0
 
-            if ([string]::IsNullOrWhiteSpace($definition.CheckFile)) {
-                $status = 'PLANNED'
-            }
-            else {
-                $status = 'PENDING'
-            }
+    foreach ($definition in $definitions) {
 
-            # Match real audit results by section and control
-            foreach ($result in $ControlResults) {
+        $index++
 
-                $resultSection = Get-WinSecTableValue `
-                    -Row $result `
-                    -Key 'SectionKey'
+        $score = '--/100'
 
-                $resultKey = Get-WinSecTableValue `
-                    -Row $result `
-                    -Key 'Key'
-
-                $resultName = Get-WinSecTableValue `
-                    -Row $result `
-                    -Key 'Name'
-
-                if (
-                    -not [string]::IsNullOrWhiteSpace($resultSection) -and
-                    $resultSection -ne $SectionKey
-                ) {
-                    continue
-                }
-
-                if (
-                    $resultKey -ne $definition.Key -and
-                    $resultName -ne $definition.Name
-                ) {
-                    continue
-                }
-
-                $rawScore = Get-WinSecTableValue `
-                    -Row $result `
-                    -Key 'Score'
-
-                $rawStatus = Get-WinSecTableValue `
-                    -Row $result `
-                    -Key 'Status'
-
-                $numericScore = 0
-
-                if (
-                    [int]::TryParse(
-                        $rawScore,
-                        [ref]$numericScore
-                    ) -and
-                    $numericScore -ge 0 -and
-                    $numericScore -le 100
-                ) {
-                    $score = '{0}/100' -f $numericScore
-                }
-
-                if (-not [string]::IsNullOrWhiteSpace($rawStatus)) {
-                    $status = $rawStatus.ToUpperInvariant()
-                }
-
-                break
-            }
-
-            [PSCustomObject]@{
-                Id         = $definition.Id
-                Key        = $definition.Key
-                SectionKey = $SectionKey
-                Name       = $definition.Name
-                Score      = $score
-                Status     = $status
-                CheckFile  = $definition.CheckFile
-            }
+        $status = if ($definition.File) {
+            'PENDING'
         }
-    )
+        else {
+            'PLANNED'
+        }
 
-    return $controls
+        $checkId = ''
+
+        foreach ($result in $ControlResults) {
+
+            if ($null -eq $result) {
+                continue
+            }
+
+            $resultSection = Get-WinSecTableValue `
+                -Row $result -Key 'SectionKey'
+
+            $resultKey = Get-WinSecTableValue `
+                -Row $result -Key 'Key'
+
+            $resultName = Get-WinSecTableValue `
+                -Row $result -Key 'Name'
+
+            # Prevent matching another section's results
+            if (
+                $resultSection -and
+                $resultSection -ne $SectionKey
+            ) {
+                continue
+            }
+
+            if (
+                $resultKey -ne $definition.Key -and
+                $resultName -ne $definition.Name
+            ) {
+                continue
+            }
+
+            # Read actual assessment score
+            $rawScore = Get-WinSecTableValue `
+                -Row $result -Key 'Score'
+
+            if (
+                $rawScore -match
+                '^\s*(100|[1-9]?\d)\s*(?:/100)?\s*$'
+            ) {
+                $score = '{0}/100' -f [int]$Matches[1]
+            }
+
+            # Read actual assessment status
+            $rawStatus = Get-WinSecTableValue `
+                -Row $result -Key 'Status'
+
+            if ($rawStatus) {
+                $status = $rawStatus.Trim().ToUpperInvariant()
+            }
+            elseif ($score -ne '--/100') {
+                $status = 'UNKNOWN'
+            }
+
+            $checkId = Get-WinSecTableValue `
+                -Row $result -Key 'CheckId'
+
+            break
+        }
+
+        [PSCustomObject]@{
+            Id         = '{0:D2}' -f $index
+            Key        = $definition.Key
+            CheckId    = $checkId
+            SectionKey = $SectionKey
+            Name       = $definition.Name
+            Score      = $score
+            Status     = $status
+            CheckFile  = $definition.File
+        }
+    }
 }
 
 
 # ------------------------------------------------------------
-# Render selected security section
+# Get current device information
+# ------------------------------------------------------------
+
+function Get-WinSecResultsDevice {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [psobject]$NavigationState = $null
+    )
+
+    $deviceId = ''
+    $hostname = 'NOT SELECTED'
+
+    if ($null -ne $NavigationState) {
+
+        $deviceId = Get-WinSecTableValue `
+            -Row $NavigationState `
+            -Key 'SelectedDeviceId'
+
+        $name = Get-WinSecTableValue `
+            -Row $NavigationState `
+            -Key 'SelectedDeviceName'
+
+        if ($name) {
+            $hostname = $name
+        }
+        elseif ($deviceId) {
+            $hostname = $deviceId
+        }
+    }
+
+    return [PSCustomObject]@{
+        DeviceId = $deviceId
+        Hostname = $hostname
+    }
+}
+
+
+# ------------------------------------------------------------
+# Render security section results
 # ------------------------------------------------------------
 
 function Show-WinSecResults {
@@ -250,18 +292,15 @@ function Show-WinSecResults {
         [string]$Version = '0.9.0'
     )
 
-    $terminal = Get-WinSecTerminalSize
+    # --------------------------------------------------------
+    # Get terminal layout
+    # --------------------------------------------------------
+
+    $layout = Get-WinSecLayout -Screen 'Section'
 
     Clear-WinSecScreen
 
-    # --------------------------------------------------------
-    # Validate terminal dimensions
-    # --------------------------------------------------------
-
-    if (
-        $terminal.Width -lt 40 -or
-        $terminal.Height -lt 20
-    ) {
+    if ($layout.IsTooSmall) {
 
         Write-WinSecText `
             -Text 'WINSEC ANALYZER' `
@@ -276,7 +315,7 @@ function Show-WinSecResults {
             -Align Center
 
         Write-WinSecText `
-            -Text 'Please resize the terminal.' `
+            -Text "Minimum: $($layout.MinimumWidth) x $($layout.MinimumHeight)" `
             -Color DarkGray `
             -Align Center
 
@@ -284,13 +323,22 @@ function Show-WinSecResults {
     }
 
     # --------------------------------------------------------
-    # Resolve selected security section
+    # Resolve selected section
     # --------------------------------------------------------
 
     $sections = @(
         Get-WinSecMainMenuSections `
             -SectionResults $SectionResults
     )
+
+    if ($sections.Count -eq 0) {
+
+        Write-WinSecText `
+            -Text 'No security sections available.' `
+            -Color Yellow
+
+        return
+    }
 
     $sectionIndex = 0
     $controlIndex = 0
@@ -308,28 +356,44 @@ function Show-WinSecResults {
 
     $section = $sections[$sectionIndex]
 
+    # --------------------------------------------------------
+    # Load section controls
+    # --------------------------------------------------------
+
     $controls = @(
         Get-WinSecSectionControls `
             -SectionKey $section.Key `
             -ControlResults $ControlResults
     )
 
+    if ($controls.Count -gt 0) {
+
+        $controlIndex = [Math]::Max(
+            0,
+            [Math]::Min(
+                $controlIndex,
+                $controls.Count - 1
+            )
+        )
+    }
+    else {
+        $controlIndex = -1
+    }
+
+    # --------------------------------------------------------
+    # Get selected device
+    # --------------------------------------------------------
+
+    $device = Get-WinSecResultsDevice `
+        -NavigationState $NavigationState
+
     # --------------------------------------------------------
     # Render project banner
     # --------------------------------------------------------
 
-    $bannerRows = 2
-
-    if ($terminal.Height -ge 34) {
+    if ($layout.BannerRows -gt 2) {
 
         Show-Banner -Version $Version
-
-        $bannerRows = if ($terminal.Width -ge 55) {
-            15
-        }
-        else {
-            10
-        }
     }
     else {
 
@@ -339,22 +403,26 @@ function Show-WinSecResults {
             -Align Center
 
         Write-WinSecText `
-            -Text 'mrRoot | Windows Security Assessment' `
+            -Text 'mrRoot | Security Assessment' `
             -Color DarkGray `
             -Align Center
     }
 
     # --------------------------------------------------------
-    # Section heading and assessment score
+    # Render section heading
     # --------------------------------------------------------
 
     Write-WinSecSectionTitle `
         -Title $section.Name
 
+    Write-WinSecText `
+        -Text "DEVICE: $($device.Hostname)" `
+        -Color Gray
+
     $statusColor = Get-WinSecStatusColor `
         -Status $section.Status
 
-    $summary = 'SECTION SCORE: {0}  |  STATUS: {1}' -f `
+    $summary = 'SECTION SCORE: {0} | STATUS: {1}' -f `
         $section.Score,
         $section.Status
 
@@ -365,7 +433,7 @@ function Show-WinSecResults {
     Write-Host ''
 
     # --------------------------------------------------------
-    # Define adaptive table columns
+    # Define adaptive security controls table
     # --------------------------------------------------------
 
     $columns = @(
@@ -381,10 +449,10 @@ function Show-WinSecResults {
         @{
             Key      = 'Name'
             Header   = 'Security Control'
-            Width    = 32
+            Width    = 34
             MinWidth = 14
             MaxWidth = 50
-            Priority = 2
+            Priority = 1
             Expand   = $true
         }
 
@@ -394,7 +462,7 @@ function Show-WinSecResults {
             Width    = 10
             MinWidth = 7
             MaxWidth = 12
-            Priority = 3
+            Priority = 2
             Align    = 'Right'
         }
 
@@ -403,37 +471,38 @@ function Show-WinSecResults {
             Header   = 'Status'
             Width    = 14
             MinWidth = 8
-            MaxWidth = 14
-            Priority = 4
+            MaxWidth = 16
+            Priority = 3
             Align    = 'Center'
         }
     )
 
     # --------------------------------------------------------
-    # Calculate table layout
+    # Calculate visible table area
     # --------------------------------------------------------
+
+    $hiddenKeys = @()
+
+    if ($controls.Count -eq 0) {
+        $hiddenKeys = @('UP/DOWN', 'H')
+    }
+
+    # Reserve actual space for heading, device,
+    # score, table borders and a safety margin.
 
     $layout = Get-WinSecLayout `
         -Screen 'Section' `
-        -BannerRows $bannerRows `
-        -ReservedRows 10
+        -BannerRows $layout.BannerRows `
+        -HiddenKeys $hiddenKeys `
+        -ReservedRows 12
 
     $maxRows = [Math]::Max(
         1,
-        $layout.ContentRows
+        [int]$layout.MaxTableRows
     )
 
-    # Clamp selected control index
-    if ($controls.Count -gt 0) {
-
-        $controlIndex = [Math]::Max(
-            0,
-            [Math]::Min($controlIndex, $controls.Count - 1)
-        )
-    }
-
     # --------------------------------------------------------
-    # Render security controls
+    # Render controls and selection
     # --------------------------------------------------------
 
     Write-WinSecTable `
@@ -443,8 +512,10 @@ function Show-WinSecResults {
         -MaxRows $maxRows
 
     # --------------------------------------------------------
-    # Display contextual keyboard shortcuts
+    # Render contextual keyboard help
     # --------------------------------------------------------
 
-    Write-WinSecKeyboardHelp -Screen 'Section'
+    Write-WinSecKeyboardHelp `
+        -Screen 'Section' `
+        -HiddenKeys $hiddenKeys
 }

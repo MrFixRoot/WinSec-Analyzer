@@ -6,16 +6,21 @@
 # Author    : mrRoot
 #
 # Description:
-# Multi-device selection screen.
-# Displays registered Windows devices, security scores,
-# assessment status and last scan information.
+# Multi-device security assessment interface.
 #
-# This component does not execute security assessments.
+# Features:
+# - Device selection
+# - Security scores
+# - Assessment status
+# - Last scan information
+# - Adaptive terminal layout
+# - Keyboard navigation
+# - Automatic table resizing
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Normalize device information for UI rendering
+# Normalize registered device information
 # ------------------------------------------------------------
 
 function Get-WinSecDeviceRows {
@@ -27,91 +32,136 @@ function Get-WinSecDeviceRows {
 
     $index = 0
 
-    $rows = @(
-        foreach ($device in $Devices) {
+    foreach ($device in $Devices) {
 
-            if ($null -eq $device) {
-                continue
-            }
+        if ($null -eq $device) {
+            continue
+        }
 
-            $index++
+        $index++
 
-            # Device identity
-            $deviceId = Get-WinSecTableValue `
-                -Row $device -Key 'DeviceId'
+        # Device identification
+        $deviceId = Get-WinSecTableValue `
+            -Row $device -Key 'DeviceId'
 
+        $hostname = Get-WinSecTableValue `
+            -Row $device -Key 'Hostname'
+
+        if ([string]::IsNullOrWhiteSpace($hostname)) {
             $hostname = Get-WinSecTableValue `
-                -Row $device -Key 'Hostname'
+                -Row $device -Key 'Name'
+        }
 
-            if ([string]::IsNullOrWhiteSpace($hostname)) {
-                $hostname = Get-WinSecTableValue `
-                    -Row $device -Key 'Name'
-            }
+        if ([string]::IsNullOrWhiteSpace($hostname)) {
+            $hostname = 'UNKNOWN'
+        }
 
-            if ([string]::IsNullOrWhiteSpace($hostname)) {
-                $hostname = 'UNKNOWN'
-            }
+        # Assessment mode
+        $mode = Get-WinSecTableValue `
+            -Row $device -Key 'Mode'
 
-            # Device assessment mode
-            $mode = Get-WinSecTableValue `
-                -Row $device -Key 'Mode'
+        if ([string]::IsNullOrWhiteSpace($mode)) {
+            $mode = 'UNKNOWN'
+        }
 
-            if ([string]::IsNullOrWhiteSpace($mode)) {
-                $mode = 'UNKNOWN'
-            }
+        # Security score
+        $rawScore = Get-WinSecTableValue `
+            -Row $device -Key 'Score'
 
-            # Security score
-            $rawScore = Get-WinSecTableValue `
-                -Row $device -Key 'Score'
+        $score = '--/100'
 
-            $score = '--/100'
-            $numericScore = 0
+        if (
+            $rawScore -match
+            '^\s*(\d{1,3})\s*(?:/100)?\s*$'
+        ) {
 
-            if (
-                [int]::TryParse(
-                    $rawScore,
-                    [ref]$numericScore
-                ) -and
-                $numericScore -ge 0 -and
-                $numericScore -le 100
-            ) {
+            $numericScore = [int]$Matches[1]
+
+            if ($numericScore -le 100) {
                 $score = '{0}/100' -f $numericScore
             }
+        }
 
-            # Security assessment status
-            $status = Get-WinSecTableValue `
-                -Row $device -Key 'Status'
+        # Assessment status
+        $status = Get-WinSecTableValue `
+            -Row $device -Key 'Status'
 
-            if ([string]::IsNullOrWhiteSpace($status)) {
-                $status = if ($score -eq '--/100') {
-                    'PENDING'
-                }
-                else {
-                    'UNKNOWN'
-                }
+        if ([string]::IsNullOrWhiteSpace($status)) {
+
+            $status = if ($score -eq '--/100') {
+                'PENDING'
             }
-
-            # Last completed or attempted assessment
-            $lastScan = Get-WinSecTableValue `
-                -Row $device -Key 'LastScan'
-
-            if ([string]::IsNullOrWhiteSpace($lastScan)) {
-                $lastScan = 'Never'
-            }
-
-            [PSCustomObject]@{
-                Id       = '{0:D2}' -f $index
-                DeviceId = $deviceId
-                Hostname = $hostname
-                Mode     = $mode.ToUpperInvariant()
-                Score    = $score
-                Status   = $status.ToUpperInvariant()
-                LastScan = $lastScan
+            else {
+                'UNKNOWN'
             }
         }
+
+        # Last assessment
+        $lastScan = Get-WinSecTableValue `
+            -Row $device -Key 'LastScan'
+
+        if ([string]::IsNullOrWhiteSpace($lastScan)) {
+            $lastScan = 'Never'
+        }
+
+        # Return normalized device
+        [PSCustomObject]@{
+            Id       = '{0:D2}' -f $index
+            DeviceId = $deviceId
+            Hostname = $hostname
+            Mode     = $mode.ToUpperInvariant()
+            Score    = $score
+            Status   = $status.ToUpperInvariant()
+            LastScan = $lastScan
+        }
+    }
+}
+
+
+# ------------------------------------------------------------
+# Resolve selected device index
+# ------------------------------------------------------------
+
+function Get-WinSecSelectedDeviceIndex {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [psobject]$NavigationState = $null,
+
+        [int]$SelectedIndex = -1,
+
+        [int]$DeviceCount = 0
     )
 
-    return $rows
+    if ($DeviceCount -le 0) {
+        return -1
+    }
+
+    # Use navigation state when an index
+    # has not been explicitly provided.
+
+    if ($SelectedIndex -lt 0) {
+
+        $SelectedIndex = 0
+
+        if (
+            $null -ne $NavigationState -and
+            $null -ne $NavigationState.PSObject.Properties[
+                'DeviceIndex'
+            ]
+        ) {
+            $SelectedIndex = [int]$NavigationState.DeviceIndex
+        }
+    }
+
+    # Keep selection inside valid boundaries
+    return [Math]::Max(
+        0,
+        [Math]::Min(
+            $SelectedIndex,
+            $DeviceCount - 1
+        )
+    )
 }
 
 
@@ -133,7 +183,52 @@ function Show-WinSecDevices {
         [string]$Version = '0.9.0'
     )
 
-    $terminal = Get-WinSecTerminalSize
+    # --------------------------------------------------------
+    # Prepare device information
+    # --------------------------------------------------------
+
+    $rows = @(
+        Get-WinSecDeviceRows -Devices $Devices
+    )
+
+    $deviceCount = $rows.Count
+
+    # --------------------------------------------------------
+    # Resolve selected device
+    # --------------------------------------------------------
+
+    $SelectedIndex = Get-WinSecSelectedDeviceIndex `
+        -NavigationState $NavigationState `
+        -SelectedIndex $SelectedIndex `
+        -DeviceCount $deviceCount
+
+    $selectedDevice = $null
+
+    if ($SelectedIndex -ge 0) {
+        $selectedDevice = $rows[$SelectedIndex]
+    }
+
+    # --------------------------------------------------------
+    # Determine available keyboard commands
+    # --------------------------------------------------------
+
+    $hiddenKeys = @()
+
+    if ($deviceCount -eq 0) {
+
+        $hiddenKeys = @(
+            'UP/DOWN'
+            'ENTER'
+        )
+    }
+
+    # --------------------------------------------------------
+    # Get adaptive terminal layout
+    # --------------------------------------------------------
+
+    $layout = Get-WinSecLayout `
+        -Screen 'Devices' `
+        -HiddenKeys $hiddenKeys
 
     Clear-WinSecScreen
 
@@ -141,10 +236,8 @@ function Show-WinSecDevices {
     # Validate terminal dimensions
     # --------------------------------------------------------
 
-    if (
-        $terminal.Width -lt 40 -or
-        $terminal.Height -lt 18
-    ) {
+    if ($layout.IsTooSmall) {
+
         Write-WinSecText `
             -Text 'WINSEC ANALYZER' `
             -Color Cyan `
@@ -158,6 +251,13 @@ function Show-WinSecDevices {
             -Align Center
 
         Write-WinSecText `
+            -Text "Minimum: $($layout.MinimumWidth) x $($layout.MinimumHeight)" `
+            -Color DarkGray `
+            -Align Center
+
+        Write-Host ''
+
+        Write-WinSecText `
             -Text 'Please resize the terminal.' `
             -Color DarkGray `
             -Align Center
@@ -166,21 +266,12 @@ function Show-WinSecDevices {
     }
 
     # --------------------------------------------------------
-    # Render project banner
+    # Render adaptive project banner
     # --------------------------------------------------------
 
-    $bannerRows = 2
-
-    if ($terminal.Height -ge 38) {
+    if ($layout.BannerRows -gt 2) {
 
         Show-Banner -Version $Version
-
-        $bannerRows = if ($terminal.Width -ge 55) {
-            15
-        }
-        else {
-            10
-        }
     }
     else {
 
@@ -196,44 +287,6 @@ function Show-WinSecDevices {
     }
 
     # --------------------------------------------------------
-    # Prepare registered devices
-    # --------------------------------------------------------
-
-    $rows = @(
-        Get-WinSecDeviceRows -Devices $Devices
-    )
-
-    # --------------------------------------------------------
-    # Resolve current selection
-    # --------------------------------------------------------
-
-    if ($SelectedIndex -lt 0) {
-
-        $SelectedIndex = 0
-
-        if (
-            $null -ne $NavigationState -and
-            $null -ne $NavigationState.PSObject.Properties['DeviceIndex']
-        ) {
-            $SelectedIndex = [int]$NavigationState.DeviceIndex
-        }
-    }
-
-    if ($rows.Count -gt 0) {
-
-        $SelectedIndex = [Math]::Max(
-            0,
-            [Math]::Min(
-                $SelectedIndex,
-                $rows.Count - 1
-            )
-        )
-    }
-    else {
-        $SelectedIndex = -1
-    }
-
-    # --------------------------------------------------------
     # Render screen heading
     # --------------------------------------------------------
 
@@ -241,21 +294,23 @@ function Show-WinSecDevices {
         -Title 'Managed Devices'
 
     Write-WinSecText `
-        -Text "REGISTERED DEVICES: $($rows.Count)" `
+        -Text "REGISTERED DEVICES: $deviceCount" `
         -Color Cyan
 
-    if ($rows.Count -gt 0) {
+    if ($null -ne $selectedDevice) {
 
-        $selected = $rows[$SelectedIndex]
+        $selectedText = 'SELECTED: {0} | MODE: {1}' -f `
+            $selectedDevice.Hostname,
+            $selectedDevice.Mode
 
         Write-WinSecText `
-            -Text "SELECTED: $($selected.Hostname)" `
+            -Text $selectedText `
             -Color Gray
     }
     else {
 
         Write-WinSecText `
-            -Text 'No devices registered.' `
+            -Text 'SELECTED: NONE' `
             -Color Yellow
     }
 
@@ -273,6 +328,7 @@ function Show-WinSecDevices {
             MinWidth = 2
             MaxWidth = 4
             Priority = 1
+            Align    = 'Left'
         }
 
         @{
@@ -282,16 +338,8 @@ function Show-WinSecDevices {
             MinWidth = 12
             MaxWidth = 45
             Priority = 1
+            Align    = 'Left'
             Expand   = $true
-        }
-
-        @{
-            Key      = 'Mode'
-            Header   = 'Mode'
-            Width    = 10
-            MinWidth = 6
-            MaxWidth = 12
-            Priority = 4
         }
 
         @{
@@ -315,28 +363,37 @@ function Show-WinSecDevices {
         }
 
         @{
+            Key      = 'Mode'
+            Header   = 'Mode'
+            Width    = 10
+            MinWidth = 6
+            MaxWidth = 12
+            Priority = 4
+            Align    = 'Center'
+        }
+
+        @{
             Key      = 'LastScan'
             Header   = 'Last Scan'
             Width    = 20
             MinWidth = 10
             MaxWidth = 24
             Priority = 5
+            Align    = 'Left'
         }
     )
 
     # --------------------------------------------------------
-    # Calculate visible table area
+    # Calculate visible table rows
     # --------------------------------------------------------
-
-    $reservedRows = 14
 
     $maxRows = [Math]::Max(
         1,
-        $terminal.Height - $bannerRows - $reservedRows
+        [int]$layout.MaxTableRows
     )
 
     # --------------------------------------------------------
-    # Render devices table
+    # Render device table
     # --------------------------------------------------------
 
     Write-WinSecTable `
@@ -346,23 +403,10 @@ function Show-WinSecDevices {
         -MaxRows $maxRows
 
     # --------------------------------------------------------
-    # Keyboard help
+    # Render contextual keyboard help
     # --------------------------------------------------------
 
-    Write-Host ''
-
-    Write-WinSecDivider -Color DarkGray
-
-    if ($rows.Count -gt 0) {
-
-        Write-WinSecText `
-            -Text '[UP/DOWN] Navigate   [ENTER] Select Device   [Q] Exit' `
-            -Color DarkGray
-    }
-    else {
-
-        Write-WinSecText `
-            -Text '[Q] Exit' `
-            -Color DarkGray
-    }
+    Write-WinSecKeyboardHelp `
+        -Screen 'Devices' `
+        -HiddenKeys $hiddenKeys
 }

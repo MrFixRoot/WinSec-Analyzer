@@ -1,0 +1,23 @@
+
+{
+    "schemaVersion": "1.0.0",
+    "frameworkId": "cis-benchmarks",
+    "name": "CIS Benchmarks",
+    "organization": "Center for Internet Security",
+    "description": "Security configuration benchmark mappings for WinSec Analyzer.",
+    "enabled": true,
+    "source": {
+        "name": "CIS Benchmarks",
+        "url": "https://www.cisecurity.org/cis-benchmarks"
+    },
+    "benchmarks": [],
+    "mappings": [],
+    "mappingRules": {
+        "matchBy": "checkId",
+        "requireBenchmarkVersion": true,
+        "requirePlatformMatch": true,
+        "allowMultipleReferences": true,
+        "includeInFindings": true,
+        "includeInReports": true
+    }
+}
