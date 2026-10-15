@@ -1,0 +1,7 @@
+{
+  "name": "WinSec Analyzer",
+  "version": "0.1.0",
+  "author": "TU_NICKNAME",
+  "linkedin": "https://www.linkedin.com/in/TU_PERFIL",
+  "description": "Auditoria automatizada de configuraciones de seguridad de Windows con PowerShell."
+}
