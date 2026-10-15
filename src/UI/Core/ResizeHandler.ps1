@@ -6,8 +6,8 @@
 # Author    : mrRoot
 #
 # Description:
-# Detects terminal resizing and requests UI redraws.
-# Works with TerminalRenderer and KeyboardController.
+# Detects terminal resizing and manages UI redraw events.
+# Supports multi-device navigation and adaptive screens.
 # ============================================================
 
 
@@ -22,17 +22,17 @@ function New-WinSecResizeState {
     $terminal = Get-WinSecTerminalSize
 
     return [PSCustomObject]@{
-        Width         = [int]$terminal.Width
-        Height        = [int]$terminal.Height
-        LastResize    = [DateTime]::UtcNow
-        ResizeCount   = 0
+        Width          = [int]$terminal.Width
+        Height         = [int]$terminal.Height
+        LastResize     = $null
+        ResizeCount    = 0
         RedrawRequired = $false
     }
 }
 
 
 # ------------------------------------------------------------
-# Check whether terminal dimensions changed
+# Detect terminal dimension changes
 # ------------------------------------------------------------
 
 function Test-WinSecTerminalResize {
@@ -56,9 +56,11 @@ function Test-WinSecTerminalResize {
         return $false
     }
 
+    # Update current terminal dimensions
     $State.Width = $newWidth
     $State.Height = $newHeight
 
+    # Update resize tracking
     $State.LastResize = [DateTime]::UtcNow
     $State.ResizeCount++
     $State.RedrawRequired = $true
@@ -68,7 +70,7 @@ function Test-WinSecTerminalResize {
 
 
 # ------------------------------------------------------------
-# Request UI redraw
+# Request screen redraw
 # ------------------------------------------------------------
 
 function Request-WinSecRedraw {
@@ -83,7 +85,7 @@ function Request-WinSecRedraw {
 
 
 # ------------------------------------------------------------
-# Clear redraw request after rendering
+# Reset redraw flag after rendering
 # ------------------------------------------------------------
 
 function Reset-WinSecRedraw {
@@ -98,7 +100,7 @@ function Reset-WinSecRedraw {
 
 
 # ------------------------------------------------------------
-# Get current terminal resize information
+# Get terminal resize information
 # ------------------------------------------------------------
 
 function Get-WinSecResizeInfo {
@@ -119,6 +121,43 @@ function Get-WinSecResizeInfo {
 
 
 # ------------------------------------------------------------
+# Create standardized UI event
+# ------------------------------------------------------------
+
+function New-WinSecUIEvent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Key', 'Resize')]
+        [string]$EventType,
+
+        [Parameter(Mandatory)]
+        [string]$Screen,
+
+        [AllowNull()]
+        [string]$Key = $null,
+
+        [string]$Action = 'None',
+
+        [bool]$ResizeDetected = $false,
+
+        [Parameter(Mandatory)]
+        [psobject]$ResizeState
+    )
+
+    return [PSCustomObject]@{
+        EventType      = $EventType
+        Screen         = $Screen
+        Key            = $Key
+        Action         = $Action
+        ResizeDetected = $ResizeDetected
+        Width          = $ResizeState.Width
+        Height         = $ResizeState.Height
+    }
+}
+
+
+# ------------------------------------------------------------
 # Wait for keyboard input or terminal resize
 # ------------------------------------------------------------
 
@@ -129,6 +168,7 @@ function Wait-WinSecUIEvent {
         [psobject]$ResizeState,
 
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -136,14 +176,15 @@ function Wait-WinSecUIEvent {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu',
+        [string]$Screen = 'Devices',
 
         [ValidateRange(25, 1000)]
         [int]$PollIntervalMs = 100
     )
 
-    # Determine whether non-blocking keyboard polling
-    # is supported by the current PowerShell host.
+    # --------------------------------------------------------
+    # Check non-blocking console input availability
+    # --------------------------------------------------------
 
     $canPollKeyboard = $true
 
@@ -154,8 +195,9 @@ function Wait-WinSecUIEvent {
         $canPollKeyboard = $false
     }
 
-    # Fallback for terminals that cannot poll input.
-    # In this mode resizing is detected after a keypress.
+    # --------------------------------------------------------
+    # Fallback for unsupported terminal hosts
+    # --------------------------------------------------------
 
     if (-not $canPollKeyboard) {
 
@@ -165,82 +207,78 @@ function Wait-WinSecUIEvent {
         $resized = Test-WinSecTerminalResize `
             -State $ResizeState
 
-        return [PSCustomObject]@{
-            EventType      = 'Key'
-            Screen         = $Screen
-            Key            = $keyboardEvent.Key
-            Action         = $keyboardEvent.Action
-            ResizeDetected = $resized
-            Width          = $ResizeState.Width
-            Height         = $ResizeState.Height
-        }
+        return New-WinSecUIEvent `
+            -EventType 'Key' `
+            -Screen $Screen `
+            -Key $keyboardEvent.Key `
+            -Action $keyboardEvent.Action `
+            -ResizeDetected $resized `
+            -ResizeState $ResizeState
     }
 
-    # Non-blocking event loop.
-    # Detect both resizing and keyboard actions.
+    # --------------------------------------------------------
+    # Non-blocking event loop
+    # --------------------------------------------------------
 
     while ($true) {
 
-        # Check for terminal dimension changes.
+        # ----------------------------------------------------
+        # Detect terminal resizing
+        # ----------------------------------------------------
 
         $resized = Test-WinSecTerminalResize `
             -State $ResizeState
 
         if ($resized) {
 
-            return [PSCustomObject]@{
-                EventType      = 'Resize'
-                Screen         = $Screen
-                Key            = $null
-                Action         = 'Redraw'
-                ResizeDetected = $true
-                Width          = $ResizeState.Width
-                Height         = $ResizeState.Height
-            }
+            return New-WinSecUIEvent `
+                -EventType 'Resize' `
+                -Screen $Screen `
+                -Action 'Redraw' `
+                -ResizeDetected $true `
+                -ResizeState $ResizeState
         }
 
-        # Check keyboard input without blocking.
+        # ----------------------------------------------------
+        # Detect keyboard input
+        # ----------------------------------------------------
 
         try {
+
             if ([Console]::KeyAvailable) {
 
                 $keyboardEvent = Get-WinSecKeyboardAction `
                     -Screen $Screen
 
-                return [PSCustomObject]@{
-                    EventType      = 'Key'
-                    Screen         = $Screen
-                    Key            = $keyboardEvent.Key
-                    Action         = $keyboardEvent.Action
-                    ResizeDetected = $false
-                    Width          = $ResizeState.Width
-                    Height         = $ResizeState.Height
-                }
+                return New-WinSecUIEvent `
+                    -EventType 'Key' `
+                    -Screen $Screen `
+                    -Key $keyboardEvent.Key `
+                    -Action $keyboardEvent.Action `
+                    -ResizeState $ResizeState
             }
         }
         catch {
 
-            # Switch to blocking keyboard input when
-            # the terminal does not support polling.
-
+            # Fallback to blocking keyboard input
             $keyboardEvent = Get-WinSecKeyboardAction `
                 -Screen $Screen
 
             $resized = Test-WinSecTerminalResize `
                 -State $ResizeState
 
-            return [PSCustomObject]@{
-                EventType      = 'Key'
-                Screen         = $Screen
-                Key            = $keyboardEvent.Key
-                Action         = $keyboardEvent.Action
-                ResizeDetected = $resized
-                Width          = $ResizeState.Width
-                Height         = $ResizeState.Height
-            }
+            return New-WinSecUIEvent `
+                -EventType 'Key' `
+                -Screen $Screen `
+                -Key $keyboardEvent.Key `
+                -Action $keyboardEvent.Action `
+                -ResizeDetected $resized `
+                -ResizeState $ResizeState
         }
 
-        # Reduce CPU usage while waiting for events.
+        # ----------------------------------------------------
+        # Reduce CPU consumption while waiting
+        # ----------------------------------------------------
 
         Start-Sleep -Milliseconds $PollIntervalMs
     }

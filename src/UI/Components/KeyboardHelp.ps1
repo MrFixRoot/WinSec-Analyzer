@@ -6,18 +6,20 @@
 # Author    : mrRoot
 #
 # Description:
-# Context-aware keyboard shortcuts displayed in terminal.
+# Context-aware keyboard shortcuts for terminal UI.
+# Supports multi-device navigation and adaptive layouts.
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Get available keyboard shortcuts by screen
+# Get available shortcuts for current screen
 # ------------------------------------------------------------
 
 function Get-WinSecKeyboardShortcuts {
     [CmdletBinding()]
     param(
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -25,18 +27,27 @@ function Get-WinSecKeyboardShortcuts {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu'
+        [string]$Screen = 'Devices'
     )
 
     $shortcuts = switch ($Screen) {
 
+        'Devices' {
+            @(
+                @{ Key = 'UP/DOWN'; Action = 'Navigate' }
+                @{ Key = 'ENTER';   Action = 'Select Device' }
+                @{ Key = 'Q';       Action = 'Exit' }
+            )
+        }
+
         'MainMenu' {
             @(
                 @{ Key = 'UP/DOWN'; Action = 'Navigate' }
-                @{ Key = 'ENTER';   Action = 'Open' }
+                @{ Key = 'ENTER';   Action = 'Open Section' }
                 @{ Key = 'H';       Action = 'Findings' }
                 @{ Key = 'P';       Action = 'Export TXT' }
                 @{ Key = 'R';       Action = 'Rescan' }
+                @{ Key = 'ESC';     Action = 'Devices' }
                 @{ Key = 'Q';       Action = 'Exit' }
             )
         }
@@ -46,7 +57,7 @@ function Get-WinSecKeyboardShortcuts {
                 @{ Key = 'UP/DOWN'; Action = 'Navigate' }
                 @{ Key = 'H';       Action = 'Findings' }
                 @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Main Menu' }
+                @{ Key = 'ESC';     Action = 'Dashboard' }
             )
         }
 
@@ -54,13 +65,13 @@ function Get-WinSecKeyboardShortcuts {
             @(
                 @{ Key = 'UP/DOWN'; Action = 'Scroll' }
                 @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Back' }
+                @{ Key = 'ESC';     Action = 'Dashboard' }
             )
         }
 
         'Audit' {
             @(
-                @{ Key = 'ESC'; Action = 'Back' }
+                @{ Key = 'ESC'; Action = 'Dashboard' }
             )
         }
 
@@ -69,7 +80,7 @@ function Get-WinSecKeyboardShortcuts {
                 @{ Key = 'UP/DOWN'; Action = 'Navigate' }
                 @{ Key = 'H';       Action = 'Findings' }
                 @{ Key = 'P';       Action = 'Export TXT' }
-                @{ Key = 'ESC';     Action = 'Main Menu' }
+                @{ Key = 'ESC';     Action = 'Dashboard' }
             )
         }
 
@@ -77,23 +88,24 @@ function Get-WinSecKeyboardShortcuts {
             @(
                 @{ Key = 'UP/DOWN'; Action = 'Navigate' }
                 @{ Key = 'ENTER';   Action = 'Select' }
-                @{ Key = 'ESC';     Action = 'Back' }
+                @{ Key = 'ESC';     Action = 'Dashboard' }
             )
         }
     }
 
-    return $shortcuts
+    return @($shortcuts)
 }
 
 
 # ------------------------------------------------------------
-# Display keyboard shortcuts
+# Build shortcut labels
 # ------------------------------------------------------------
 
-function Write-WinSecKeyboardHelp {
+function Get-WinSecKeyboardLabels {
     [CmdletBinding()]
     param(
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -101,65 +113,168 @@ function Write-WinSecKeyboardHelp {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu',
+        [string]$Screen = 'Devices',
 
         [string[]]$HiddenKeys = @()
     )
-
-    $terminal = Get-WinSecTerminalSize
-    $width = $terminal.ContentWidth
 
     $shortcuts = @(
         Get-WinSecKeyboardShortcuts -Screen $Screen
     )
 
-    # Remove shortcuts disabled by the current screen
-    $shortcuts = @(
-        $shortcuts | Where-Object {
-            $_.Key -notin $HiddenKeys
+    $labels = @(
+        foreach ($shortcut in $shortcuts) {
+
+            if ($shortcut.Key -in $HiddenKeys) {
+                continue
+            }
+
+            '[{0}] {1}' -f `
+                $shortcut.Key,
+                $shortcut.Action
         }
     )
 
-    Write-Host ''
-    Write-WinSecDivider -Color DarkGray
+    return $labels
+}
 
-    if ($shortcuts.Count -eq 0) {
+
+# ------------------------------------------------------------
+# Calculate keyboard help lines
+# ------------------------------------------------------------
+
+function Get-WinSecKeyboardHelpHeight {
+    [CmdletBinding()]
+    param(
+        [ValidateSet(
+            'Devices',
+            'MainMenu',
+            'Section',
+            'Findings',
+            'Audit',
+            'Results',
+            'Settings'
+        )]
+        [string]$Screen = 'Devices',
+
+        [string[]]$HiddenKeys = @(),
+
+        [int]$Width = 0
+    )
+
+    if ($Width -le 0) {
+        $Width = (Get-WinSecTerminalSize).ContentWidth
+    }
+
+    $Width = [Math]::Max(1, $Width)
+
+    $labels = @(
+        Get-WinSecKeyboardLabels `
+            -Screen $Screen `
+            -HiddenKeys $HiddenKeys
+    )
+
+    if ($labels.Count -eq 0) {
+        return 0
+    }
+
+    $lines = 1
+    $currentLength = 0
+
+    foreach ($label in $labels) {
+
+        $labelLength = $label.Length
+
+        if ($currentLength -eq 0) {
+            $currentLength = $labelLength
+            continue
+        }
+
+        $requiredLength = $currentLength + 3 + $labelLength
+
+        if ($requiredLength -le $Width) {
+            $currentLength = $requiredLength
+        }
+        else {
+            $lines++
+            $currentLength = $labelLength
+        }
+    }
+
+    # Blank line + separator + shortcut lines
+    return (2 + $lines)
+}
+
+
+# ------------------------------------------------------------
+# Render contextual keyboard help
+# ------------------------------------------------------------
+
+function Write-WinSecKeyboardHelp {
+    [CmdletBinding()]
+    param(
+        [ValidateSet(
+            'Devices',
+            'MainMenu',
+            'Section',
+            'Findings',
+            'Audit',
+            'Results',
+            'Settings'
+        )]
+        [string]$Screen = 'Devices',
+
+        [string[]]$HiddenKeys = @()
+    )
+
+    $terminal = Get-WinSecTerminalSize
+
+    $width = [Math]::Max(
+        1,
+        $terminal.ContentWidth
+    )
+
+    $labels = @(
+        Get-WinSecKeyboardLabels `
+            -Screen $Screen `
+            -HiddenKeys $HiddenKeys
+    )
+
+    if ($labels.Count -eq 0) {
         return
     }
 
-    # Build shortcut labels
-    $items = @(
-        foreach ($shortcut in $shortcuts) {
-            '[{0}] {1}' -f $shortcut.Key, $shortcut.Action
-        }
-    )
+    Write-Host ''
+
+    Write-WinSecDivider -Color DarkGray
 
     $separator = '   '
     $line = ''
 
-    # Wrap shortcut text without breaking individual labels
-    foreach ($item in $items) {
+    foreach ($label in $labels) {
 
         if ([string]::IsNullOrEmpty($line)) {
-            $line = $item
+            $line = $label
             continue
         }
 
-        $candidate = $line + $separator + $item
+        $candidate = $line + $separator + $label
 
         if ($candidate.Length -le $width) {
             $line = $candidate
         }
         else {
+
             Write-WinSecText `
                 -Text $line `
                 -Color DarkGray
 
-            $line = $item
+            $line = $label
         }
     }
 
     if (-not [string]::IsNullOrEmpty($line)) {
+
         Write-WinSecText `
             -Text $line `
             -Color DarkGray

@@ -6,8 +6,10 @@
 # Author    : mrRoot
 #
 # Description:
-# Handles keyboard input and translates keystrokes
-# into navigation actions.
+# Captures keyboard input and translates keystrokes
+# into UI navigation actions.
+#
+# Supports multi-device navigation.
 # ============================================================
 
 
@@ -20,14 +22,19 @@ function Read-WinSecKey {
     param()
 
     try {
-        # Native console input
+
+        # Read keyboard input without displaying characters.
         $keyInfo = [Console]::ReadKey($true)
 
         return $keyInfo.Key.ToString().ToUpperInvariant()
     }
     catch {
-        # PowerShell host fallback
+
+        # Fallback for PowerShell hosts without direct
+        # console keyboard support.
+
         try {
+
             $keyInfo = $Host.UI.RawUI.ReadKey(
                 'NoEcho,IncludeKeyDown'
             )
@@ -35,14 +42,18 @@ function Read-WinSecKey {
             $virtualKey = $keyInfo.VirtualKeyCode
 
             switch ($virtualKey) {
+
                 38 { return 'UPARROW' }
                 40 { return 'DOWNARROW' }
                 37 { return 'LEFTARROW' }
                 39 { return 'RIGHTARROW' }
+
                 13 { return 'ENTER' }
                 27 { return 'ESCAPE' }
+
                 33 { return 'PAGEUP' }
                 34 { return 'PAGEDOWN' }
+
                 36 { return 'HOME' }
                 35 { return 'END' }
             }
@@ -56,6 +67,7 @@ function Read-WinSecKey {
             return 'UNKNOWN'
         }
         catch {
+
             throw 'Unable to read keyboard input from this terminal.'
         }
     }
@@ -73,6 +85,7 @@ function Get-WinSecKeyAction {
         [string]$Key,
 
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -80,20 +93,25 @@ function Get-WinSecKeyAction {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu'
+        [string]$Screen = 'Devices'
     )
 
     $Key = $Key.ToUpperInvariant()
 
-    # Global navigation keys
+    # --------------------------------------------------------
+    # Global navigation controls
+    # --------------------------------------------------------
+
     switch ($Key) {
 
         'UPARROW' {
+
             if ($Screen -eq 'Findings') {
                 return 'ScrollUp'
             }
 
             if ($Screen -in @(
+                'Devices',
                 'MainMenu',
                 'Section',
                 'Results',
@@ -104,11 +122,13 @@ function Get-WinSecKeyAction {
         }
 
         'DOWNARROW' {
+
             if ($Screen -eq 'Findings') {
                 return 'ScrollDown'
             }
 
             if ($Screen -in @(
+                'Devices',
                 'MainMenu',
                 'Section',
                 'Results',
@@ -119,68 +139,156 @@ function Get-WinSecKeyAction {
         }
 
         'ESCAPE' {
-            if ($Screen -ne 'MainMenu') {
+
+            if ($Screen -ne 'Devices') {
                 return 'Back'
             }
         }
     }
 
-    # Screen-specific keyboard actions
+    # --------------------------------------------------------
+    # Screen-specific keyboard controls
+    # --------------------------------------------------------
+
     switch ($Screen) {
 
-        'MainMenu' {
+        # ----------------------------------------------------
+        # Device selection screen
+        # ----------------------------------------------------
+
+        'Devices' {
+
             switch ($Key) {
-                'ENTER' { return 'Open' }
-                'H'     { return 'ShowFindings' }
-                'P'     { return 'ExportTXT' }
-                'R'     { return 'Rescan' }
-                'Q'     { return 'Exit' }
+
+                'ENTER' {
+                    return 'Open'
+                }
+
+                'Q' {
+                    return 'Exit'
+                }
             }
         }
+
+        # ----------------------------------------------------
+        # Main security dashboard
+        # ----------------------------------------------------
+
+        'MainMenu' {
+
+            switch ($Key) {
+
+                'ENTER' {
+                    return 'Open'
+                }
+
+                'H' {
+                    return 'ShowFindings'
+                }
+
+                'P' {
+                    return 'ExportTXT'
+                }
+
+                'R' {
+                    return 'Rescan'
+                }
+
+                'Q' {
+                    return 'Exit'
+                }
+            }
+        }
+
+        # ----------------------------------------------------
+        # Security section
+        # ----------------------------------------------------
 
         'Section' {
+
             switch ($Key) {
-                'H' { return 'ShowFindings' }
-                'P' { return 'ExportTXT' }
+
+                'H' {
+                    return 'ShowFindings'
+                }
+
+                'P' {
+                    return 'ExportTXT'
+                }
             }
         }
+
+        # ----------------------------------------------------
+        # Findings details
+        # ----------------------------------------------------
 
         'Findings' {
+
             switch ($Key) {
-                'P' { return 'ExportTXT' }
+
+                'P' {
+                    return 'ExportTXT'
+                }
             }
         }
+
+        # ----------------------------------------------------
+        # Audit progress
+        # ----------------------------------------------------
 
         'Audit' {
-            # Escape is handled globally.
+
+            # Escape is handled by global navigation.
+            # Audit cancellation is not implemented here.
         }
 
+        # ----------------------------------------------------
+        # Security results
+        # ----------------------------------------------------
+
         'Results' {
+
             switch ($Key) {
-                'H' { return 'ShowFindings' }
-                'P' { return 'ExportTXT' }
+
+                'H' {
+                    return 'ShowFindings'
+                }
+
+                'P' {
+                    return 'ExportTXT'
+                }
             }
         }
 
+        # ----------------------------------------------------
+        # Application settings
+        # ----------------------------------------------------
+
         'Settings' {
+
             switch ($Key) {
-                'ENTER' { return 'Select' }
+
+                'ENTER' {
+                    return 'Select'
+                }
             }
         }
     }
 
+    # Ignore unsupported keyboard input
     return 'None'
 }
 
 
 # ------------------------------------------------------------
-# Get normalized keyboard event
+# Generate normalized keyboard event
 # ------------------------------------------------------------
 
 function Get-WinSecKeyboardAction {
     [CmdletBinding()]
     param(
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -188,7 +296,7 @@ function Get-WinSecKeyboardAction {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu'
+        [string]$Screen = 'Devices'
     )
 
     $key = Read-WinSecKey
