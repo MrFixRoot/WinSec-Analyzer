@@ -6,13 +6,20 @@
 # Author    : mrRoot
 #
 # Description:
-# Main security dashboard with section scores,
-# keyboard navigation highlighting and adaptive layout.
+# Main security assessment dashboard.
+#
+# Features:
+# - Multi-device assessment context
+# - Five security sections
+# - Security scores and assessment status
+# - Adaptive terminal layout
+# - Keyboard navigation highlighting
+# - Context-aware keyboard shortcuts
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Define main security sections
+# Get security sections and assessment results
 # ------------------------------------------------------------
 
 function Get-WinSecMainMenuSections {
@@ -22,89 +29,230 @@ function Get-WinSecMainMenuSections {
         [object[]]$SectionResults = @()
     )
 
+    # Main security categories
     $definitions = @(
-        @{ Id = '01'; Key = 'SystemSecurity';    Name = 'System Security' }
-        @{ Id = '02'; Key = 'NetworkSecurity';   Name = 'Network Security' }
-        @{ Id = '03'; Key = 'IdentityAccess';    Name = 'Identity & Access Security' }
-        @{ Id = '04'; Key = 'LoggingAuditing';   Name = 'Logging & Auditing' }
-        @{ Id = '05'; Key = 'ServicesHardening'; Name = 'Services & Hardening' }
-    )
-
-    $sections = @(
-        foreach ($definition in $definitions) {
-
-            $result = $null
-
-            foreach ($candidate in $SectionResults) {
-
-                $candidateId = Get-WinSecTableValue `
-                    -Row $candidate -Key 'Id'
-
-                $candidateKey = Get-WinSecTableValue `
-                    -Row $candidate -Key 'Key'
-
-                $candidateName = Get-WinSecTableValue `
-                    -Row $candidate -Key 'Name'
-
-                if (
-                    $candidateId -eq $definition.Id -or
-                    $candidateKey -eq $definition.Key -or
-                    $candidateName -eq $definition.Name
-                ) {
-                    $result = $candidate
-                    break
-                }
-            }
-
-            # No audit results available by default.
-            $score = '--/100'
-            $status = 'PENDING'
-
-            if ($null -ne $result) {
-
-                $rawScore = Get-WinSecTableValue `
-                    -Row $result -Key 'Score'
-
-                $rawStatus = Get-WinSecTableValue `
-                    -Row $result -Key 'Status'
-
-                $numericScore = 0
-
-                if (
-                    [int]::TryParse(
-                        $rawScore,
-                        [ref]$numericScore
-                    ) -and
-                    $numericScore -ge 0 -and
-                    $numericScore -le 100
-                ) {
-                    $score = '{0}/100' -f $numericScore
-                }
-
-                if (-not [string]::IsNullOrWhiteSpace($rawStatus)) {
-                    $status = $rawStatus.ToUpperInvariant()
-                }
-                elseif ($score -ne '--/100') {
-                    $status = 'UNKNOWN'
-                }
-            }
-
-            [PSCustomObject]@{
-                Id     = $definition.Id
-                Key    = $definition.Key
-                Name   = $definition.Name
-                Score  = $score
-                Status = $status
-            }
+        @{
+            Id   = '01'
+            Key  = 'SystemSecurity'
+            Name = 'System Security'
+        }
+        @{
+            Id   = '02'
+            Key  = 'NetworkSecurity'
+            Name = 'Network Security'
+        }
+        @{
+            Id   = '03'
+            Key  = 'IdentityAccess'
+            Name = 'Identity & Access Security'
+        }
+        @{
+            Id   = '04'
+            Key  = 'LoggingAuditing'
+            Name = 'Logging & Auditing'
+        }
+        @{
+            Id   = '05'
+            Key  = 'ServicesHardening'
+            Name = 'Services & Hardening'
         }
     )
 
-    return $sections
+    foreach ($definition in $definitions) {
+
+        $result = $null
+
+        # ----------------------------------------------------
+        # Match section with assessment data
+        # ----------------------------------------------------
+
+        foreach ($candidate in $SectionResults) {
+
+            if ($null -eq $candidate) {
+                continue
+            }
+
+            $candidateId = Get-WinSecTableValue `
+                -Row $candidate -Key 'Id'
+
+            $candidateKey = Get-WinSecTableValue `
+                -Row $candidate -Key 'Key'
+
+            $candidateName = Get-WinSecTableValue `
+                -Row $candidate -Key 'Name'
+
+            # Prefer stable section identifiers.
+            $matched = $false
+
+            if ($candidateKey) {
+
+                $matched = (
+                    $candidateKey -eq $definition.Key
+                )
+            }
+            elseif ($candidateName) {
+
+                $matched = (
+                    $candidateName -eq $definition.Name
+                )
+            }
+            elseif ($candidateId) {
+
+                $matched = (
+                    $candidateId -eq $definition.Id
+                )
+            }
+
+            if ($matched) {
+                $result = $candidate
+                break
+            }
+        }
+
+        # ----------------------------------------------------
+        # Default state: no assessment performed
+        # ----------------------------------------------------
+
+        $score = '--/100'
+        $status = 'PENDING'
+
+        if ($null -ne $result) {
+
+            $rawScore = Get-WinSecTableValue `
+                -Row $result -Key 'Score'
+
+            $rawStatus = Get-WinSecTableValue `
+                -Row $result -Key 'Status'
+
+            # Accept numerical scores between 0 and 100.
+            if (
+                $rawScore -match
+                '^\s*(100|[1-9]?\d)\s*(?:/100)?\s*$'
+            ) {
+
+                $numericScore = [int]$Matches[1]
+
+                $score = '{0}/100' -f $numericScore
+            }
+
+            # Never infer PASS or FAIL from score alone.
+            if (-not [string]::IsNullOrWhiteSpace($rawStatus)) {
+
+                $status = $rawStatus.Trim().ToUpperInvariant()
+            }
+            elseif ($score -ne '--/100') {
+
+                $status = 'UNKNOWN'
+            }
+        }
+
+        # ----------------------------------------------------
+        # Return normalized section
+        # ----------------------------------------------------
+
+        [PSCustomObject]@{
+            Id     = $definition.Id
+            Key    = $definition.Key
+            Name   = $definition.Name
+            Score  = $score
+            Status = $status
+        }
+    }
 }
 
 
 # ------------------------------------------------------------
-# Calculate keyboard help height
+# Resolve selected section index
+# ------------------------------------------------------------
+
+function Get-WinSecMainMenuSelectedIndex {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [psobject]$NavigationState = $null,
+
+        [int]$SectionCount = 5
+    )
+
+    if ($SectionCount -le 0) {
+        return -1
+    }
+
+    $selectedIndex = 0
+
+    if ($null -ne $NavigationState) {
+
+        $rawIndex = Get-WinSecTableValue `
+            -Row $NavigationState `
+            -Key 'SectionIndex'
+
+        $parsedIndex = 0
+
+        if ([int]::TryParse(
+            $rawIndex,
+            [ref]$parsedIndex
+        )) {
+            $selectedIndex = $parsedIndex
+        }
+    }
+
+    return [Math]::Max(
+        0,
+        [Math]::Min(
+            $selectedIndex,
+            $SectionCount - 1
+        )
+    )
+}
+
+
+# ------------------------------------------------------------
+# Resolve active device information
+# ------------------------------------------------------------
+
+function Get-WinSecMainMenuDevice {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [psobject]$NavigationState = $null
+    )
+
+    $deviceId = ''
+    $hostname = ''
+
+    if ($null -ne $NavigationState) {
+
+        $deviceId = Get-WinSecTableValue `
+            -Row $NavigationState `
+            -Key 'SelectedDeviceId'
+
+        $hostname = Get-WinSecTableValue `
+            -Row $NavigationState `
+            -Key 'SelectedDeviceName'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($hostname)) {
+
+        if (-not [string]::IsNullOrWhiteSpace($deviceId)) {
+            $hostname = $deviceId
+        }
+        else {
+            $hostname = 'NOT SELECTED'
+        }
+    }
+
+    return [PSCustomObject]@{
+        DeviceId = $deviceId
+        Hostname = $hostname
+        Selected = (
+            -not [string]::IsNullOrWhiteSpace($deviceId)
+        )
+    }
+}
+
+
+# ------------------------------------------------------------
+# Maintain compatibility with existing UI components
 # ------------------------------------------------------------
 
 function Get-WinSecMainMenuHelpHeight {
@@ -113,44 +261,14 @@ function Get-WinSecMainMenuHelpHeight {
         [int]$Width = 80
     )
 
-    $Width = [Math]::Max(1, $Width)
-
-    $shortcuts = @(
-        Get-WinSecKeyboardShortcuts -Screen 'MainMenu'
-    )
-
-    $lines = 1
-    $currentLength = 0
-
-    foreach ($shortcut in $shortcuts) {
-
-        $label = '[{0}] {1}' -f `
-            $shortcut.Key,
-            $shortcut.Action
-
-        if ($currentLength -eq 0) {
-            $currentLength = $label.Length
-            continue
-        }
-
-        $nextLength = $currentLength + 3 + $label.Length
-
-        if ($nextLength -le $Width) {
-            $currentLength = $nextLength
-        }
-        else {
-            $lines++
-            $currentLength = $label.Length
-        }
-    }
-
-    # Blank line + divider + shortcut lines
-    return (2 + $lines)
+    return Get-WinSecKeyboardHelpHeight `
+        -Screen 'MainMenu' `
+        -Width $Width
 }
 
 
 # ------------------------------------------------------------
-# Render main dashboard
+# Render main security dashboard
 # ------------------------------------------------------------
 
 function Show-WinSecMainMenu {
@@ -169,10 +287,11 @@ function Show-WinSecMainMenu {
         [string]$Version = '0.9.0'
     )
 
-    $terminal = Get-WinSecTerminalSize
+    # --------------------------------------------------------
+    # Get adaptive terminal layout
+    # --------------------------------------------------------
 
-    $width = $terminal.Width
-    $height = $terminal.Height
+    $layout = Get-WinSecLayout -Screen 'MainMenu'
 
     Clear-WinSecScreen
 
@@ -180,12 +299,12 @@ function Show-WinSecMainMenu {
     # Validate terminal dimensions
     # --------------------------------------------------------
 
-    if ($width -lt 40 -or $height -lt 17) {
+    if ($layout.IsTooSmall) {
 
         Write-WinSecText `
             -Text 'WINSEC ANALYZER' `
-            -Align Center `
-            -Color Cyan
+            -Color Cyan `
+            -Align Center
 
         Write-Host ''
 
@@ -193,6 +312,13 @@ function Show-WinSecMainMenu {
             -Text 'Terminal window is too small.' `
             -Color Yellow `
             -Align Center
+
+        Write-WinSecText `
+            -Text "Minimum: $($layout.MinimumWidth) x $($layout.MinimumHeight)" `
+            -Color DarkGray `
+            -Align Center
+
+        Write-Host ''
 
         Write-WinSecText `
             -Text 'Please resize the terminal.' `
@@ -203,16 +329,36 @@ function Show-WinSecMainMenu {
     }
 
     # --------------------------------------------------------
+    # Prepare device and section information
+    # --------------------------------------------------------
+
+    $device = Get-WinSecMainMenuDevice `
+        -NavigationState $NavigationState
+
+    $sections = @(
+        Get-WinSecMainMenuSections `
+            -SectionResults $SectionResults
+    )
+
+    $selectedIndex = Get-WinSecMainMenuSelectedIndex `
+        -NavigationState $NavigationState `
+        -SectionCount $sections.Count
+
+    # --------------------------------------------------------
+    # Determine vertical presentation mode
+    # --------------------------------------------------------
+
+    $compactVertical = (
+        $layout.Height -lt 27
+    )
+
+    # --------------------------------------------------------
     # Render project branding
     # --------------------------------------------------------
 
-    $bannerRows = 2
-
-    if ($height -ge 34) {
+    if ($layout.BannerRows -gt 2) {
 
         Show-Banner -Version $Version
-
-        $bannerRows = if ($width -ge 55) { 15 } else { 10 }
     }
     else {
 
@@ -228,11 +374,42 @@ function Show-WinSecMainMenu {
     }
 
     # --------------------------------------------------------
-    # Display security assessment score
+    # Render dashboard heading
     # --------------------------------------------------------
 
-    Write-WinSecSectionTitle `
-        -Title 'Security Assessment'
+    if ($compactVertical) {
+
+        Write-WinSecText `
+            -Text 'SECURITY ASSESSMENT' `
+            -Color Cyan
+
+        Write-WinSecDivider -Color DarkGray
+    }
+    else {
+
+        Write-WinSecSectionTitle `
+            -Title 'Security Assessment'
+    }
+
+    # --------------------------------------------------------
+    # Display active device information
+    # --------------------------------------------------------
+
+    $deviceText = 'DEVICE: {0}' -f $device.Hostname
+
+    $deviceColor = 'Gray'
+
+    if (-not $device.Selected) {
+        $deviceColor = 'Yellow'
+    }
+
+    Write-WinSecText `
+        -Text $deviceText `
+        -Color $deviceColor
+
+    # --------------------------------------------------------
+    # Display overall security score
+    # --------------------------------------------------------
 
     $scoreText = '--/100'
 
@@ -241,59 +418,34 @@ function Show-WinSecMainMenu {
         $OverallScore -ge 0 -and
         $OverallScore -le 100
     ) {
+
         $scoreText = '{0}/100' -f $OverallScore
     }
 
-    $statusText = $OverallStatus.ToUpperInvariant()
+    $status = 'PENDING'
 
-    $statusColor = Get-WinSecStatusColor `
-        -Status $statusText
+    if (-not [string]::IsNullOrWhiteSpace($OverallStatus)) {
 
-    $summaryText = 'SECURITY SCORE: {0}  |  STATUS: {1}' -f `
-        $scoreText,
-        $statusText
-
-    Write-WinSecText `
-        -Text $summaryText `
-        -Color $statusColor
-
-    Write-Host ''
-
-    # --------------------------------------------------------
-    # Prepare security sections
-    # --------------------------------------------------------
-
-    $sections = @(
-        Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
-    )
-
-    # --------------------------------------------------------
-    # Obtain current selection
-    # --------------------------------------------------------
-
-    $selectedIndex = 0
-
-    if ($null -ne $NavigationState) {
-
-        $rawIndex = Get-WinSecTableValue `
-            -Row $NavigationState `
-            -Key 'SectionIndex'
-
-        $parsedIndex = 0
-
-        if ([int]::TryParse($rawIndex, [ref]$parsedIndex)) {
-            $selectedIndex = $parsedIndex
-        }
+        $status = $OverallStatus.Trim().ToUpperInvariant()
     }
 
-    $selectedIndex = [Math]::Max(
-        0,
-        [Math]::Min($selectedIndex, $sections.Count - 1)
-    )
+    $statusColor = Get-WinSecStatusColor `
+        -Status $status
+
+    $summary = 'SECURITY SCORE: {0} | STATUS: {1}' -f `
+        $scoreText,
+        $status
+
+    Write-WinSecText `
+        -Text $summary `
+        -Color $statusColor
+
+    if (-not $compactVertical) {
+        Write-Host ''
+    }
 
     # --------------------------------------------------------
-    # Define dashboard columns
+    # Define security sections table
     # --------------------------------------------------------
 
     $columns = @(
@@ -313,7 +465,7 @@ function Show-WinSecMainMenu {
             Width    = 34
             MinWidth = 14
             MaxWidth = 50
-            Priority = 2
+            Priority = 1
             Align    = 'Left'
             Expand   = $true
         }
@@ -324,7 +476,7 @@ function Show-WinSecMainMenu {
             Width    = 10
             MinWidth = 7
             MaxWidth = 12
-            Priority = 3
+            Priority = 2
             Align    = 'Right'
         }
 
@@ -333,43 +485,51 @@ function Show-WinSecMainMenu {
             Header   = 'Status'
             Width    = 14
             MinWidth = 8
-            MaxWidth = 14
-            Priority = 4
+            MaxWidth = 16
+            Priority = 3
             Align    = 'Center'
         }
     )
 
     # --------------------------------------------------------
-    # Calculate available display space
+    # Calculate available space for table rows
     # --------------------------------------------------------
 
-    $helpRows = Get-WinSecMainMenuHelpHeight `
-        -Width $terminal.ContentWidth
+    # Compact presentation:
+    # - Short heading
+    # - Device and score
+    # - Table borders
+    # - Pagination allowance
 
+    $reservedRows = if ($compactVertical) {
+        9
+    }
+    else {
+        12
+    }
+
+    # Recalculate layout using actual content reservations.
     $layout = Get-WinSecLayout `
         -Screen 'MainMenu' `
-        -BannerRows $bannerRows `
-        -HelpRows $helpRows `
-        -ReservedRows 6
+        -ReservedRows $reservedRows
 
-    # Table headers and separators consume four lines.
-    $tableRows = [Math]::Max(
+    $maxRows = [Math]::Max(
         1,
-        $layout.ContentRows - 4
+        [int]$layout.MaxTableRows
     )
 
     # --------------------------------------------------------
-    # Render section scores
+    # Render security sections
     # --------------------------------------------------------
 
     Write-WinSecTable `
         -Columns $columns `
         -Rows $sections `
         -SelectedIndex $selectedIndex `
-        -MaxRows $tableRows
+        -MaxRows $maxRows
 
     # --------------------------------------------------------
-    # Display context-aware keyboard shortcuts
+    # Render keyboard shortcuts
     # --------------------------------------------------------
 
     Write-WinSecKeyboardHelp -Screen 'MainMenu'

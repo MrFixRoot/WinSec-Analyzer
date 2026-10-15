@@ -1,0 +1,60 @@
+
+{
+    "schemaVersion": "1.0.0",
+    "frameworkId": "nist-csf",
+    "name": "NIST Cybersecurity Framework",
+    "frameworkVersion": "2.0",
+    "organization": "National Institute of Standards and Technology",
+    "description": "Cybersecurity risk management framework mappings for WinSec Analyzer.",
+    "enabled": true,
+    "source": {
+        "name": "NIST Cybersecurity Framework 2.0",
+        "url": "https://www.nist.gov/cyberframework",
+        "publication": "NIST CSWP 29"
+    },
+    "functions": [
+        {
+            "id": "GV",
+            "name": "GOVERN",
+            "description": "Establish and monitor cybersecurity risk management strategy, expectations and policy."
+        },
+        {
+            "id": "ID",
+            "name": "IDENTIFY",
+            "description": "Understand cybersecurity risks to systems, assets and operations."
+        },
+        {
+            "id": "PR",
+            "name": "PROTECT",
+            "description": "Implement safeguards to manage cybersecurity risks."
+        },
+        {
+            "id": "DE",
+            "name": "DETECT",
+            "description": "Identify and analyze possible cybersecurity attacks and compromises."
+        },
+        {
+            "id": "RS",
+            "name": "RESPOND",
+            "description": "Take action regarding detected cybersecurity incidents."
+        },
+        {
+            "id": "RC",
+            "name": "RECOVER",
+            "description": "Restore assets and operations affected by cybersecurity incidents."
+        }
+    ],
+    "categories": [],
+    "subcategories": [],
+    "mappings": [],
+    "mappingRules": {
+        "matchBy": "checkId",
+        "requireFrameworkVersion": true,
+        "requireFunctionId": true,
+        "requireCategoryId": true,
+        "requireSubcategoryId": true,
+        "allowMultipleReferences": true,
+        "includeInFindings": true,
+        "includeInReports": true
+    }
+}

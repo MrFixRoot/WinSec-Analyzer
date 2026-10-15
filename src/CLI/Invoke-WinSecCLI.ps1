@@ -6,137 +6,710 @@
 # Author    : mrRoot
 #
 # Description:
-# Main terminal UI controller.
-# Integrates rendering, navigation, keyboard input,
-# terminal resizing and security assessment screens.
+# Main interactive terminal controller.
+#
+# Features:
+# - Centralized keyboard controller
+# - Multi-device assessment navigation
+# - Device-specific results and findings
+# - Navigation history
+# - Resize-aware terminal rendering
+# - Persistent screen selection
+#
+# Security:
+# - Read-only interface
+# - No audits during rendering
+# - No automatic remote connections
+# - No mixing of device or scan evidence
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Resolve project root
+# Read an object or dictionary property
 # ------------------------------------------------------------
 
-$script:WinSecCLIProjectRoot = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot '..\..')
-)
-
-
-# ------------------------------------------------------------
-# Load UI components in dependency order
-# ------------------------------------------------------------
-
-function Import-WinSecUIComponents {
+function Get-WinSecCLIValue {
     [CmdletBinding()]
-    param()
+    param(
+        [AllowNull()]
+        [object]$InputObject,
 
-    $components = @(
-        'src/UI/Core/TerminalRenderer.ps1'
-        'src/UI/Components/Banner.ps1'
-        'src/UI/Components/Table.ps1'
-        'src/UI/Components/KeyboardHelp.ps1'
-
-        'src/UI/Core/KeyboardController.ps1'
-        'src/UI/Core/NavigationController.ps1'
-        'src/UI/Core/LayoutManager.ps1'
-        'src/UI/Core/ResizeHandler.ps1'
-
-        'src/UI/Screens/MainMenu.ps1'
-        'src/UI/Screens/Results.ps1'
-        'src/UI/Screens/Findings.ps1'
-        'src/UI/Screens/Audit.ps1'
-        'src/UI/Screens/Settings.ps1'
+        [Parameter(Mandatory)]
+        [string]$Name
     )
 
-    foreach ($component in $components) {
+    if ($null -eq $InputObject) {
+        return $null
+    }
 
-        $path = Join-Path `
-            -Path $script:WinSecCLIProjectRoot `
-            -ChildPath $component
+    if ($InputObject -is [System.Collections.IDictionary]) {
 
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "Required UI component not found: $component"
+        foreach ($key in $InputObject.Keys) {
+
+            if (
+                [string]::Equals(
+                    [string]$key,
+                    $Name,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                )
+            ) {
+                return $InputObject[$key]
+            }
         }
 
-        # Load functions into the calling scope.
-        . $path
+        return $null
+    }
+
+    $property = $InputObject.PSObject.Properties[$Name]
+
+    if ($null -ne $property) {
+        return $property.Value
+    }
+
+    return $null
+}
+
+
+# ------------------------------------------------------------
+# Load registered devices
+# ------------------------------------------------------------
+
+function Get-WinSecCLIDevices {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProjectRoot,
+
+        [AllowEmptyCollection()]
+        [object[]]$Devices = @()
+    )
+
+    $source = @(
+        $Devices | Where-Object {
+            $null -ne $_
+        }
+    )
+
+    # --------------------------------------------------------
+    # Load configured targets when none were supplied
+    # --------------------------------------------------------
+
+    if ($source.Count -eq 0) {
+
+        $targetsPath = Join-Path `
+            -Path $ProjectRoot `
+            -ChildPath 'config/targets.json'
+
+        if (
+            Test-Path -LiteralPath $targetsPath -PathType Leaf
+        ) {
+
+            try {
+
+                $content = Get-Content `
+                    -LiteralPath $targetsPath `
+                    -Raw `
+                    -Encoding UTF8 `
+                    -ErrorAction Stop
+
+                $configuration = ConvertFrom-Json `
+                    -InputObject $content `
+                    -ErrorAction Stop
+
+                if ($configuration -is [array]) {
+
+                    $source = @($configuration)
+                }
+                else {
+
+                    $entries = Get-WinSecCLIValue `
+                        -InputObject $configuration `
+                        -Name 'targets'
+
+                    if ($null -eq $entries) {
+
+                        $entries = Get-WinSecCLIValue `
+                            -InputObject $configuration `
+                            -Name 'devices'
+                    }
+
+                    if ($null -ne $entries) {
+                        $source = @($entries)
+                    }
+                }
+            }
+            catch {
+
+                throw (
+                    'Unable to load targets.json: {0}' -f `
+                        $_.Exception.Message
+                )
+            }
+        }
+    }
+
+    # --------------------------------------------------------
+    # Normalize devices and reject duplicate identifiers
+    # --------------------------------------------------------
+
+    $registered = New-Object `
+        'System.Collections.Generic.List[object]'
+
+    $knownIds = @{}
+
+    foreach ($device in $source) {
+
+        if ($null -eq $device) {
+            continue
+        }
+
+        $deviceId = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'DeviceId'
+        )
+
+        if (-not $deviceId) {
+
+            $deviceId = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $device `
+                    -Name 'Id'
+            )
+        }
+
+        if ([string]::IsNullOrWhiteSpace($deviceId)) {
+            continue
+        }
+
+        if ($knownIds.ContainsKey($deviceId)) {
+            continue
+        }
+
+        $knownIds[$deviceId] = $true
+
+        $hostname = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'Hostname'
+        )
+
+        if (-not $hostname) {
+
+            $hostname = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $device `
+                    -Name 'Name'
+            )
+        }
+
+        if (-not $hostname) {
+            $hostname = $deviceId
+        }
+
+        $mode = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'Mode'
+        )
+
+        if (-not $mode) {
+            $mode = 'UNKNOWN'
+        }
+
+        $score = Get-WinSecCLIValue `
+            -InputObject $device `
+            -Name 'Score'
+
+        $status = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'Status'
+        )
+
+        if (-not $status) {
+            $status = 'PENDING'
+        }
+
+        $lastScan = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'LastScan'
+        )
+
+        if (-not $lastScan) {
+            $lastScan = 'Never'
+        }
+
+        $scanId = [string](
+            Get-WinSecCLIValue `
+                -InputObject $device `
+                -Name 'ScanId'
+        )
+
+        if (-not $scanId) {
+
+            $scanId = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $device `
+                    -Name 'LastScanId'
+            )
+        }
+
+        $registered.Add(
+            [PSCustomObject]@{
+                DeviceId = $deviceId
+                Hostname = $hostname
+                Name     = $hostname
+                Mode     = $mode
+                Score    = $score
+                Status   = $status
+                LastScan = $lastScan
+                ScanId   = $scanId
+            }
+        )
+    }
+
+    # --------------------------------------------------------
+    # First-time installation: local device placeholder
+    # --------------------------------------------------------
+
+    if ($registered.Count -eq 0) {
+
+        $hostname = [string]$env:COMPUTERNAME
+
+        if (-not $hostname) {
+            $hostname = [Environment]::MachineName
+        }
+
+        $registered.Add(
+            [PSCustomObject]@{
+                DeviceId = "local:$hostname"
+                Hostname = $hostname
+                Name     = $hostname
+                Mode     = 'LOCAL'
+                Score    = $null
+                Status   = 'PENDING'
+                LastScan = 'Never'
+                ScanId   = ''
+            }
+        )
+    }
+
+    return $registered.ToArray()
+}
+
+
+# ------------------------------------------------------------
+# Filter assessment records by device and scan
+# ------------------------------------------------------------
+
+function Get-WinSecCLIRecords {
+    [CmdletBinding()]
+    param(
+        [AllowEmptyCollection()]
+        [object[]]$Records = @(),
+
+        [Parameter(Mandatory)]
+        [string]$DeviceId,
+
+        [AllowEmptyString()]
+        [string]$ScanId = ''
+    )
+
+    foreach ($record in $Records) {
+
+        if ($null -eq $record) {
+            continue
+        }
+
+        $recordDevice = [string](
+            Get-WinSecCLIValue `
+                -InputObject $record `
+                -Name 'DeviceId'
+        )
+
+        $recordScan = [string](
+            Get-WinSecCLIValue `
+                -InputObject $record `
+                -Name 'ScanId'
+        )
+
+        if (
+            $recordDevice -eq $DeviceId -and
+            $recordScan -eq $ScanId
+        ) {
+            $record
+        }
     }
 }
 
 
 # ------------------------------------------------------------
-# Display informational messages
+# Resolve assessment belonging to the selected device
 # ------------------------------------------------------------
 
-function Show-WinSecCLIMessage {
+function Get-WinSecCLIActiveAssessment {
     [CmdletBinding()]
     param(
-        [string]$Title = 'Information',
+        [Parameter(Mandatory)]
+        [psobject]$State,
 
-        [string]$Message = '',
-
-        [ConsoleColor]$Color = 'Yellow'
+        [Parameter(Mandatory)]
+        [psobject]$Context
     )
 
-    Clear-WinSecScreen
+    $deviceId = [string]$State.SelectedDeviceId
 
-    Write-WinSecText `
-        -Text 'WINSEC ANALYZER' `
-        -Color Cyan `
-        -Align Center
+    $empty = [PSCustomObject]@{
+        SectionResults = @()
+        ControlResults = @()
+        Findings       = @()
 
-    Write-Host ''
+        ScanId         = ''
+        OverallScore   = $null
+        OverallStatus  = 'PENDING'
 
-    Write-WinSecSectionTitle -Title $Title
+        Warning        = ''
+    }
 
-    Write-WinSecText `
-        -Text $Message `
-        -Color $Color
+    if (-not $deviceId) {
+        return $empty
+    }
 
-    Write-Host ''
+    # --------------------------------------------------------
+    # Collect only records belonging to the active device
+    # --------------------------------------------------------
 
-    Write-WinSecDivider
+    $allRecords = @(
+        @($Context.SectionResults) +
+        @($Context.ControlResults) +
+        @($Context.Findings)
+    )
 
-    Write-WinSecText `
-        -Text '[ANY KEY] Return to dashboard' `
-        -Color DarkGray
+    $deviceRecords = @(
+        foreach ($record in $allRecords) {
 
-    $null = Read-WinSecKey
+            if ($null -eq $record) {
+                continue
+            }
+
+            $recordDevice = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $record `
+                    -Name 'DeviceId'
+            )
+
+            if ($recordDevice -eq $deviceId) {
+                $record
+            }
+        }
+    )
+
+    # --------------------------------------------------------
+    # Determine scan identifier
+    # --------------------------------------------------------
+
+    $selectedScan = [string]$Context.ScanId
+
+    $scanIds = @(
+        $deviceRecords | ForEach-Object {
+
+            $value = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $_ `
+                    -Name 'ScanId'
+            )
+
+            if ($value) {
+                $value
+            }
+            else {
+                '__UNSPECIFIED_SCAN__'
+            }
+
+        } | Select-Object -Unique
+    )
+
+    # Never combine findings from separate executions.
+    if (-not $selectedScan) {
+
+        if ($scanIds.Count -gt 1) {
+
+            $empty.Warning = (
+                'Multiple scan executions were found. ' +
+                'Specify a ScanId to view one assessment.'
+            )
+
+            return $empty
+        }
+
+        if (
+            $scanIds.Count -eq 1 -and
+            $scanIds[0] -ne '__UNSPECIFIED_SCAN__'
+        ) {
+            $selectedScan = $scanIds[0]
+        }
+    }
+
+    # --------------------------------------------------------
+    # Filter all assessment collections
+    # --------------------------------------------------------
+
+    $sectionResults = @(
+        Get-WinSecCLIRecords `
+            -Records $Context.SectionResults `
+            -DeviceId $deviceId `
+            -ScanId $selectedScan
+    )
+
+    $controlResults = @(
+        Get-WinSecCLIRecords `
+            -Records $Context.ControlResults `
+            -DeviceId $deviceId `
+            -ScanId $selectedScan
+    )
+
+    $findings = @(
+        Get-WinSecCLIRecords `
+            -Records $Context.Findings `
+            -DeviceId $deviceId `
+            -ScanId $selectedScan
+    )
+
+    # --------------------------------------------------------
+    # Resolve device score for matching assessment only
+    # --------------------------------------------------------
+
+    $overallScore = $null
+    $overallStatus = 'PENDING'
+
+    $selectedDevice = @(
+        $Context.Devices | Where-Object {
+            $_.DeviceId -eq $deviceId
+        }
+    ) | Select-Object -First 1
+
+    if ($null -ne $selectedDevice) {
+
+        $deviceScan = [string]$selectedDevice.ScanId
+
+        if (
+            $selectedScan -and
+            $deviceScan -eq $selectedScan
+        ) {
+
+            $scoreText = [string]$selectedDevice.Score
+
+            $scoreText = $scoreText -replace '/100$', ''
+
+            $scoreValue = 0
+
+            if (
+                [int]::TryParse(
+                    $scoreText,
+                    [ref]$scoreValue
+                ) -and
+                $scoreValue -ge 0 -and
+                $scoreValue -le 100
+            ) {
+
+                $overallScore = $scoreValue
+                $overallStatus = [string]$selectedDevice.Status
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        SectionResults = $sectionResults
+        ControlResults = $controlResults
+        Findings       = $findings
+
+        ScanId         = $selectedScan
+        OverallScore   = $overallScore
+        OverallStatus  = $overallStatus
+
+        Warning        = ''
+    }
 }
 
 
 # ------------------------------------------------------------
-# Get navigation context
+# Render current application screen
 # ------------------------------------------------------------
 
-function Get-WinSecCLIContext {
+function Show-WinSecCLICurrentScreen {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [psobject]$NavigationState,
+        [psobject]$State,
 
-        [object[]]$SectionResults = @(),
-
-        [object[]]$ControlResults = @(),
-
-        [object[]]$Findings = @()
+        [Parameter(Mandatory)]
+        [psobject]$Context
     )
+
+    # --------------------------------------------------------
+    # Devices do not require an assessment
+    # --------------------------------------------------------
+
+    if ($State.Screen -eq 'Devices') {
+
+        Show-WinSecDevices `
+            -NavigationState $State `
+            -Devices $Context.Devices `
+            -Version $Context.Version
+
+        return
+    }
+
+    $assessment = Get-WinSecCLIActiveAssessment `
+        -State $State `
+        -Context $Context
+
+    # --------------------------------------------------------
+    # Block ambiguous multi-scan views
+    # --------------------------------------------------------
+
+    if ($assessment.Warning) {
+
+        Clear-WinSecScreen
+
+        Write-WinSecText `
+            -Text 'WINSEC ANALYZER' `
+            -Color Cyan `
+            -Align Center
+
+        Write-Host ''
+
+        Write-WinSecText `
+            -Text 'Assessment selection required' `
+            -Color Yellow
+
+        Write-Host ''
+
+        Write-WinSecText `
+            -Text $assessment.Warning `
+            -Color Gray
+
+        Write-Host ''
+
+        Write-WinSecKeyboardHelp `
+            -Screen $State.Screen
+
+        return
+    }
+
+    # --------------------------------------------------------
+    # Render the active screen
+    # --------------------------------------------------------
+
+    switch ($State.Screen) {
+
+        'MainMenu' {
+
+            Show-WinSecMainMenu `
+                -NavigationState $State `
+                -SectionResults $assessment.SectionResults `
+                -OverallScore $assessment.OverallScore `
+                -OverallStatus $assessment.OverallStatus `
+                -Version $Context.Version
+        }
+
+        'Section' {
+
+            Show-WinSecResults `
+                -NavigationState $State `
+                -SectionResults $assessment.SectionResults `
+                -ControlResults $assessment.ControlResults `
+                -Version $Context.Version
+        }
+
+        'Results' {
+
+            Show-WinSecResults `
+                -NavigationState $State `
+                -SectionResults $assessment.SectionResults `
+                -ControlResults $assessment.ControlResults `
+                -Version $Context.Version
+        }
+
+        'Findings' {
+
+            Show-WinSecFindings `
+                -NavigationState $State `
+                -SectionResults $assessment.SectionResults `
+                -ControlResults $assessment.ControlResults `
+                -Findings $assessment.Findings `
+                -ScanId $assessment.ScanId `
+                -Version $Context.Version
+        }
+
+        default {
+
+            Clear-WinSecScreen
+
+            Write-WinSecText `
+                -Text 'WINSEC ANALYZER' `
+                -Color Cyan `
+                -Align Center
+
+            Write-Host ''
+
+            Write-WinSecText `
+                -Text "SCREEN: $($State.Screen)" `
+                -Color Gray
+
+            Write-WinSecText `
+                -Text 'Screen integration pending.' `
+                -Color Yellow
+
+            Write-Host ''
+
+            Write-WinSecText `
+                -Text '[ESC] Back' `
+                -Color DarkGray
+        }
+    }
+}
+
+
+# ------------------------------------------------------------
+# Calculate navigation boundaries
+# ------------------------------------------------------------
+
+function Get-WinSecCLINavigationCounts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$State,
+
+        [Parameter(Mandatory)]
+        [psobject]$Context
+    )
+
+    $assessment = Get-WinSecCLIActiveAssessment `
+        -State $State `
+        -Context $Context
 
     $sections = @(
         Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
+            -SectionResults $assessment.SectionResults
     )
 
-    $sectionCount = $sections.Count
-    $controlCount = 0
-    $findingCount = 0
+    $controls = @()
+    $section = $null
 
-    if ($sectionCount -gt 0) {
+    # --------------------------------------------------------
+    # Resolve selected security section
+    # --------------------------------------------------------
+
+    if ($sections.Count -gt 0) {
 
         $sectionIndex = [Math]::Max(
             0,
             [Math]::Min(
-                [int]$NavigationState.SectionIndex,
-                $sectionCount - 1
+                [int]$State.SectionIndex,
+                $sections.Count - 1
             )
         )
 
@@ -145,28 +718,82 @@ function Get-WinSecCLIContext {
         $controls = @(
             Get-WinSecSectionControls `
                 -SectionKey $section.Key `
-                -ControlResults $ControlResults
+                -ControlResults $assessment.ControlResults
         )
-
-        $controlCount = $controls.Count
     }
 
-    if ($NavigationState.Screen -eq 'Findings') {
+    # --------------------------------------------------------
+    # Count findings for current selection
+    # --------------------------------------------------------
 
-        $assessment = Get-WinSecSelectedFindings `
-            -NavigationState $NavigationState `
-            -SectionResults $SectionResults `
-            -ControlResults $ControlResults `
-            -Findings $Findings
+    $findingCount = 0
 
-        if ($null -ne $assessment) {
-            $findingCount = $assessment.Findings.Count
+    if ($null -ne $section) {
+
+        $selectedControl = $null
+
+        if (
+            $State.FindingsScope -eq 'Control' -and
+            $controls.Count -gt 0
+        ) {
+
+            $controlIndex = [Math]::Max(
+                0,
+                [Math]::Min(
+                    [int]$State.ControlIndex,
+                    $controls.Count - 1
+                )
+            )
+
+            $selectedControl = $controls[$controlIndex]
+        }
+
+        foreach ($finding in $assessment.Findings) {
+
+            $findingSection = [string](
+                Get-WinSecCLIValue `
+                    -InputObject $finding `
+                    -Name 'SectionKey'
+            )
+
+            if ($findingSection -ne $section.Key) {
+                continue
+            }
+
+            if ($null -ne $selectedControl) {
+
+                $findingControl = [string](
+                    Get-WinSecCLIValue `
+                        -InputObject $finding `
+                        -Name 'ControlKey'
+                )
+
+                $findingCheck = [string](
+                    Get-WinSecCLIValue `
+                        -InputObject $finding `
+                        -Name 'CheckId'
+                )
+
+                $controlMatch = (
+                    $findingControl -eq $selectedControl.Key -or
+                    (
+                        $selectedControl.CheckId -and
+                        $findingCheck -eq $selectedControl.CheckId
+                    )
+                )
+
+                if (-not $controlMatch) {
+                    continue
+                }
+            }
+
+            $findingCount++
         }
     }
 
     return [PSCustomObject]@{
-        SectionCount  = $sectionCount
-        ControlCount  = $controlCount
+        SectionCount  = $sections.Count
+        ControlCount  = $controls.Count
         FindingCount  = $findingCount
         SettingsCount = 0
     }
@@ -174,295 +801,279 @@ function Get-WinSecCLIContext {
 
 
 # ------------------------------------------------------------
-# Render active UI screen
-# ------------------------------------------------------------
-
-function Show-WinSecActiveScreen {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [psobject]$NavigationState,
-
-        [object[]]$SectionResults = @(),
-
-        [object[]]$ControlResults = @(),
-
-        [object[]]$Findings = @(),
-
-        [Nullable[int]]$OverallScore = $null,
-
-        [string]$OverallStatus = 'PENDING',
-
-        [string]$Version = '0.9.0'
-    )
-
-    switch ($NavigationState.Screen) {
-
-        'MainMenu' {
-
-            $parameters = @{
-                NavigationState = $NavigationState
-                SectionResults  = $SectionResults
-                OverallStatus   = $OverallStatus
-                Version         = $Version
-            }
-
-            if ($null -ne $OverallScore) {
-                $parameters.OverallScore = $OverallScore
-            }
-
-            Show-WinSecMainMenu @parameters
-        }
-
-        'Section' {
-
-            # Section screen is rendered by Results.ps1
-            Show-WinSecResults `
-                -NavigationState $NavigationState `
-                -SectionResults $SectionResults `
-                -ControlResults $ControlResults `
-                -Version $Version
-        }
-
-        'Results' {
-
-            Show-WinSecResults `
-                -NavigationState $NavigationState `
-                -SectionResults $SectionResults `
-                -ControlResults $ControlResults `
-                -Version $Version
-        }
-
-        'Findings' {
-
-            Show-WinSecFindings `
-                -NavigationState $NavigationState `
-                -SectionResults $SectionResults `
-                -ControlResults $ControlResults `
-                -Findings $Findings `
-                -Version $Version
-        }
-
-        'Audit' {
-
-            Show-WinSecAudit -Version $Version
-        }
-
-        'Settings' {
-
-            Show-WinSecSettings `
-                -NavigationState $NavigationState `
-                -Version $Version
-        }
-
-        default {
-
-            $NavigationState.Screen = 'MainMenu'
-
-            Show-WinSecMainMenu `
-                -NavigationState $NavigationState `
-                -SectionResults $SectionResults `
-                -Version $Version
-        }
-    }
-}
-
-
-# ------------------------------------------------------------
-# Main CLI execution
+# Main interactive application controller
 # ------------------------------------------------------------
 
 function Invoke-WinSecCLI {
     [CmdletBinding()]
     param(
-        [string]$Version = '0.9.0',
+        [Alias('ProjectPath', 'RootPath')]
+        [string]$ProjectRoot = (
+            [System.IO.Path]::GetFullPath(
+                (Join-Path $PSScriptRoot '..\..')
+            )
+        ),
 
+        [AllowEmptyCollection()]
+        [object[]]$Devices = @(),
+
+        [AllowEmptyCollection()]
         [object[]]$SectionResults = @(),
 
+        [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
+        [AllowEmptyCollection()]
         [object[]]$Findings = @(),
 
-        [Nullable[int]]$OverallScore = $null,
+        [string]$ScanId = '',
 
-        [string]$OverallStatus = 'PENDING'
+        [string]$Version = '0.9.0'
+    )
+
+    $ProjectRoot = [System.IO.Path]::GetFullPath(
+        $ProjectRoot
     )
 
     # --------------------------------------------------------
-    # Load application components
+    # Load UI components and controllers
     # --------------------------------------------------------
 
-    try {
-        # Dot-source in this function's scope so the
-        # loaded functions remain available during execution.
-        . Import-WinSecUIComponents
+    $modules = @(
+        'src/UI/Core/TerminalRenderer.ps1'
+
+        'src/UI/Components/Banner.ps1'
+        'src/UI/Components/Table.ps1'
+        'src/UI/Components/KeyboardHelp.ps1'
+
+        'src/UI/Core/LayoutManager.ps1'
+        'src/UI/Core/KeyboardController.ps1'
+        'src/UI/Core/NavigationController.ps1'
+        'src/UI/Core/ResizeHandler.ps1'
+
+        'src/UI/Screens/MainMenu.ps1'
+        'src/UI/Screens/Results.ps1'
+        'src/UI/Screens/Devices.ps1'
+        'src/UI/Screens/Findings.ps1'
+    )
+
+    foreach ($module in $modules) {
+
+        $path = Join-Path `
+            -Path $ProjectRoot `
+            -ChildPath $module
+
+        if (-not (
+            Test-Path -LiteralPath $path -PathType Leaf
+        )) {
+
+            throw "Required module not found: $path"
+        }
+
+        . $path
     }
-    catch {
-        Write-Host ''
-        Write-Host 'WINSEC ANALYZER - STARTUP ERROR' `
-            -ForegroundColor Red
 
-        Write-Host $_.Exception.Message `
-            -ForegroundColor Yellow
+    # --------------------------------------------------------
+    # Validate required functions
+    # --------------------------------------------------------
 
-        return
+    $requiredCommands = @(
+        'Get-WinSecTerminalSize'
+        'Get-WinSecLayout'
+
+        'New-WinSecNavigationState'
+        'Invoke-WinSecNavigationAction'
+
+        'New-WinSecResizeState'
+        'Read-WinSecResizeAwareKey'
+
+        'Get-WinSecKeyboardAction'
+        'ConvertTo-WinSecKeyboardAction'
+
+        'Show-WinSecDevices'
+        'Show-WinSecMainMenu'
+        'Show-WinSecResults'
+        'Show-WinSecFindings'
+    )
+
+    foreach ($commandName in $requiredCommands) {
+
+        $command = Get-Command `
+            -Name $commandName `
+            -CommandType Function `
+            -ErrorAction SilentlyContinue
+
+        if ($null -eq $command) {
+
+            throw (
+                "Required function unavailable: $commandName"
+            )
+        }
     }
 
     # --------------------------------------------------------
-    # Initialize application state
+    # Load device registry
     # --------------------------------------------------------
 
-    $navigation = New-WinSecNavigationState
+    $registeredDevices = @(
+        Get-WinSecCLIDevices `
+            -ProjectRoot $ProjectRoot `
+            -Devices $Devices
+    )
+
+    # --------------------------------------------------------
+    # Initialize navigation and resize state
+    # --------------------------------------------------------
+
+    $navigationState = New-WinSecNavigationState
 
     $resizeState = New-WinSecResizeState
 
     # --------------------------------------------------------
-    # Main application event loop
+    # Initialize assessment context
     # --------------------------------------------------------
 
-    while (-not $navigation.ExitRequested) {
+    $context = [PSCustomObject]@{
+        ProjectRoot    = $ProjectRoot
+        Version        = $Version
 
-        # Render current screen
-        Show-WinSecActiveScreen `
-            -NavigationState $navigation `
-            -SectionResults $SectionResults `
-            -ControlResults $ControlResults `
-            -Findings $Findings `
-            -OverallScore $OverallScore `
-            -OverallStatus $OverallStatus `
-            -Version $Version
+        Devices        = $registeredDevices
 
-        # Clear completed redraw request
-        Reset-WinSecRedraw -State $resizeState
+        SectionResults = @($SectionResults)
+        ControlResults = @($ControlResults)
+        Findings       = @($Findings)
+
+        ScanId         = $ScanId
+    }
+
+    # --------------------------------------------------------
+    # Define reusable screen renderer
+    # --------------------------------------------------------
+
+    $renderAction = {
+
+        param($CurrentState)
+
+        Show-WinSecCLICurrentScreen `
+            -State $CurrentState `
+            -Context $context
+    }
+
+    # --------------------------------------------------------
+    # Render initial device selection screen
+    # --------------------------------------------------------
+
+    $null = & $renderAction $navigationState
+
+    # --------------------------------------------------------
+    # Interactive application loop
+    # --------------------------------------------------------
+
+    while (-not $navigationState.ExitRequested) {
 
         # ----------------------------------------------------
-        # Wait for keyboard input or terminal resize
+        # Read keyboard input with resize monitoring
         # ----------------------------------------------------
 
-        $uiEvent = Wait-WinSecUIEvent `
+        $keyInfo = Read-WinSecResizeAwareKey `
             -ResizeState $resizeState `
-            -Screen $navigation.Screen
+            -RenderAction $renderAction `
+            -NavigationState $navigationState
 
-        # Redraw when terminal dimensions change
-        if ($uiEvent.EventType -eq 'Resize') {
+        # ----------------------------------------------------
+        # Get action from centralized KeyboardController
+        # ----------------------------------------------------
+
+        $keyboardEvent = Get-WinSecKeyboardAction `
+            -KeyInfo $keyInfo `
+            -Screen $navigationState.Screen
+
+        # Disabled or unsupported key
+        if ($keyboardEvent.Action -eq 'None') {
             continue
         }
 
-        if ($uiEvent.ResizeDetected) {
-            Request-WinSecRedraw -State $resizeState
+        # ----------------------------------------------------
+        # Determine navigation boundaries
+        # ----------------------------------------------------
+
+        $counts = Get-WinSecCLINavigationCounts `
+            -State $navigationState `
+            -Context $context
+
+        # ----------------------------------------------------
+        # Apply navigation action
+        # ----------------------------------------------------
+
+        $null = Invoke-WinSecNavigationAction `
+            -State $navigationState `
+            -Action $keyboardEvent.Action `
+            -Devices $registeredDevices `
+            -SectionCount $counts.SectionCount `
+            -ControlCount $counts.ControlCount `
+            -FindingCount $counts.FindingCount `
+            -SettingsCount $counts.SettingsCount
+
+        # ----------------------------------------------------
+        # Handle application lifecycle
+        # ----------------------------------------------------
+
+        if ($navigationState.ExitRequested) {
+            break
         }
 
-        # Ignore unsupported keys
+        # ----------------------------------------------------
+        # Process device selection
+        # ----------------------------------------------------
+
+        if ($navigationState.PendingCommand -eq 'SelectDevice') {
+
+            # The active device is already stored in
+            # NavigationState.SelectedDeviceId.
+            #
+            # Assessment data is filtered dynamically.
+
+            $navigationState.PendingCommand = $null
+            $navigationState.PendingScope = $null
+        }
+
+        # ----------------------------------------------------
+        # Keep unavailable operations disabled
+        # ----------------------------------------------------
+
         if (
-            [string]::IsNullOrWhiteSpace($uiEvent.Action) -or
-            $uiEvent.Action -eq 'None'
+            $navigationState.PendingCommand -in @(
+                'ExportTXT',
+                'Rescan',
+                'SelectSetting'
+            )
         ) {
-            continue
+
+            # Export, rescan and settings editing
+            # must be explicitly enabled only after
+            # their implementations are connected.
+
+            $navigationState.PendingCommand = $null
+            $navigationState.PendingScope = $null
         }
 
         # ----------------------------------------------------
-        # Resolve navigation context
+        # Redraw using the existing navigation state
         # ----------------------------------------------------
 
-        $context = Get-WinSecCLIContext `
-            -NavigationState $navigation `
-            -SectionResults $SectionResults `
-            -ControlResults $ControlResults `
-            -Findings $Findings
+        if ($keyboardEvent.RequiresRedraw) {
 
-        # ----------------------------------------------------
-        # Process keyboard action
-        # ----------------------------------------------------
-
-        $navigation = Invoke-WinSecNavigationAction `
-            -State $navigation `
-            -Action $uiEvent.Action `
-            -SectionCount $context.SectionCount `
-            -ControlCount $context.ControlCount `
-            -FindingCount $context.FindingCount `
-            -SettingsCount $context.SettingsCount
-
-        # ----------------------------------------------------
-        # Process pending application commands
-        # ----------------------------------------------------
-
-        $command = $navigation.PendingCommand
-
-        if (-not [string]::IsNullOrWhiteSpace($command)) {
-
-            switch ($command) {
-
-                'ExportTXT' {
-
-                    # ExportService.ps1 will handle actual
-                    # report generation in a later stage.
-
-                    Show-WinSecCLIMessage `
-                        -Title 'Export Report' `
-                        -Message 'TXT export is not connected yet.'
-                }
-
-                'Rescan' {
-
-                    # AuditEngine.ps1 will execute real
-                    # security checks once integrated.
-
-                    Show-WinSecCLIMessage `
-                        -Title 'Security Assessment' `
-                        -Message 'The audit engine is not connected yet.'
-                }
-
-                'SelectSetting' {
-
-                    Show-WinSecCLIMessage `
-                        -Title 'Settings' `
-                        -Message 'Configuration editing is not available yet.'
-                }
-
-                'Exit' {
-                    $navigation.ExitRequested = $true
-                }
-            }
-
-            # Clear processed command
-            $navigation.PendingCommand = $null
-            $navigation.PendingScope = $null
+            $null = & $renderAction $navigationState
         }
     }
 
     # --------------------------------------------------------
-    # Clean application exit
+    # Close interactive session
     # --------------------------------------------------------
 
     Clear-WinSecScreen
 
     Write-WinSecText `
-        -Text 'WINSEC ANALYZER' `
-        -Color Cyan `
-        -Align Center
-
-    Write-Host ''
-
-    Write-WinSecText `
-        -Text 'Session closed.' `
-        -Color DarkGray `
-        -Align Center
-
-    Write-Host ''
-}
-
-
-# ------------------------------------------------------------
-# Allow direct execution for UI testing
-# ------------------------------------------------------------
-
-# Direct execution:
-#   .\src\CLI\Invoke-WinSecCLI.ps1
-#
-# Dot-source without automatic execution:
-#   . .\src\CLI\Invoke-WinSecCLI.ps1
-#   Invoke-WinSecCLI
-
-if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-WinSecCLI
+        -Text 'WinSec Analyzer session closed.' `
+        -Color DarkGray
 }

@@ -6,242 +6,356 @@
 # Author    : mrRoot
 #
 # Description:
-# Detects terminal resizing and requests UI redraws.
-# Works with TerminalRenderer and KeyboardController.
+# Detects terminal resizing and requests screen redraws.
+#
+# Features:
+# - Dynamic terminal size detection
+# - Automatic redraw support
+# - Navigation state preservation
+# - Non-blocking keyboard polling
+# - PowerShell 5.1+ compatibility
+#
+# This component does not modify terminal dimensions.
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Initialize terminal resize tracking
+# Get current terminal dimensions
+# ------------------------------------------------------------
+
+function Get-WinSecResizeSnapshot {
+    [CmdletBinding()]
+    param()
+
+    try {
+
+        $terminal = Get-WinSecTerminalSize
+
+        if ($null -eq $terminal) {
+            throw 'Terminal dimensions are unavailable.'
+        }
+
+        $width = [int]$terminal.Width
+        $height = [int]$terminal.Height
+
+        if ($width -le 0 -or $height -le 0) {
+            throw 'Invalid terminal dimensions.'
+        }
+
+        $contentWidth = [int]$terminal.ContentWidth
+
+        if ($contentWidth -le 0) {
+            $contentWidth = [Math]::Max(
+                1,
+                $width - 2
+            )
+        }
+
+        return [PSCustomObject]@{
+            Width        = $width
+            Height       = $height
+            ContentWidth = $contentWidth
+        }
+    }
+    catch {
+
+        throw (
+            'Unable to determine terminal size: {0}' -f `
+                $_.Exception.Message
+        )
+    }
+}
+
+
+# ------------------------------------------------------------
+# Initialize resize tracking state
 # ------------------------------------------------------------
 
 function New-WinSecResizeState {
     [CmdletBinding()]
     param()
 
-    $terminal = Get-WinSecTerminalSize
+    $snapshot = Get-WinSecResizeSnapshot
 
     return [PSCustomObject]@{
-        Width         = [int]$terminal.Width
-        Height        = [int]$terminal.Height
-        LastResize    = [DateTime]::UtcNow
-        ResizeCount   = 0
-        RedrawRequired = $false
+
+        Width = $snapshot.Width
+
+        Height = $snapshot.Height
+
+        ContentWidth = $snapshot.ContentWidth
+
+        # Avoid recursive rendering
+        IsRendering = $false
+
+        # Resize tracking
+        ResizeCount = 0
+
+        LastResizeUTC = $null
+
+        # Last successful redraw
+        LastRenderUTC = $null
     }
 }
 
 
 # ------------------------------------------------------------
-# Check whether terminal dimensions changed
+# Detect terminal dimension changes
 # ------------------------------------------------------------
 
 function Test-WinSecTerminalResize {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [psobject]$State
+        [psobject]$ResizeState
     )
 
-    $terminal = Get-WinSecTerminalSize
-
-    $newWidth  = [int]$terminal.Width
-    $newHeight = [int]$terminal.Height
+    $snapshot = Get-WinSecResizeSnapshot
 
     $changed = (
-        $newWidth -ne $State.Width -or
-        $newHeight -ne $State.Height
+        $snapshot.Width -ne $ResizeState.Width -or
+        $snapshot.Height -ne $ResizeState.Height -or
+        $snapshot.ContentWidth -ne $ResizeState.ContentWidth
     )
 
-    if (-not $changed) {
-        return $false
-    }
-
-    $State.Width = $newWidth
-    $State.Height = $newHeight
-
-    $State.LastResize = [DateTime]::UtcNow
-    $State.ResizeCount++
-    $State.RedrawRequired = $true
-
-    return $true
+    return [bool]$changed
 }
 
 
 # ------------------------------------------------------------
-# Request UI redraw
+# Synchronize stored terminal dimensions
 # ------------------------------------------------------------
 
-function Request-WinSecRedraw {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [psobject]$State
-    )
-
-    $State.RedrawRequired = $true
-}
-
-
-# ------------------------------------------------------------
-# Clear redraw request after rendering
-# ------------------------------------------------------------
-
-function Reset-WinSecRedraw {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [psobject]$State
-    )
-
-    $State.RedrawRequired = $false
-}
-
-
-# ------------------------------------------------------------
-# Get current terminal resize information
-# ------------------------------------------------------------
-
-function Get-WinSecResizeInfo {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [psobject]$State
-    )
-
-    return [PSCustomObject]@{
-        Width          = $State.Width
-        Height         = $State.Height
-        ResizeCount    = $State.ResizeCount
-        LastResize     = $State.LastResize
-        RedrawRequired = $State.RedrawRequired
-    }
-}
-
-
-# ------------------------------------------------------------
-# Wait for keyboard input or terminal resize
-# ------------------------------------------------------------
-
-function Wait-WinSecUIEvent {
+function Update-WinSecResizeState {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [psobject]$ResizeState,
 
-        [ValidateSet(
-            'MainMenu',
-            'Section',
-            'Findings',
-            'Audit',
-            'Results',
-            'Settings'
-        )]
-        [string]$Screen = 'MainMenu',
-
-        [ValidateRange(25, 1000)]
-        [int]$PollIntervalMs = 100
+        [AllowNull()]
+        [psobject]$Snapshot = $null
     )
 
-    # Determine whether non-blocking keyboard polling
-    # is supported by the current PowerShell host.
+    if ($null -eq $Snapshot) {
+        $Snapshot = Get-WinSecResizeSnapshot
+    }
 
-    $canPollKeyboard = $true
+    $ResizeState.Width = [int]$Snapshot.Width
+
+    $ResizeState.Height = [int]$Snapshot.Height
+
+    $ResizeState.ContentWidth = [int]$Snapshot.ContentWidth
+
+    return $ResizeState
+}
+
+
+# ------------------------------------------------------------
+# Handle a detected resize and redraw active screen
+# ------------------------------------------------------------
+
+function Invoke-WinSecResizeHandler {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$ResizeState,
+
+        [Parameter(Mandatory)]
+        [scriptblock]$RenderAction,
+
+        [AllowNull()]
+        [psobject]$NavigationState = $null,
+
+        [switch]$Force
+    )
+
+    # --------------------------------------------------------
+    # Prevent recursive or overlapping redraw requests
+    # --------------------------------------------------------
+
+    if ($ResizeState.IsRendering) {
+        return $false
+    }
+
+    $snapshot = Get-WinSecResizeSnapshot
+
+    # --------------------------------------------------------
+    # Compare current size with previous dimensions
+    # --------------------------------------------------------
+
+    $resized = (
+        $snapshot.Width -ne $ResizeState.Width -or
+        $snapshot.Height -ne $ResizeState.Height -or
+        $snapshot.ContentWidth -ne $ResizeState.ContentWidth
+    )
+
+    if (-not $resized -and -not $Force) {
+        return $false
+    }
+
+    # --------------------------------------------------------
+    # Request screen redraw
+    # --------------------------------------------------------
+
+    $ResizeState.IsRendering = $true
 
     try {
-        $null = [Console]::KeyAvailable
-    }
-    catch {
-        $canPollKeyboard = $false
-    }
 
-    # Fallback for terminals that cannot poll input.
-    # In this mode resizing is detected after a keypress.
+        # RenderAction receives the existing navigation
+        # state, preserving the current user selection.
+        #
+        # Screens must obtain their new dimensions
+        # through Get-WinSecLayout.
+        #
+        # Rendering must not execute a new audit.
 
-    if (-not $canPollKeyboard) {
+        $null = & $RenderAction $NavigationState
 
-        $keyboardEvent = Get-WinSecKeyboardAction `
-            -Screen $Screen
+        # ----------------------------------------------------
+        # Save the dimensions used for this redraw
+        # ----------------------------------------------------
 
-        $resized = Test-WinSecTerminalResize `
-            -State $ResizeState
+        $null = Update-WinSecResizeState `
+            -ResizeState $ResizeState `
+            -Snapshot $snapshot
 
-        return [PSCustomObject]@{
-            EventType      = 'Key'
-            Screen         = $Screen
-            Key            = $keyboardEvent.Key
-            Action         = $keyboardEvent.Action
-            ResizeDetected = $resized
-            Width          = $ResizeState.Width
-            Height         = $ResizeState.Height
-        }
-    }
-
-    # Non-blocking event loop.
-    # Detect both resizing and keyboard actions.
-
-    while ($true) {
-
-        # Check for terminal dimension changes.
-
-        $resized = Test-WinSecTerminalResize `
-            -State $ResizeState
+        $ResizeState.LastRenderUTC = [DateTime]::UtcNow
 
         if ($resized) {
 
-            return [PSCustomObject]@{
-                EventType      = 'Resize'
-                Screen         = $Screen
-                Key            = $null
-                Action         = 'Redraw'
-                ResizeDetected = $true
-                Width          = $ResizeState.Width
-                Height         = $ResizeState.Height
-            }
+            $ResizeState.ResizeCount++
+
+            $ResizeState.LastResizeUTC = [DateTime]::UtcNow
         }
 
-        # Check keyboard input without blocking.
+        return $true
+    }
+    finally {
+
+        $ResizeState.IsRendering = $false
+    }
+}
+
+
+# ------------------------------------------------------------
+# Read keyboard input while monitoring terminal resizing
+# ------------------------------------------------------------
+
+function Read-WinSecResizeAwareKey {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$ResizeState,
+
+        [Parameter(Mandatory)]
+        [scriptblock]$RenderAction,
+
+        [AllowNull()]
+        [psobject]$NavigationState = $null,
+
+        [ValidateRange(50, 1000)]
+        [int]$PollIntervalMilliseconds = 150
+    )
+
+    # --------------------------------------------------------
+    # Verify interactive console availability
+    # --------------------------------------------------------
+
+    $rawUI = $Host.UI.RawUI
+
+    if ($null -eq $rawUI) {
+
+        throw (
+            'Interactive console input is unavailable. ' +
+            'WinSec Analyzer requires a supported terminal.'
+        )
+    }
+
+    # --------------------------------------------------------
+    # Wait for a key without blocking resize detection
+    # --------------------------------------------------------
+
+    while ($true) {
+
+        # ----------------------------------------------------
+        # Check whether the terminal was resized
+        # ----------------------------------------------------
+
+        $null = Invoke-WinSecResizeHandler `
+            -ResizeState $ResizeState `
+            -NavigationState $NavigationState `
+            -RenderAction $RenderAction
+
+        # ----------------------------------------------------
+        # Check for keyboard input
+        # ----------------------------------------------------
 
         try {
-            if ([Console]::KeyAvailable) {
 
-                $keyboardEvent = Get-WinSecKeyboardAction `
-                    -Screen $Screen
-
-                return [PSCustomObject]@{
-                    EventType      = 'Key'
-                    Screen         = $Screen
-                    Key            = $keyboardEvent.Key
-                    Action         = $keyboardEvent.Action
-                    ResizeDetected = $false
-                    Width          = $ResizeState.Width
-                    Height         = $ResizeState.Height
-                }
-            }
+            $keyAvailable = [bool]$rawUI.KeyAvailable
         }
         catch {
 
-            # Switch to blocking keyboard input when
-            # the terminal does not support polling.
-
-            $keyboardEvent = Get-WinSecKeyboardAction `
-                -Screen $Screen
-
-            $resized = Test-WinSecTerminalResize `
-                -State $ResizeState
-
-            return [PSCustomObject]@{
-                EventType      = 'Key'
-                Screen         = $Screen
-                Key            = $keyboardEvent.Key
-                Action         = $keyboardEvent.Action
-                ResizeDetected = $resized
-                Width          = $ResizeState.Width
-                Height         = $ResizeState.Height
-            }
+            throw (
+                'This PowerShell host does not support ' +
+                'non-blocking keyboard input: {0}' -f `
+                    $_.Exception.Message
+            )
         }
 
-        # Reduce CPU usage while waiting for events.
+        if ($keyAvailable) {
 
-        Start-Sleep -Milliseconds $PollIntervalMs
+            # Return the native PowerShell key information.
+            # KeyboardController remains responsible for
+            # translating the key into a navigation action.
+
+            return $rawUI.ReadKey(
+                'NoEcho,IncludeKeyDown'
+            )
+        }
+
+        # ----------------------------------------------------
+        # Limit polling to avoid unnecessary CPU usage
+        # ----------------------------------------------------
+
+        Start-Sleep `
+            -Milliseconds $PollIntervalMilliseconds
+    }
+}
+
+
+# ------------------------------------------------------------
+# Return resize diagnostics
+# ------------------------------------------------------------
+
+function Get-WinSecResizeStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$ResizeState
+    )
+
+    $snapshot = Get-WinSecResizeSnapshot
+
+    $pendingResize = (
+        $snapshot.Width -ne $ResizeState.Width -or
+        $snapshot.Height -ne $ResizeState.Height -or
+        $snapshot.ContentWidth -ne $ResizeState.ContentWidth
+    )
+
+    return [PSCustomObject]@{
+        CurrentWidth   = $snapshot.Width
+        CurrentHeight  = $snapshot.Height
+
+        PreviousWidth  = $ResizeState.Width
+        PreviousHeight = $ResizeState.Height
+
+        ResizeCount    = $ResizeState.ResizeCount
+
+        PendingResize  = $pendingResize
+        IsRendering    = $ResizeState.IsRendering
+
+        LastResizeUTC  = $ResizeState.LastResizeUTC
+        LastRenderUTC  = $ResizeState.LastRenderUTC
     }
 }

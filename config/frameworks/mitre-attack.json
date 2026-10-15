@@ -1,0 +1,93 @@
+
+{
+    "schemaVersion": "1.0.0",
+    "frameworkId": "mitre-attack",
+    "name": "MITRE ATT&CK",
+    "knowledgeBase": "Enterprise ATT&CK",
+    "frameworkVersion": null,
+    "organization": "MITRE",
+    "description": "Adversary tactics, techniques, subtechniques and defensive mitigation mappings for WinSec Analyzer.",
+    "enabled": true,
+    "source": {
+        "name": "MITRE ATT&CK Enterprise",
+        "url": "https://attack.mitre.org/",
+        "enterpriseUrl": "https://attack.mitre.org/matrices/enterprise/"
+    },
+    "platforms": [
+        "Windows"
+    ],
+    "tactics": [
+        {
+            "id": "TA0043",
+            "name": "Reconnaissance"
+        },
+        {
+            "id": "TA0042",
+            "name": "Resource Development"
+        },
+        {
+            "id": "TA0001",
+            "name": "Initial Access"
+        },
+        {
+            "id": "TA0002",
+            "name": "Execution"
+        },
+        {
+            "id": "TA0003",
+            "name": "Persistence"
+        },
+        {
+            "id": "TA0004",
+            "name": "Privilege Escalation"
+        },
+        {
+            "id": "TA0005",
+            "name": "Defense Evasion"
+        },
+        {
+            "id": "TA0006",
+            "name": "Credential Access"
+        },
+        {
+            "id": "TA0007",
+            "name": "Discovery"
+        },
+        {
+            "id": "TA0008",
+            "name": "Lateral Movement"
+        },
+        {
+            "id": "TA0009",
+            "name": "Collection"
+        },
+        {
+            "id": "TA0011",
+            "name": "Command and Control"
+        },
+        {
+            "id": "TA0010",
+            "name": "Exfiltration"
+        },
+        {
+            "id": "TA0040",
+            "name": "Impact"
+        }
+    ],
+    "techniques": [],
+    "subtechniques": [],
+    "mitigations": [],
+    "mappings": [],
+    "mappingRules": {
+        "matchBy": "checkId",
+        "requireTechniqueId": true,
+        "requirePlatformMatch": true,
+        "allowMultipleReferences": true,
+        "includeTactics": true,
+        "includeTechniques": true,
+        "includeSubtechniques": true,
+        "includeMitigations": true,
+        "includeInFindings": true,
+        "includeInReports": true
+    }
+}

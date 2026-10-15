@@ -6,13 +6,303 @@
 # Author    : mrRoot
 #
 # Description:
-# Displays security findings, severity, recommendations
-# and references for the selected section or control.
+# Displays prioritized security findings with evidence,
+# remediation guidance and framework references.
+#
+# Features:
+# - Multi-device and multi-scan isolation
+# - P1-P5 finding prioritization
+# - CIS, NIST and MITRE references
+# - Adaptive terminal layout
+# - Selected finding details
+# - Persistent navigation selection
+#
+# This component does not execute security checks.
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Get findings for the current selection
+# Load required finding components
+# ------------------------------------------------------------
+
+$winSecProjectRoot = [System.IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\..\..')
+)
+
+$winSecFindingDependencies = @(
+    @{
+        Command = 'Invoke-WinSecFindingPrioritization'
+        Path    = 'src/Core/FindingPriorityEngine.ps1'
+    }
+    @{
+        Command = 'Get-WinSecFrameworkMappings'
+        Path    = 'src/Core/FrameworkMappingEngine.ps1'
+    }
+    @{
+        Command = 'Get-WinSecCheckFrameworkReferences'
+        Path    = 'src/Services/FrameworkService.ps1'
+    }
+)
+
+foreach ($dependency in $winSecFindingDependencies) {
+
+    $command = Get-Command `
+        -Name $dependency.Command `
+        -CommandType Function `
+        -ErrorAction SilentlyContinue
+
+    if ($null -ne $command) {
+        continue
+    }
+
+    $path = Join-Path `
+        -Path $winSecProjectRoot `
+        -ChildPath $dependency.Path
+
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        . $path
+    }
+}
+
+
+# ------------------------------------------------------------
+# Read a property from a finding or mapping
+# ------------------------------------------------------------
+
+function Get-WinSecFindingProperty {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+
+    if ($null -eq $InputObject) {
+        return $null
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+
+        foreach ($key in $InputObject.Keys) {
+
+            if (
+                [string]::Equals(
+                    [string]$key,
+                    $Name,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                )
+            ) {
+                return $InputObject[$key]
+            }
+        }
+
+        return $null
+    }
+
+    $property = $InputObject.PSObject.Properties[$Name]
+
+    if ($null -ne $property) {
+        return $property.Value
+    }
+
+    return $null
+}
+
+
+# ------------------------------------------------------------
+# Safely convert assessment data into display text
+# ------------------------------------------------------------
+
+function ConvertTo-WinSecFindingText {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ''
+    }
+
+    if ($Value -is [string]) {
+        return $Value.Trim()
+    }
+
+    if ($Value -is [array]) {
+
+        $parts = @(
+            foreach ($item in $Value) {
+                ConvertTo-WinSecFindingText -Value $item
+            }
+        )
+
+        return ($parts -join '; ')
+    }
+
+    if (
+        $Value -is [PSCustomObject] -or
+        $Value -is [System.Collections.IDictionary]
+    ) {
+        return ConvertTo-Json `
+            -InputObject $Value `
+            -Compress `
+            -Depth 6
+    }
+
+    return [string]$Value
+}
+
+
+# ------------------------------------------------------------
+# Read navigation context
+# ------------------------------------------------------------
+
+function Get-WinSecFindingsContext {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [psobject]$NavigationState = $null
+    )
+
+    $sectionIndex = 0
+    $controlIndex = 0
+    $findingIndex = 0
+    $scope = 'Section'
+    $deviceId = ''
+
+    if ($null -ne $NavigationState) {
+
+        $sectionValue = Get-WinSecFindingProperty `
+            -InputObject $NavigationState `
+            -Name 'SectionIndex'
+
+        $controlValue = Get-WinSecFindingProperty `
+            -InputObject $NavigationState `
+            -Name 'ControlIndex'
+
+        $findingValue = Get-WinSecFindingProperty `
+            -InputObject $NavigationState `
+            -Name 'FindingsOffset'
+
+        $scopeValue = Get-WinSecFindingProperty `
+            -InputObject $NavigationState `
+            -Name 'FindingsScope'
+
+        $deviceValue = Get-WinSecFindingProperty `
+            -InputObject $NavigationState `
+            -Name 'SelectedDeviceId'
+
+        if ($null -ne $sectionValue) {
+            $sectionIndex = [int]$sectionValue
+        }
+
+        if ($null -ne $controlValue) {
+            $controlIndex = [int]$controlValue
+        }
+
+        if ($null -ne $findingValue) {
+            $findingIndex = [int]$findingValue
+        }
+
+        if ($scopeValue -eq 'Control') {
+            $scope = 'Control'
+        }
+
+        $deviceId = [string]$deviceValue
+    }
+
+    return [PSCustomObject]@{
+        DeviceId     = $deviceId
+        SectionIndex = $sectionIndex
+        ControlIndex = $controlIndex
+        FindingIndex = $findingIndex
+        Scope        = $scope
+    }
+}
+
+
+# ------------------------------------------------------------
+# Resolve framework references for one finding
+# ------------------------------------------------------------
+
+function Get-WinSecFindingFrameworkReferences {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$Finding,
+
+        [AllowNull()]
+        [object]$Catalog = $null,
+
+        [string]$Platform = 'Windows'
+    )
+
+    # Preserve references explicitly supplied by
+    # the assessment engine.
+
+    $existing = Get-WinSecFindingProperty `
+        -InputObject $Finding `
+        -Name 'FrameworkReferences'
+
+    if ($null -ne $existing) {
+
+        $references = @(
+            $existing | Where-Object {
+                $null -ne $_
+            }
+        )
+
+        if ($references.Count -gt 0) {
+            return $references
+        }
+    }
+
+    $checkId = [string](
+        Get-WinSecFindingProperty `
+            -InputObject $Finding `
+            -Name 'CheckId'
+    )
+
+    if ([string]::IsNullOrWhiteSpace($checkId)) {
+        return
+    }
+
+    if ($null -eq $Catalog) {
+        return
+    }
+
+    $command = Get-Command `
+        -Name 'Get-WinSecCheckFrameworkReferences' `
+        -CommandType Function `
+        -ErrorAction SilentlyContinue
+
+    if ($null -eq $command) {
+        return
+    }
+
+    try {
+
+        Get-WinSecCheckFrameworkReferences `
+            -CheckId $checkId `
+            -Platform $Platform `
+            -Catalog $Catalog `
+            -ErrorAction Stop
+    }
+    catch {
+
+        Write-Verbose (
+            "Framework mapping failed for {0}: {1}" -f `
+                $checkId,
+                $_.Exception.Message
+        )
+    }
+}
+
+
+# ------------------------------------------------------------
+# Prepare findings for the selected assessment
 # ------------------------------------------------------------
 
 function Get-WinSecSelectedFindings {
@@ -21,12 +311,26 @@ function Get-WinSecSelectedFindings {
         [AllowNull()]
         [psobject]$NavigationState = $null,
 
+        [AllowEmptyCollection()]
         [object[]]$SectionResults = @(),
 
+        [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
-        [object[]]$Findings = @()
+        [AllowEmptyCollection()]
+        [object[]]$Findings = @(),
+
+        [string]$ScanId = '',
+
+        [string]$Platform = 'Windows'
     )
+
+    # --------------------------------------------------------
+    # Resolve selected section
+    # --------------------------------------------------------
+
+    $context = Get-WinSecFindingsContext `
+        -NavigationState $NavigationState
 
     $sections = @(
         Get-WinSecMainMenuSections `
@@ -37,31 +341,27 @@ function Get-WinSecSelectedFindings {
         return $null
     }
 
-    # Resolve selected section
-    $sectionIndex = 0
-    $controlIndex = 0
-    $scope = 'Section'
-
-    if ($null -ne $NavigationState) {
-        $sectionIndex = [int]$NavigationState.SectionIndex
-        $controlIndex = [int]$NavigationState.ControlIndex
-
-        if ($NavigationState.FindingsScope -eq 'Control') {
-            $scope = 'Control'
-        }
-    }
-
     $sectionIndex = [Math]::Max(
         0,
-        [Math]::Min($sectionIndex, $sections.Count - 1)
+        [Math]::Min(
+            $context.SectionIndex,
+            $sections.Count - 1
+        )
     )
 
     $section = $sections[$sectionIndex]
 
-    # Resolve selected control
+    $title = $section.Name
+    $score = $section.Score
+    $status = $section.Status
+
     $control = $null
 
-    if ($scope -eq 'Control') {
+    # --------------------------------------------------------
+    # Resolve selected control when applicable
+    # --------------------------------------------------------
+
+    if ($context.Scope -eq 'Control') {
 
         $controls = @(
             Get-WinSecSectionControls `
@@ -73,120 +373,442 @@ function Get-WinSecSelectedFindings {
 
             $controlIndex = [Math]::Max(
                 0,
-                [Math]::Min($controlIndex, $controls.Count - 1)
+                [Math]::Min(
+                    $context.ControlIndex,
+                    $controls.Count - 1
+                )
             )
 
             $control = $controls[$controlIndex]
+
+            $title = $control.Name
+            $score = $control.Score
+            $status = $control.Status
         }
     }
 
-    # Determine assessment context
-    $title = $section.Name
-    $score = $section.Score
-    $status = $section.Status
+    # --------------------------------------------------------
+    # Filter findings without mixing devices
+    # --------------------------------------------------------
 
-    if ($null -ne $control) {
-        $title = $control.Name
-        $score = $control.Score
-        $status = $control.Status
+    $warning = ''
+
+    if ([string]::IsNullOrWhiteSpace($context.DeviceId)) {
+
+        $warning = (
+            'No device selected. Select a device ' +
+            'before viewing assessment findings.'
+        )
+
+        $matched = @()
+    }
+    else {
+
+        $matched = @(
+            foreach ($finding in $Findings) {
+
+                if ($null -eq $finding) {
+                    continue
+                }
+
+                $findingDevice = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'DeviceId'
+                )
+
+                if ($findingDevice -ne $context.DeviceId) {
+                    continue
+                }
+
+                $findingSection = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'SectionKey'
+                )
+
+                if ($findingSection -ne $section.Key) {
+                    continue
+                }
+
+                $findingScan = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'ScanId'
+                )
+
+                if ($ScanId -and $findingScan -ne $ScanId) {
+                    continue
+                }
+
+                if ($context.Scope -eq 'Control') {
+
+                    if ($null -eq $control) {
+                        continue
+                    }
+
+                    $findingControl = [string](
+                        Get-WinSecFindingProperty `
+                            -InputObject $finding `
+                            -Name 'ControlKey'
+                    )
+
+                    $findingCheck = [string](
+                        Get-WinSecFindingProperty `
+                            -InputObject $finding `
+                            -Name 'CheckId'
+                    )
+
+                    $controlCheck = [string](
+                        Get-WinSecFindingProperty `
+                            -InputObject $control `
+                            -Name 'CheckId'
+                    )
+
+                    $matchesControl = (
+                        $findingControl -eq $control.Key -or
+                        (
+                            $controlCheck -and
+                            $findingCheck -eq $controlCheck
+                        )
+                    )
+
+                    if (-not $matchesControl) {
+                        continue
+                    }
+                }
+
+                $finding
+            }
+        )
     }
 
-    # Filter actual findings
-    $filteredCount = 0
-    $filtered = @(
-        foreach ($finding in $Findings) {
+    # --------------------------------------------------------
+    # Prevent combining separate assessment executions
+    # --------------------------------------------------------
 
-            $findingSection = Get-WinSecTableValue `
-                -Row $finding -Key 'SectionKey'
+    $resolvedScanId = $ScanId
 
-            $findingControl = Get-WinSecTableValue `
-                -Row $finding -Key 'ControlKey'
+    if (-not $ScanId -and $matched.Count -gt 0) {
 
-            # Never mix findings from different sections
-            if ($findingSection -ne $section.Key) {
-                continue
-            }
+        $scanIds = @(
+            $matched | ForEach-Object {
 
-            # Control scope shows only the selected control
-            if ($scope -eq 'Control') {
+                $value = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $_ `
+                        -Name 'ScanId'
+                )
 
-                if ($null -eq $control) {
-                    continue
+                if ($value) {
+                    $value
+                }
+                else {
+                    '__UNSPECIFIED_SCAN__'
                 }
 
-                if ($findingControl -ne $control.Key) {
-                    continue
-                }
+            } | Select-Object -Unique
+        )
+
+        if ($scanIds.Count -gt 1) {
+
+            $matched = @()
+
+            $warning = (
+                'Multiple scan executions detected. ' +
+                'Select a specific ScanId to view findings.'
+            )
+        }
+        elseif (
+            $scanIds.Count -eq 1 -and
+            $scanIds[0] -ne '__UNSPECIFIED_SCAN__'
+        ) {
+            $resolvedScanId = $scanIds[0]
+        }
+    }
+
+    # --------------------------------------------------------
+    # Load framework catalog
+    # --------------------------------------------------------
+
+    $catalog = $null
+    $frameworkStatus = 'UNAVAILABLE'
+
+    $catalogCommand = Get-Command `
+        -Name 'Get-WinSecFrameworkCatalog' `
+        -CommandType Function `
+        -ErrorAction SilentlyContinue
+
+    if ($null -ne $catalogCommand) {
+
+        try {
+
+            $catalog = Get-WinSecFrameworkCatalog `
+                -ErrorAction Stop
+
+            $frameworkStatus = 'LOADED'
+        }
+        catch {
+
+            $frameworkStatus = 'ERROR'
+
+            Write-Verbose $_.Exception.Message
+        }
+    }
+
+    # --------------------------------------------------------
+    # Normalize finding records
+    # --------------------------------------------------------
+
+    $normalized = @(
+        $index = 0
+
+        foreach ($finding in $matched) {
+
+            $index++
+
+            $id = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'Id'
+            )
+
+            if (-not $id) {
+
+                $id = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'FindingId'
+                )
             }
 
-            $id = Get-WinSecTableValue `
-                -Row $finding -Key 'Id'
-
-            $severity = Get-WinSecTableValue `
-                -Row $finding -Key 'Severity'
-
-            $name = Get-WinSecTableValue `
-                -Row $finding -Key 'Finding'
-
-            $description = Get-WinSecTableValue `
-                -Row $finding -Key 'Description'
-
-            $recommendation = Get-WinSecTableValue `
-                -Row $finding -Key 'Recommendation'
-
-            $reference = Get-WinSecTableValue `
-                -Row $finding -Key 'Reference'
-
-            if ([string]::IsNullOrWhiteSpace($name)) {
-                $name = Get-WinSecTableValue `
-                    -Row $finding -Key 'Title'
+            if (-not $id) {
+                $id = '{0:D3}' -f $index
             }
 
-            if ([string]::IsNullOrWhiteSpace($name)) {
+            $name = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'Finding'
+            )
+
+            if (-not $name) {
+
+                $name = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'Title'
+                )
+            }
+
+            $description = ConvertTo-WinSecFindingText `
+                -Value (
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'Description'
+                )
+
+            if (-not $name) {
                 $name = $description
             }
 
-            if ([string]::IsNullOrWhiteSpace($severity)) {
-                $severity = 'UNKNOWN'
+            if (-not $name) {
+                $name = 'Unnamed finding'
             }
 
-            if ([string]::IsNullOrWhiteSpace($id)) {
-                $id = '{0:D3}' -f ($filteredCount + 1)
+            $severity = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'Severity'
+            )
+
+            if (-not $severity) {
+                $severity = 'UNRATED'
             }
 
-            $filteredCount++
+            $priority = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'Priority'
+            )
+
+            $evidence = ConvertTo-WinSecFindingText `
+                -Value (
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'Evidence'
+                )
+
+            $recommendation = ConvertTo-WinSecFindingText `
+                -Value (
+                    Get-WinSecFindingProperty `
+                        -InputObject $finding `
+                        -Name 'Recommendation'
+                )
+
+            $checkId = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'CheckId'
+            )
+
+            $controlKey = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'ControlKey'
+            )
+
+            $legacyReference = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $finding `
+                    -Name 'Reference'
+            )
+
+            $references = @(
+                Get-WinSecFindingFrameworkReferences `
+                    -Finding $finding `
+                    -Catalog $catalog `
+                    -Platform $Platform
+            )
 
             [PSCustomObject]@{
-                Id             = $id
-                Severity       = $severity.ToUpperInvariant()
-                Finding        = $name
-                Description    = $description
-                Recommendation = $recommendation
-                Reference      = $reference
-                SectionKey     = $section.Key
-                ControlKey     = $findingControl
+                Id                  = $id
+                Finding             = $name
+                Description         = $description
+                Severity            = $severity.ToUpperInvariant()
+                Priority            = $priority
+                Evidence            = $evidence
+                Recommendation      = $recommendation
+                Reference           = $legacyReference
+                FrameworkReferences = $references
+
+                CheckId             = $checkId
+                ControlKey          = $controlKey
+                SectionKey          = $section.Key
+                DeviceId            = $context.DeviceId
+                ScanId              = $resolvedScanId
             }
         }
     )
 
+    # --------------------------------------------------------
+    # Classify and sort by priority
+    # --------------------------------------------------------
+
+    $priorityCommand = Get-Command `
+        -Name 'Invoke-WinSecFindingPrioritization' `
+        -CommandType Function `
+        -ErrorAction SilentlyContinue
+
+    if ($null -ne $priorityCommand) {
+
+        $normalized = @(
+            Invoke-WinSecFindingPrioritization `
+                -Findings $normalized
+        )
+    }
+    else {
+
+        # Missing priority engine must not create
+        # a false classification.
+
+        $normalized = @(
+            foreach ($finding in $normalized) {
+
+                $finding.Priority = 'UNRATED'
+                $finding
+            }
+        )
+    }
+
     return [PSCustomObject]@{
-        Scope      = $scope
-        Title      = $title
-        SectionKey = $section.Key
-        ControlKey = if ($null -ne $control) {
-            $control.Key
-        } else {
-            $null
-        }
-        Score      = $score
-        Status     = $status
-        Findings   = $filtered
+        Scope           = $context.Scope
+        Title           = $title
+
+        DeviceId        = $context.DeviceId
+        ScanId          = $resolvedScanId
+        SectionKey      = $section.Key
+
+        Score           = $score
+        Status          = $status
+        Findings        = $normalized
+
+        FrameworkStatus = $frameworkStatus
+        Warning         = $warning
     }
 }
 
 
 # ------------------------------------------------------------
-# Display a finding detail field with word wrapping
+# Format framework references for display
+# ------------------------------------------------------------
+
+function Get-WinSecFindingReferenceLines {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$Finding
+    )
+
+    $lines = @(
+        foreach ($reference in @($Finding.FrameworkReferences)) {
+
+            if ($null -eq $reference) {
+                continue
+            }
+
+            $framework = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $reference `
+                    -Name 'FrameworkName'
+            )
+
+            if (-not $framework) {
+
+                $framework = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $reference `
+                        -Name 'FrameworkId'
+                )
+            }
+
+            $referenceId = [string](
+                Get-WinSecFindingProperty `
+                    -InputObject $reference `
+                    -Name 'ReferenceId'
+            )
+
+            if (-not $referenceId) {
+
+                $referenceId = [string](
+                    Get-WinSecFindingProperty `
+                        -InputObject $reference `
+                        -Name 'id'
+                )
+            }
+
+            if (-not $framework -or -not $referenceId) {
+                continue
+            }
+
+            '{0}: {1}' -f $framework, $referenceId
+        }
+    )
+
+    $legacyReference = [string]$Finding.Reference
+
+    if ($legacyReference) {
+        $lines += "Additional reference: $legacyReference"
+    }
+
+    return @(
+        $lines | Select-Object -Unique
+    )
+}
+
+
+# ------------------------------------------------------------
+# Render a bounded text field
 # ------------------------------------------------------------
 
 function Write-WinSecFindingField {
@@ -198,39 +820,46 @@ function Write-WinSecFindingField {
         [AllowEmptyString()]
         [string]$Value = '',
 
-        [int]$MaxLines = 2
-    )
-
-    $width = (Get-WinSecTerminalSize).ContentWidth
-
-    $prefix = "${Label}: "
-    $indent = ' ' * $prefix.Length
-
-    $usableWidth = [Math]::Max(
-        1,
-        $width - $prefix.Length
+        [ValidateRange(1, 10)]
+        [int]$MaxLines = 1
     )
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
         $Value = 'Not provided'
     }
 
-    $remaining = ($Value -replace '\s+', ' ').Trim()
+    $terminal = Get-WinSecTerminalSize
+
+    $width = [Math]::Max(
+        1,
+        [int]$terminal.ContentWidth
+    )
+
+    $prefix = "${Label}: "
+
+    $availableWidth = [Math]::Max(
+        1,
+        $width - $prefix.Length
+    )
+
+    # Keep evidence on logical display lines.
+    $remaining = (
+        $Value -replace '\s+', ' '
+    ).Trim()
 
     for ($i = 0; $i -lt $MaxLines; $i++) {
 
-        if ([string]::IsNullOrEmpty($remaining)) {
+        if (-not $remaining) {
             break
         }
 
         $take = [Math]::Min(
-            $usableWidth,
+            $availableWidth,
             $remaining.Length
         )
 
         $part = $remaining.Substring(0, $take)
 
-        # Prefer wrapping on spaces
         if ($take -lt $remaining.Length) {
 
             $lastSpace = $part.LastIndexOf(' ')
@@ -241,22 +870,30 @@ function Write-WinSecFindingField {
             }
         }
 
-        $remaining = $remaining.Substring($take).TrimStart()
+        $remaining = $remaining.Substring(
+            $take
+        ).TrimStart()
 
+        # Show truncation on the final allocated line.
         if (
             $i -eq ($MaxLines - 1) -and
             $remaining.Length -gt 0
         ) {
-            if ($part.Length -gt 3) {
-                $part = $part.Substring(0, $part.Length - 3) + '...'
+
+            if ($part.Length -ge 3) {
+
+                $part = $part.Substring(
+                    0,
+                    $part.Length - 3
+                ) + '...'
             }
         }
 
-        if ($i -eq 0) {
-            $line = $prefix + $part
+        $line = if ($i -eq 0) {
+            $prefix + $part
         }
         else {
-            $line = $indent + $part
+            (' ' * $prefix.Length) + $part
         }
 
         Write-WinSecText `
@@ -267,7 +904,146 @@ function Write-WinSecFindingField {
 
 
 # ------------------------------------------------------------
-# Render findings screen
+# Determine available space for finding details
+# ------------------------------------------------------------
+
+function Get-WinSecFindingDetailPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Layout
+    )
+
+    # ContentRows already excludes banner, keyboard help
+    # and the fixed screen reservations.
+
+    $available = [int]$Layout.ContentRows
+
+    $detailRows = 0
+    $textLines = 0
+    $referenceLines = 0
+
+    # Expanded details on taller terminals
+    if ($available -ge 24) {
+
+        $detailRows = 13
+        $textLines = 2
+        $referenceLines = 2
+    }
+    elseif ($available -ge 16) {
+
+        # Compact details
+        $detailRows = 9
+        $textLines = 1
+        $referenceLines = 1
+    }
+
+    return [PSCustomObject]@{
+        ShowDetails    = ($detailRows -gt 0)
+        ReservedRows   = $detailRows
+        TextLines      = $textLines
+        ReferenceLines = $referenceLines
+    }
+}
+
+
+# ------------------------------------------------------------
+# Render selected finding details
+# ------------------------------------------------------------
+
+function Write-WinSecFindingDetails {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$Finding,
+
+        [Parameter(Mandatory)]
+        [psobject]$DetailPlan,
+
+        [string]$FrameworkStatus = 'UNAVAILABLE'
+    )
+
+    if (-not $DetailPlan.ShowDetails) {
+        return
+    }
+
+    Write-WinSecSectionTitle `
+        -Title 'Finding Details'
+
+    $priorityColor = 'Gray'
+
+    if (
+        Get-Command 'Get-WinSecPriorityColor' `
+            -CommandType Function `
+            -ErrorAction SilentlyContinue
+    ) {
+
+        $priorityColor = Get-WinSecPriorityColor `
+            -Priority $Finding.Priority
+    }
+
+    Write-WinSecText `
+        -Text "PRIORITY: $($Finding.Priority) | SEVERITY: $($Finding.Severity)" `
+        -Color $priorityColor
+
+    Write-WinSecFindingField `
+        -Label 'Description' `
+        -Value $Finding.Description `
+        -MaxLines $DetailPlan.TextLines
+
+    Write-WinSecFindingField `
+        -Label 'Evidence' `
+        -Value $Finding.Evidence `
+        -MaxLines $DetailPlan.TextLines
+
+    Write-WinSecFindingField `
+        -Label 'Recommendation' `
+        -Value $Finding.Recommendation `
+        -MaxLines $DetailPlan.TextLines
+
+    # --------------------------------------------------------
+    # Display configured framework references
+    # --------------------------------------------------------
+
+    $references = @(
+        Get-WinSecFindingReferenceLines `
+            -Finding $Finding
+    )
+
+    if ($references.Count -eq 0) {
+
+        $message = 'No configured framework references.'
+
+        if ($FrameworkStatus -ne 'LOADED') {
+            $message = 'Framework catalog unavailable.'
+        }
+
+        Write-WinSecText `
+            -Text $message `
+            -Color DarkGray
+
+        return
+    }
+
+    Write-WinSecText `
+        -Text "FRAMEWORK REFERENCES: $($references.Count)" `
+        -Color DarkCyan
+
+    foreach ($reference in (
+        $references | Select-Object `
+            -First $DetailPlan.ReferenceLines
+    )) {
+
+        Write-WinSecFindingField `
+            -Label 'Ref' `
+            -Value $reference `
+            -MaxLines 1
+    }
+}
+
+
+# ------------------------------------------------------------
+# Render security findings screen
 # ------------------------------------------------------------
 
 function Show-WinSecFindings {
@@ -276,24 +1052,50 @@ function Show-WinSecFindings {
         [AllowNull()]
         [psobject]$NavigationState = $null,
 
+        [AllowEmptyCollection()]
         [object[]]$SectionResults = @(),
 
+        [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
+        [AllowEmptyCollection()]
         [object[]]$Findings = @(),
+
+        [string]$ScanId = '',
+
+        [string]$Platform = 'Windows',
 
         [string]$Version = '0.9.0'
     )
 
-    $terminal = Get-WinSecTerminalSize
+    # --------------------------------------------------------
+    # Get assessment information
+    # --------------------------------------------------------
+
+    $assessment = Get-WinSecSelectedFindings `
+        -NavigationState $NavigationState `
+        -SectionResults $SectionResults `
+        -ControlResults $ControlResults `
+        -Findings $Findings `
+        -ScanId $ScanId `
+        -Platform $Platform
+
+    # --------------------------------------------------------
+    # Get adaptive layout
+    # --------------------------------------------------------
+
+    $baseLayout = Get-WinSecLayout `
+        -Screen 'Findings' `
+        -ReservedRows 12
 
     Clear-WinSecScreen
 
-    # Validate terminal size
-    if (
-        $terminal.Width -lt 40 -or
-        $terminal.Height -lt 20
-    ) {
+    # --------------------------------------------------------
+    # Minimum terminal dimensions
+    # --------------------------------------------------------
+
+    if ($baseLayout.IsTooSmall) {
+
         Write-WinSecText `
             -Text 'WINSEC ANALYZER' `
             -Color Cyan `
@@ -306,42 +1108,66 @@ function Show-WinSecFindings {
             -Color Yellow `
             -Align Center
 
+        Write-WinSecText `
+            -Text "Minimum: $($baseLayout.MinimumWidth) x $($baseLayout.MinimumHeight)" `
+            -Color DarkGray `
+            -Align Center
+
         return
     }
-
-    # Get findings and score
-    $assessment = Get-WinSecSelectedFindings `
-        -NavigationState $NavigationState `
-        -SectionResults $SectionResults `
-        -ControlResults $ControlResults `
-        -Findings $Findings
 
     if ($null -eq $assessment) {
+
         Write-WinSecText `
-            -Text 'No assessment data available.' `
+            -Text 'No assessment information available.' `
             -Color Yellow
+
+        Write-WinSecKeyboardHelp -Screen 'Findings'
 
         return
     }
 
     # --------------------------------------------------------
-    # Render branding
+    # Calculate detail area
     # --------------------------------------------------------
 
-    $bannerRows = 2
+    $count = @($assessment.Findings).Count
 
-    if ($terminal.Height -ge 34) {
+    $detailPlan = Get-WinSecFindingDetailPlan `
+        -Layout $baseLayout
 
-        Show-Banner -Version $Version
+    if ($count -eq 0) {
 
-        $bannerRows = if ($terminal.Width -ge 55) {
-            15
-        }
-        else {
-            10
+        $detailPlan = [PSCustomObject]@{
+            ShowDetails    = $false
+            ReservedRows   = 0
+            TextLines      = 0
+            ReferenceLines = 0
         }
     }
+
+    # Reserve enough space for selected finding details.
+    # The remaining content area belongs to the table.
+
+    $reservedRows = (
+        12 + $detailPlan.ReservedRows
+    )
+
+    $layout = Get-WinSecLayout `
+        -Screen 'Findings' `
+        -BannerRows $baseLayout.BannerRows `
+        -ReservedRows $reservedRows
+
+    # --------------------------------------------------------
+    # Render adaptive project branding
+    # --------------------------------------------------------
+
+    if ($layout.BannerRows -gt 2) {
+
+        Show-Banner -Version $Version
+    }
     else {
+
         Write-WinSecText `
             -Text "WINSEC ANALYZER v$Version" `
             -Color Cyan `
@@ -354,27 +1180,68 @@ function Show-WinSecFindings {
     }
 
     # --------------------------------------------------------
-    # Assessment information
+    # Display assessment context
     # --------------------------------------------------------
 
     Write-WinSecSectionTitle `
         -Title "Findings - $($assessment.Title)"
 
+    $deviceName = $assessment.DeviceId
+
+    if ($null -ne $NavigationState) {
+
+        $selectedName = [string](
+            Get-WinSecFindingProperty `
+                -InputObject $NavigationState `
+                -Name 'SelectedDeviceName'
+        )
+
+        if ($selectedName) {
+            $deviceName = $selectedName
+        }
+    }
+
+    if (-not $deviceName) {
+        $deviceName = 'NOT SELECTED'
+    }
+
+    $contextText = "DEVICE: $deviceName"
+
+    if ($assessment.ScanId) {
+        $contextText += " | SCAN: $($assessment.ScanId)"
+    }
+
+    Write-WinSecText `
+        -Text $contextText `
+        -Color Gray
+
     $statusColor = Get-WinSecStatusColor `
         -Status $assessment.Status
 
     Write-WinSecText `
-        -Text "SCORE: $($assessment.Score)  |  STATUS: $($assessment.Status)" `
+        -Text "SCORE: $($assessment.Score) | STATUS: $($assessment.Status)" `
         -Color $statusColor
 
     Write-WinSecText `
-        -Text "FINDINGS: $($assessment.Findings.Count)" `
-        -Color DarkGray
+        -Text "SECURITY FINDINGS: $count" `
+        -Color Cyan
+
+    # --------------------------------------------------------
+    # Display assessment isolation warning
+    # --------------------------------------------------------
+
+    if ($assessment.Warning) {
+
+        Write-WinSecFindingField `
+            -Label 'Warning' `
+            -Value $assessment.Warning `
+            -MaxLines 1
+    }
 
     Write-Host ''
 
     # --------------------------------------------------------
-    # Findings table
+    # Define responsive findings table
     # --------------------------------------------------------
 
     $columns = @(
@@ -388,67 +1255,66 @@ function Show-WinSecFindings {
         }
 
         @{
+            Key      = 'Priority'
+            Header   = 'Priority'
+            Width    = 9
+            MinWidth = 7
+            MaxWidth = 9
+            Priority = 2
+        }
+
+        @{
             Key      = 'Severity'
             Header   = 'Severity'
             Width    = 10
             MinWidth = 8
-            MaxWidth = 12
-            Priority = 2
+            MaxWidth = 10
+            Priority = 3
         }
 
         @{
             Key      = 'Finding'
             Header   = 'Security Finding'
             Width    = 46
-            MinWidth = 15
+            MinWidth = 14
             MaxWidth = 72
             Priority = 1
             Expand   = $true
         }
-
-        @{
-            Key      = 'Recommendation'
-            Header   = 'Recommendation'
-            Width    = 35
-            MinWidth = 14
-            MaxWidth = 60
-            Priority = 4
-        }
-
-        @{
-            Key      = 'Reference'
-            Header   = 'Reference'
-            Width    = 20
-            MinWidth = 10
-            MaxWidth = 35
-            Priority = 5
-        }
     )
+
+    # --------------------------------------------------------
+    # Restore finding selection
+    # --------------------------------------------------------
+
+    $context = Get-WinSecFindingsContext `
+        -NavigationState $NavigationState
 
     $selectedIndex = 0
 
-    if ($null -ne $NavigationState) {
-        $selectedIndex = [int]$NavigationState.FindingsOffset
-    }
-
-    $count = $assessment.Findings.Count
-
     if ($count -gt 0) {
+
         $selectedIndex = [Math]::Max(
             0,
-            [Math]::Min($selectedIndex, $count - 1)
+            [Math]::Min(
+                $context.FindingIndex,
+                $count - 1
+            )
         )
     }
 
-    $layout = Get-WinSecLayout `
-        -Screen 'Findings' `
-        -BannerRows $bannerRows `
-        -ReservedRows 14
+    # --------------------------------------------------------
+    # Calculate visible table rows
+    # --------------------------------------------------------
 
     $maxRows = [Math]::Max(
         1,
-        $layout.ContentRows
+        [int]$layout.MaxTableRows
     )
+
+    # --------------------------------------------------------
+    # Render prioritized security findings
+    # --------------------------------------------------------
 
     Write-WinSecTable `
         -Columns $columns `
@@ -457,49 +1323,41 @@ function Show-WinSecFindings {
         -MaxRows $maxRows
 
     # --------------------------------------------------------
-    # Detailed information for selected finding
+    # Render details if vertical space is available
     # --------------------------------------------------------
 
     if (
         $count -gt 0 -and
-        $terminal.Height -ge 25
+        $detailPlan.ShowDetails
     ) {
 
-        $selectedFinding = $assessment.Findings[$selectedIndex]
+        $selectedFinding = $assessment.Findings[
+            $selectedIndex
+        ]
 
-        Write-WinSecSectionTitle `
-            -Title 'Finding Details'
-
-        Write-WinSecFindingField `
-            -Label 'Description' `
-            -Value $selectedFinding.Description `
-            -MaxLines 2
-
-        Write-WinSecFindingField `
-            -Label 'Recommendation' `
-            -Value $selectedFinding.Recommendation `
-            -MaxLines 2
-
-        Write-WinSecFindingField `
-            -Label 'Reference' `
-            -Value $selectedFinding.Reference `
-            -MaxLines 1
+        Write-WinSecFindingDetails `
+            -Finding $selectedFinding `
+            -DetailPlan $detailPlan `
+            -FrameworkStatus $assessment.FrameworkStatus
     }
 
-    if ($count -eq 0) {
-        Write-Host ''
+    # --------------------------------------------------------
+    # Render empty assessment state
+    # --------------------------------------------------------
+
+    if ($count -eq 0 -and -not $assessment.Warning) {
 
         Write-WinSecText `
-            -Text 'No findings have been provided for this selection.' `
+            -Text 'No findings available for this selection.' `
             -Color Yellow
 
         Write-WinSecText `
-            -Text 'This does not indicate a successful security audit.' `
+            -Text 'An empty list does not confirm a successful audit.' `
             -Color DarkGray
     }
 
     # --------------------------------------------------------
-    # Keyboard shortcuts
+    # Render contextual keyboard help
     # --------------------------------------------------------
 
     Write-WinSecKeyboardHelp -Screen 'Findings'

@@ -6,19 +6,26 @@
 # Author    : mrRoot
 #
 # Description:
-# Calculates adaptive screen layouts, available space
-# and visible table ranges for the terminal UI.
+# Manages adaptive terminal layouts and screen dimensions.
+#
+# Supports:
+# - Multi-device interface
+# - Dynamic terminal resizing
+# - Adaptive banner dimensions
+# - Scrollable tables
+# - Context-aware keyboard help
 # ============================================================
 
 
 # ------------------------------------------------------------
-# Get layout configuration for current screen
+# Get screen layout
 # ------------------------------------------------------------
 
 function Get-WinSecLayout {
     [CmdletBinding()]
     param(
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -26,24 +33,41 @@ function Get-WinSecLayout {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu',
+        [string]$Screen = 'Devices',
 
         [int]$BannerRows = -1,
 
         [int]$HelpRows = -1,
 
-        [int]$ReservedRows = -1
+        [int]$ReservedRows = -1,
+
+        [string[]]$HiddenKeys = @(),
+
+        [switch]$EnableExport,
+
+        [switch]$EnableRescan,
+
+        [switch]$EnableSettingsEdit
     )
 
+    # --------------------------------------------------------
     # Get current terminal dimensions
+    # --------------------------------------------------------
+
     $terminal = Get-WinSecTerminalSize
 
-    $width = [int]$terminal.Width
-    $height = [int]$terminal.Height
+    $width = [Math]::Max(1, [int]$terminal.Width)
+    $height = [Math]::Max(1, [int]$terminal.Height)
 
-    $contentWidth = [int]$terminal.ContentWidth
+    $contentWidth = [Math]::Max(
+        1,
+        [int]$terminal.ContentWidth
+    )
 
-    # Determine layout mode
+    # --------------------------------------------------------
+    # Determine terminal layout mode
+    # --------------------------------------------------------
+
     $mode = 'Full'
 
     if ($width -lt 100 -or $height -lt 35) {
@@ -54,83 +78,203 @@ function Get-WinSecLayout {
         $mode = 'Minimal'
     }
 
-    # Current Banner.ps1 renders 15 lines in full mode
-    # and 10 lines for narrow terminals.
+    # --------------------------------------------------------
+    # Define minimum screen dimensions
+    # --------------------------------------------------------
+
+    $minimumHeight = switch ($Screen) {
+        'Devices'  { 22 }
+        'MainMenu' { 17 }
+        'Section'  { 20 }
+        'Findings' { 20 }
+        'Audit'    { 18 }
+        'Results'  { 20 }
+        'Settings' { 20 }
+    }
+
+    $minimumWidth = 40
+
+    $isTooSmall = (
+        $width -lt $minimumWidth -or
+        $height -lt $minimumHeight
+    )
+
+    # --------------------------------------------------------
+    # Calculate banner dimensions
+    # --------------------------------------------------------
+
     if ($BannerRows -lt 0) {
-        if ($width -ge 55) {
-            $BannerRows = 15
+
+        # Match the rendering thresholds used
+        # by the existing UI screens.
+
+        $fullBannerHeight = switch ($Screen) {
+            'Devices'  { 40 }
+            'MainMenu' { 34 }
+            'Section'  { 34 }
+            'Findings' { 46 }
+            'Audit'    { 42 }
+            'Results'  { 34 }
+            'Settings' { 34 }
+        }
+
+        if ($height -ge $fullBannerHeight) {
+
+            # Banner.ps1:
+            # Full ASCII banner: 15 lines
+            # Narrow ASCII banner: 10 lines
+
+            if ($width -ge 55) {
+                $BannerRows = 15
+            }
+            else {
+                $BannerRows = 10
+            }
         }
         else {
-            $BannerRows = 10
+            # Compact branding: two lines
+            $BannerRows = 2
         }
     }
 
-    # Reserve keyboard help area
+    # --------------------------------------------------------
+    # Calculate keyboard help dimensions
+    # --------------------------------------------------------
+
     if ($HelpRows -lt 0) {
-        if ($width -lt 60) {
-            $HelpRows = 5
-        }
-        elseif ($Screen -eq 'MainMenu') {
-            $HelpRows = 4
+
+        $helpCommand = Get-Command `
+            -Name 'Get-WinSecKeyboardHelpHeight' `
+            -CommandType Function `
+            -ErrorAction SilentlyContinue
+
+        if ($null -ne $helpCommand) {
+
+            $helpParams = @{
+                Screen             = $Screen
+                Width              = $contentWidth
+                HiddenKeys         = $HiddenKeys
+                EnableExport       = [bool]$EnableExport
+                EnableRescan       = [bool]$EnableRescan
+                EnableSettingsEdit = [bool]$EnableSettingsEdit
+            }
+
+            $HelpRows = [int](
+                Get-WinSecKeyboardHelpHeight @helpParams
+            )
         }
         else {
+
+            # Fallback until KeyboardHelp is loaded
             $HelpRows = 3
+
+            if ($width -lt 60) {
+                $HelpRows = 5
+            }
         }
     }
 
-    # Screen-specific content reservations
+    # --------------------------------------------------------
+    # Define screen-specific reserved space
+    # --------------------------------------------------------
+
     if ($ReservedRows -lt 0) {
+
         $ReservedRows = switch ($Screen) {
-            'MainMenu' { 5 }
-            'Section'  { 5 }
-            'Findings' { 7 }
-            'Audit'    { 4 }
-            'Results'  { 5 }
-            'Settings' { 4 }
+
+            'Devices' {
+                # Heading, device summary,
+                # table borders and safety margin
+                13
+            }
+
+            'MainMenu' {
+                5
+            }
+
+            'Section' {
+                5
+            }
+
+            'Findings' {
+                7
+            }
+
+            'Audit' {
+                4
+            }
+
+            'Results' {
+                5
+            }
+
+            'Settings' {
+                4
+            }
         }
     }
+
+    # --------------------------------------------------------
+    # Normalize reserved dimensions
+    # --------------------------------------------------------
 
     $BannerRows = [Math]::Max(0, $BannerRows)
     $HelpRows = [Math]::Max(0, $HelpRows)
     $ReservedRows = [Math]::Max(0, $ReservedRows)
 
+    # --------------------------------------------------------
     # Calculate available vertical space
-    $usedRows = $BannerRows +
-                $HelpRows +
-                $ReservedRows
+    # --------------------------------------------------------
+
+    $usedRows = (
+        $BannerRows +
+        $HelpRows +
+        $ReservedRows
+    )
 
     $availableRows = [Math]::Max(
         0,
         $height - $usedRows
     )
 
-    # Calculate horizontal spacing
+    # --------------------------------------------------------
+    # Configure adaptive horizontal spacing
+    # --------------------------------------------------------
+
     $indent = 2
-    $gap = 3
+    $columnGap = 3
 
-    if ($mode -eq 'Compact') {
-        $indent = 1
-        $gap = 2
+    switch ($mode) {
+
+        'Compact' {
+            $indent = 1
+            $columnGap = 2
+        }
+
+        'Minimal' {
+            $indent = 0
+            $columnGap = 1
+        }
     }
 
-    if ($mode -eq 'Minimal') {
-        $indent = 0
-        $gap = 1
-    }
-
-    # Evaluate terminal usability
-    $isTooSmall = (
-        $width -lt 40 -or
-        $height -lt 15
+    $usableWidth = [Math]::Max(
+        1,
+        $contentWidth - $indent
     )
 
+    # --------------------------------------------------------
+    # Return calculated layout
+    # --------------------------------------------------------
+
     return [PSCustomObject]@{
+
         Screen          = $Screen
         Mode            = $mode
 
         Width           = $width
         Height          = $height
         ContentWidth    = $contentWidth
+        UsableWidth     = $usableWidth
 
         BannerRows      = $BannerRows
         HelpRows        = $HelpRows
@@ -140,18 +284,25 @@ function Get-WinSecLayout {
         MaxTableRows    = $availableRows
 
         Indent          = $indent
-        ColumnGap       = $gap
+        ColumnGap       = $columnGap
+
+        MinimumWidth    = $minimumWidth
+        MinimumHeight   = $minimumHeight
 
         IsCompact       = ($mode -ne 'Full')
         IsMinimal       = ($mode -eq 'Minimal')
         IsTooSmall      = $isTooSmall
-        HasTableSpace   = ($availableRows -gt 0)
+
+        HasTableSpace   = (
+            $availableRows -gt 0 -and
+            -not $isTooSmall
+        )
     }
 }
 
 
 # ------------------------------------------------------------
-# Calculate visible items in a scrollable list
+# Calculate visible items for scrollable lists
 # ------------------------------------------------------------
 
 function Get-WinSecVisibleRange {
@@ -169,6 +320,7 @@ function Get-WinSecVisibleRange {
     $ItemCount = [Math]::Max(0, $ItemCount)
 
     if ($ItemCount -eq 0) {
+
         return [PSCustomObject]@{
             StartIndex        = 0
             EndIndexExclusive = 0
@@ -181,39 +333,66 @@ function Get-WinSecVisibleRange {
 
     $VisibleRows = [Math]::Max(1, $VisibleRows)
 
-    $maxOffset = [Math]::Max(
+    $maximumOffset = [Math]::Max(
         0,
         $ItemCount - $VisibleRows
     )
 
+    # --------------------------------------------------------
+    # Normalize current scroll position
+    # --------------------------------------------------------
+
     $startIndex = [Math]::Max(
         0,
-        [Math]::Min($ScrollOffset, $maxOffset)
+        [Math]::Min(
+            $ScrollOffset,
+            $maximumOffset
+        )
     )
 
-    # Keep selected item inside visible viewport
+    # --------------------------------------------------------
+    # Keep selected item visible
+    # --------------------------------------------------------
+
     if (
         $SelectedIndex -ge 0 -and
         $SelectedIndex -lt $ItemCount
     ) {
+
         if ($SelectedIndex -lt $startIndex) {
             $startIndex = $SelectedIndex
         }
 
-        if ($SelectedIndex -ge ($startIndex + $VisibleRows)) {
-            $startIndex = $SelectedIndex - $VisibleRows + 1
+        if (
+            $SelectedIndex -ge
+            ($startIndex + $VisibleRows)
+        ) {
+            $startIndex = (
+                $SelectedIndex - $VisibleRows + 1
+            )
         }
     }
 
+    # --------------------------------------------------------
+    # Prevent scrolling outside available items
+    # --------------------------------------------------------
+
     $startIndex = [Math]::Max(
         0,
-        [Math]::Min($startIndex, $maxOffset)
+        [Math]::Min(
+            $startIndex,
+            $maximumOffset
+        )
     )
 
     $endIndex = [Math]::Min(
         $ItemCount,
         $startIndex + $VisibleRows
     )
+
+    # --------------------------------------------------------
+    # Return visible item range
+    # --------------------------------------------------------
 
     return [PSCustomObject]@{
         StartIndex        = $startIndex
@@ -227,13 +406,14 @@ function Get-WinSecVisibleRange {
 
 
 # ------------------------------------------------------------
-# Get recommended table height for a screen
+# Get recommended table height
 # ------------------------------------------------------------
 
 function Get-WinSecTableHeight {
     [CmdletBinding()]
     param(
         [ValidateSet(
+            'Devices',
             'MainMenu',
             'Section',
             'Findings',
@@ -241,7 +421,7 @@ function Get-WinSecTableHeight {
             'Results',
             'Settings'
         )]
-        [string]$Screen = 'MainMenu',
+        [string]$Screen = 'Devices',
 
         [int]$BannerRows = -1,
 
@@ -255,6 +435,10 @@ function Get-WinSecTableHeight {
         -BannerRows $BannerRows `
         -HelpRows $HelpRows `
         -ReservedRows $ReservedRows
+
+    if ($layout.IsTooSmall) {
+        return 0
+    }
 
     return [int]$layout.MaxTableRows
 }
