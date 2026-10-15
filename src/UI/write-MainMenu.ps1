@@ -99,6 +99,21 @@ function Show-MainMenu {
 
     Write-Host ""
 
+    Write-Host ""
+
+    # ========================================================
+    # PATCH MANAGEMENT
+    # ========================================================
+
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+    Write-CenteredTitle -Title "PATCH MANAGEMENT"
+    Write-Host ("═" * $MenuWidth) -ForegroundColor DarkGray
+
+    Write-Host " [9] " -ForegroundColor Cyan -NoNewline
+    Write-Host "Windows Update"
+
+    Write-Host ""
+
     # ========================================================
     # EXIT
     # ========================================================

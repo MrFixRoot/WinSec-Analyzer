@@ -46,18 +46,20 @@ Get-ChildItem -Path $FunctionsPath -Filter '*.ps1' |
 # ============================================================
 
 $RequiredFunctions = @(
-    'Show-Banner',
-    'Show-MainMenu',
-    'Show-SectionHeader',
-    'Show-AssessmentResults',
-    'Get-SystemInfo',
+    'write-Banner',
+    'write-MainMenu',
+    'write-SectionHeader',
+    'write-AssessmentResults',
+
+    'get-SystemInfo',
     'Test-WindowsFirewall',
     'Test-OpenPorts',
     'Test-WindowsDefender',
     'Test-BitLocker',
     'Test-SMB',
     'Test-LocalUsersAdministrators',
-    'Test-PowerShellSecurity'
+    'Test-PowerShellSecurity',
+    'Test-WindowsUpdate'
 
 )
 
@@ -502,6 +504,50 @@ do {
             Show-AssessmentResults `
                 -Title "PowerShell Security Settings" `
                 -Results $PowerShellResults `
+                -TableColumns @(
+                    'Control',
+                    'Status',
+                    'Severity',
+                    'Score',
+                    'MaxScore'
+                )
+
+            Write-Host ""
+            Read-Host "Press Enter to return to the menu"
+        }
+
+        # ====================================================
+        # OPTION 9 - WINDOWS UPDATE
+        # ====================================================
+
+        '9' {
+
+            Clear-Host
+
+            Show-Banner -Version $WinSecVersion
+            Show-SectionHeader -Title "WINDOWS UPDATE"
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Analyzing Windows Update configuration..." `
+                -PercentComplete 10
+
+            $UpdateResults = @(
+                Test-WindowsUpdate
+            )
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Status "Processing Windows Update findings..." `
+                -PercentComplete 90
+
+            Write-Progress `
+                -Activity "WinSec Analyzer" `
+                -Completed
+
+            Show-AssessmentResults `
+                -Title "Windows Update" `
+                -Results $UpdateResults `
                 -TableColumns @(
                     'Control',
                     'Status',

@@ -1,11 +1,34 @@
+#Requires -Version 5.1
+
 [CmdletBinding()]
 param()
 
-$MainScript = Join-Path $PSScriptRoot 'src\winsec-analyzer.ps1'
+$ErrorActionPreference = 'Stop'
 
-if (-not (Test-Path $MainScript)) {
-    Write-Error "WinSec Analyzer main script not found: $MainScript"
+# ========================================================
+# PATHS
+# ========================================================
+
+$ProjectRoot = $PSScriptRoot
+$MainScript  = Join-Path $ProjectRoot 'main.ps1'
+
+# ========================================================
+# VALIDATION
+# ========================================================
+
+if (-not (Test-Path -LiteralPath $MainScript -PathType Leaf)) {
+    Write-Error "Main script not found: $MainScript"
     exit 1
 }
 
-& $MainScript
+# ========================================================
+# EXECUTION
+# ========================================================
+
+try {
+    & $MainScript
+}
+catch {
+    Write-Error "WinSec Analyzer execution failed: $($_.Exception.Message)"
+    exit 1
+}
