@@ -255,16 +255,21 @@ function Get-WinSecMainMenuDevice {
 # Maintain compatibility with existing UI components
 # ------------------------------------------------------------
 
+
 function Get-WinSecMainMenuHelpHeight {
     [CmdletBinding()]
     param(
-        [int]$Width = 80
+        [int]$Width = 80,
+
+        [switch]$EnableRescan
     )
 
     return Get-WinSecKeyboardHelpHeight `
         -Screen 'MainMenu' `
-        -Width $Width
+        -Width $Width `
+        -EnableRescan:$EnableRescan
 }
+
 
 
 # ------------------------------------------------------------
@@ -284,7 +289,11 @@ function Show-WinSecMainMenu {
 
         [string]$OverallStatus = 'PENDING',
 
-        [string]$Version = '0.9.0'
+        [string]$Version = '0.9.0',
+
+        # Display-only authorization flag.
+        # The caller must validate the selected target.
+        [switch]$EnableRescan
     )
 
     # --------------------------------------------------------
@@ -501,11 +510,12 @@ function Show-WinSecMainMenu {
     # - Table borders
     # - Pagination allowance
 
+    # Reserve one additional row for Scan / Rescan.
     $reservedRows = if ($compactVertical) {
-        9
+        10
     }
     else {
-        12
+        13
     }
 
     # Recalculate layout using actual content reservations.
@@ -529,8 +539,30 @@ function Show-WinSecMainMenu {
         -MaxRows $maxRows
 
     # --------------------------------------------------------
+    # Render Scan / Rescan shortcut
+    # --------------------------------------------------------
+
+    # This is a display-only shortcut.
+    # Authorization remains in the CLI and ScanCoordinator.
+
+    if ($EnableRescan.IsPresent -and $device.Selected) {
+
+        Write-WinSecText `
+            -Text '[R] Scan / Rescan Local Device' `
+            -Color Cyan
+    }
+    else {
+
+        Write-WinSecText `
+            -Text '[R] Scan / Rescan (unavailable)' `
+            -Color DarkGray
+    }
+
+    # --------------------------------------------------------
     # Render keyboard shortcuts
     # --------------------------------------------------------
 
-    Write-WinSecKeyboardHelp -Screen 'MainMenu'
+    Write-WinSecKeyboardHelp `
+        -Screen 'MainMenu' `
+        -EnableRescan:$EnableRescan
 }

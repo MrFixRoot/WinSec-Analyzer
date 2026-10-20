@@ -1,0 +1,880 @@
+
+{
+    "CatalogId": "WSA-DEFENDER",
+    "CatalogVersion": "0.9.0",
+    "CheckId": "WSA-SYS-001",
+    "Status": "DRAFT_UNAPPROVED",
+    "ScoringEnabled": false,
+    "DeviceChangesAllowed": false,
+    "Description": "Draft candidate policies and review-only observations for the single Microsoft Defender Antivirus security check.",
+    "Important": "Do not submit these draft criteria for compliance scoring. Microsoft technical documentation is not a CIS Benchmark requirement or an approved organizational policy. Confirm OS release, edition, benchmark profile, active antivirus mode, prerequisites, and source control IDs before approval.",
+    "SupportedEngineOperators": ["Equals", "In"],
+    "ActivationPolicy": {
+        "RequiredBeforeApproval": [
+        "A real local policy or exact CIS Benchmark source is selected",
+        "Source Framework, ControlId and Version are verified and updated",
+        "OS release, edition, and benchmark profile are resolved",
+        "All activation dependencies are evaluated or proven not applicable",
+        "An authorized reviewer signs off the criterion"
+        ],
+        "ProhibitAutomaticApproval": true,
+        "MappingsRequireVerification": true,
+        "UnknownMustNotBeGraded": true
+    },
+    "Criteria": [
+        {
+        "CriterionId": "WSA-DEF-DRAFT-001",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Antivirus service enabled",
+        "EvidencePath": "DefenderStatus.AMServiceEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Antivirus service enabled - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Service status is not proof of active antivirus enforcement.",
+        "Recommendation": "Review service state and security-product coexistence.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-002",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Antivirus enabled",
+        "EvidencePath": "DefenderStatus.AntivirusEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Antivirus enabled - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Passive or third-party antivirus may explain a disabled state.",
+        "Recommendation": "Confirm the intended primary antivirus solution before recommending changes.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-003",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Real-time protection",
+        "EvidencePath": "DefenderStatus.RealTimeProtectionEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Real-time protection - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Runtime status is preferable to preference alone.",
+        "Recommendation": "Review real-time protection if Defender is the designated primary antivirus.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-004",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Behavior monitoring",
+        "EvidencePath": "DefenderStatus.BehaviorMonitorEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Behavior monitoring - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "A disabled state requires antivirus mode and workload context.",
+        "Recommendation": "Review behavior monitoring according to supported Microsoft Defender policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-005",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "On-access monitoring",
+        "EvidencePath": "DefenderStatus.OnAccessProtectionEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "On-access monitoring - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Runtime setting; platform support must be confirmed.",
+        "Recommendation": "Review on-access scanning and verify the applicable Windows policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-006",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "IOAV protection",
+        "EvidencePath": "DefenderStatus.IoavProtectionEnabled",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "IOAV protection - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Does not establish Microsoft Edge SmartScreen protection.",
+        "Recommendation": "Review internet-origin file inspection without inferring browser download blocking.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-007",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Real-time preference",
+        "EvidencePath": "DefenderPreferences.DisableRealtimeMonitoring",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Real-time preference - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "A configured preference does not prove effective runtime enforcement.",
+        "Recommendation": "Review the configured real-time monitoring preference and actual status.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-008",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CoreProtection",
+        "Name": "Behavior-monitoring preference",
+        "EvidencePath": "DefenderPreferences.DisableBehaviorMonitoring",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Behavior-monitoring preference - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Configuration must be interpreted alongside effective runtime telemetry.",
+        "Recommendation": "Review behavior monitoring configuration with device management policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-009",
+        "CheckId": "WSA-SYS-001",
+        "Area": "ThreatProtection",
+        "Name": "Script scanning",
+        "EvidencePath": "DefenderPreferences.DisableScriptScanning",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Script scanning - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Feature availability and conflicts must be verified.",
+        "Recommendation": "Consider enabled script scanning after verifying workload requirements.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-010",
+        "CheckId": "WSA-SYS-001",
+        "Area": "ThreatProtection",
+        "Name": "Archive scanning",
+        "EvidencePath": "DefenderPreferences.DisableArchiveScanning",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Archive scanning - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "Potential workload and performance impact must be assessed.",
+        "Recommendation": "Review archive inspection according to approved security and performance policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-011",
+        "CheckId": "WSA-SYS-001",
+        "Area": "ThreatProtection",
+        "Name": "PUA protection",
+        "EvidencePath": "PUAProtectionAssessment.Mode",
+        "Operator": "Equals",
+        "ExpectedValue": "BLOCK",
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "PUA protection - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/detect-block-potentially-unwanted-apps-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "AUDIT logs observations but does not block; Edge SmartScreen is separate.",
+        "Recommendation": "Evaluate PUA blocking after considering policy and a staged audit deployment.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-012",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CloudProtection",
+        "Name": "Microsoft MAPS reporting",
+        "EvidencePath": "DefenderPreferences.MAPSReporting",
+        "Operator": "Equals",
+        "ExpectedValue": 2,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Microsoft MAPS reporting - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "network-connectivity"],
+        "Interpretation": "Cloud service reachability and licensing are not verified by the preference.",
+        "Recommendation": "Review cloud-delivered protection requirements and connectivity.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-013",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CloudProtection",
+        "Name": "Automatic sample submission",
+        "EvidencePath": "DefenderPreferences.SubmitSamplesConsent",
+        "Operator": "In",
+        "ExpectedValue": [1, 3],
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Automatic sample submission - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "privacy-review"],
+        "Interpretation": "Privacy rules and policy may require different submission consent.",
+        "Recommendation": "Review sample-submission configuration and organizational privacy policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-014",
+        "CheckId": "WSA-SYS-001",
+        "Area": "CloudProtection",
+        "Name": "Block at first sight preference",
+        "EvidencePath": "DefenderPreferences.DisableBlockAtFirstSeen",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Block at first sight preference - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-block-at-first-sight-microsoft-defender-antivirus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "cloud-configuration", "network-connectivity"],
+        "Interpretation": "Requires other prerequisites; this one flag alone never proves effective blocking.",
+        "Recommendation": "Review block-at-first-sight prerequisites as a combined assessment.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-015",
+        "CheckId": "WSA-SYS-001",
+        "Area": "Integrity",
+        "Name": "Tamper protection",
+        "EvidencePath": "DefenderStatus.IsTamperProtected",
+        "Operator": "Equals",
+        "ExpectedValue": true,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Tamper protection - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/manage-tamper-protection-microsoft-365-defender"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["tamper-support"],
+        "Interpretation": "Actual availability and management authority vary by environment.",
+        "Recommendation": "Review tamper protection and applicable management prerequisites.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-016",
+        "CheckId": "WSA-SYS-001",
+        "Area": "NetworkProtection",
+        "Name": "Network protection block mode",
+        "EvidencePath": "DefenderPreferences.EnableNetworkProtection",
+        "Operator": "Equals",
+        "ExpectedValue": 1,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Network protection block mode - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/enable-network-protection"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "network-protection-support"],
+        "Interpretation": "The raw value may be an enum; unsupported types must remain UNKNOWN.",
+        "Recommendation": "Review block versus audit mode and platform/server prerequisites.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-017",
+        "CheckId": "WSA-SYS-001",
+        "Area": "RansomwareProtection",
+        "Name": "Controlled folder access block mode",
+        "EvidencePath": "DefenderPreferences.EnableControlledFolderAccess",
+        "Operator": "Equals",
+        "ExpectedValue": 1,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Controlled folder access block mode - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/defender-endpoint/enable-controlled-folders"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "controlled-folder-access-support"],
+        "Interpretation": "Block mode can affect legitimate applications and must be tested.",
+        "Recommendation": "Assess controlled folder access with workload compatibility and an audit phase.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-018",
+        "CheckId": "WSA-SYS-001",
+        "Area": "UpdatesAndScans",
+        "Name": "Antivirus signatures not flagged outdated",
+        "EvidencePath": "DefenderStatus.DefenderSignaturesOutOfDate",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Antivirus signatures not flagged outdated - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode"],
+        "Interpretation": "The source boolean must exist; signature age alone is not an approved threshold.",
+        "Recommendation": "Review signature delivery and approved update-freshness targets.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-019",
+        "CheckId": "WSA-SYS-001",
+        "Area": "ThreatProtection",
+        "Name": "Email scanning preference",
+        "EvidencePath": "DefenderPreferences.DisableEmailScanning",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Email scanning preference - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "email-scanning-applicability"],
+        "Interpretation": "Some products/workloads may not rely on this scanner.",
+        "Recommendation": "Review email scanning relevance to deployed workloads.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        },
+        {
+        "CriterionId": "WSA-DEF-DRAFT-020",
+        "CheckId": "WSA-SYS-001",
+        "Area": "ThreatProtection",
+        "Name": "Removable-drive scanning preference",
+        "EvidencePath": "DefenderPreferences.DisableRemovableDriveScanning",
+        "Operator": "Equals",
+        "ExpectedValue": false,
+        "Approved": false,
+        "Source": {
+            "Framework": "MICROSOFT_DOCUMENTATION",
+            "Version": "ONLINE",
+            "ControlId": "NOT_ASSIGNED",
+            "Title": "Removable-drive scanning preference - Microsoft documentation",
+            "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference"
+        },
+        "Verification": {
+            "Status": "PENDING",
+            "ReviewedBy": null,
+            "ReviewedAtUTC": null
+        },
+        "Applicability": {
+            "OSFamily": "Windows",
+            "OSRelease": "PENDING_SELECTION",
+            "Edition": "PENDING_SELECTION",
+            "Profile": "PENDING_SELECTION"
+        },
+        "ActivationDependencies": ["active-antivirus-mode", "removable-media-policy"],
+        "Interpretation": "Applies to the relevant scan type; not equivalent to universal USB inspection.",
+        "Recommendation": "Review removable-media scan behavior and approved endpoint policy.",
+        "FrameworkMappings": {
+            "CISBenchmarks": [],
+            "CISControls": [],
+            "NISTCSF": [],
+            "MITREATTACK": []
+        }
+        }
+    ],
+    "ReviewOnly": [
+        {
+        "Area": "CoreProtection",
+        "Name": "Antivirus running mode",
+        "EvidencePath": "DefenderStatus.AMRunningMode",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Do not grade passive or EDR block mode without primary-antivirus context.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        {
+        "Area": "CoreProtection",
+        "Name": "Network Inspection System status",
+        "EvidencePath": "DefenderStatus.NISEnabled",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Requires platform and service context.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        {
+        "Area": "CloudProtection",
+        "Name": "Cloud protection level",
+        "EvidencePath": "DefenderPreferences.CloudBlockLevel",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Levels are policy-specific; do not assume a universal numeric target.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure"
+        },
+        {
+        "Area": "CloudProtection",
+        "Name": "Cloud timeout",
+        "EvidencePath": "DefenderPreferences.CloudExtendedTimeout",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Requires a documented organizational threshold.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure"
+        },
+        {
+        "Area": "RansomwareProtection",
+        "Name": "Controlled folder protected folders count",
+        "EvidencePath": "ExclusionCounts.ControlledFolderProtectedFolders",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Additional protected folders count is not a protection score.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/enable-controlled-folders"
+        },
+        {
+        "Area": "AttackSurfaceReduction",
+        "Name": "ASR rule inventory",
+        "EvidencePath": "AttackSurfaceReduction.Rules",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Requires individual GUID-based rules and applicability; list paths are not supported by the current evaluation engine.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-reference"
+        },
+        {
+        "Area": "AttackSurfaceReduction",
+        "Name": "ASR inventory completeness",
+        "EvidencePath": "AttackSurfaceReduction.Complete",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Incomplete telemetry must not be treated as all ASR rules disabled.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-reference"
+        },
+        {
+        "Area": "UpdatesAndScans",
+        "Name": "Antivirus signature age",
+        "EvidencePath": "DefenderStatus.AntivirusSignatureAge",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Threshold requires a verified organization or benchmark policy.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+        },
+        {
+        "Area": "UpdatesAndScans",
+        "Name": "Quick scan age",
+        "EvidencePath": "DefenderStatus.QuickScanAge",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Age alone does not prove compliance or infection.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference"
+        },
+        {
+        "Area": "UpdatesAndScans",
+        "Name": "Full scan age",
+        "EvidencePath": "DefenderStatus.FullScanAge",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Frequency depends on approved operating policy.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference"
+        },
+        {
+        "Area": "ExclusionsAndHardening",
+        "Name": "Path exclusions count",
+        "EvidencePath": "ExclusionCounts.Paths",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Nonzero count is not automatically FAIL; individual exclusions are deliberately not disclosed.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/configure-extension-file-exclusions-microsoft-defender-antivirus"
+        },
+        {
+        "Area": "ExclusionsAndHardening",
+        "Name": "Process exclusions count",
+        "EvidencePath": "ExclusionCounts.Processes",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Nonzero count requires controlled exception review, not automatic FAIL.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/configure-extension-file-exclusions-microsoft-defender-antivirus"
+        },
+        {
+        "Area": "ExclusionsAndHardening",
+        "Name": "ASR exclusions count",
+        "EvidencePath": "ExclusionCounts.ASR",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Exceptions require review; no excluded paths are exported.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/configure-extension-file-exclusions-microsoft-defender-antivirus"
+        },
+        {
+        "Area": "ExclusionsAndHardening",
+        "Name": "Controlled folder allowed applications count",
+        "EvidencePath": "ExclusionCounts.ControlledFolderAllowedApplications",
+        "Assessment": "REVIEW_ONLY",
+        "Reason": "Needs authorized exception inventory for risk interpretation.",
+        "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/enable-controlled-folders"
+        }
+    ]
+}
