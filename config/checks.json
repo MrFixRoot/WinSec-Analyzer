@@ -1,4 +1,448 @@
+
 {
-  "enabledChecks": [],
-  "notes": "Los controles se registraran cuando se implemente el motor."
+  "schemaVersion": "1.0.0",
+  "catalogVersion": "0.9.0",
+  "catalogId": "winsec-windows-checks",
+  "name": "WinSec Analyzer Security Checks Catalog",
+  "description": "Registry of Windows security configuration assessment checks.",
+
+  "platform": "Windows",
+  "enabled": true,
+
+  "executionPolicy": {
+    "mode": "EXPLICIT",
+    "automaticExecutionOnStartup": false,
+    "executeOnScreenRender": false,
+    "automaticRemediation": false,
+    "readOnly": true,
+    "allowUnvalidatedChecks": false,
+    "requireEnabledCheck": true,
+    "requireImplementationValidation": true
+  },
+
+  "resultContract": {
+    "requiredFields": [
+      "CheckId",
+      "DeviceId",
+      "ScanId",
+      "SectionKey",
+      "Status",
+      "Evidence"
+    ],
+    "defaultStatus": "PENDING",
+    "unimplementedStatus": "NOT_SELECTED",
+    "unknownApplicabilityStatus": "UNKNOWN",
+    "scoringConfiguration": "config/scoring.json"
+  },
+
+  "sections": [
+    {
+      "key": "SystemSecurity",
+      "name": "System Security",
+      "order": 1
+    },
+    {
+      "key": "NetworkSecurity",
+      "name": "Network Security",
+      "order": 2
+    },
+    {
+      "key": "IdentityAccess",
+      "name": "Identity & Access Security",
+      "order": 3
+    },
+    {
+      "key": "LoggingAuditing",
+      "name": "Logging & Auditing",
+      "order": 4
+    },
+    {
+      "key": "ServicesHardening",
+      "name": "Services & Hardening",
+      "order": 5
+    }
+  ],
+
+  "checks": [
+    {
+      "checkId": "WSA-SYS-001",
+      "controlKey": "Defender",
+      "sectionKey": "SystemSecurity",
+      "name": "Windows Defender",
+      "description": "Assess Microsoft Defender Antivirus security configuration.",
+      "order": 1,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Defender/Test-Defender.ps1",
+        "function": "Test-WinSecDefender"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-SYS-002",
+      "controlKey": "BitLocker",
+      "sectionKey": "SystemSecurity",
+      "name": "BitLocker",
+      "description": "Assess Windows volume encryption and BitLocker protection configuration.",
+      "order": 2,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/BitLocker/Test-BitLocker.ps1",
+        "function": "Test-WinSecBitLocker"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-SYS-003",
+      "controlKey": "WindowsUpdate",
+      "sectionKey": "SystemSecurity",
+      "name": "Windows Update",
+      "description": "Assess Windows Update security-related configuration.",
+      "order": 3,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/System/Test-WindowsUpdate.ps1",
+        "function": "Test-WinSecWindowsUpdate"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+
+    {
+      "checkId": "WSA-NET-001",
+      "controlKey": "Firewall",
+      "sectionKey": "NetworkSecurity",
+      "name": "Windows Firewall",
+      "description": "Assess Windows Defender Firewall profile configurations.",
+      "order": 1,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Firewall/Test-Firewall.ps1",
+        "function": "Test-WinSecFirewall"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-NET-002",
+      "controlKey": "SMBv1",
+      "sectionKey": "NetworkSecurity",
+      "name": "SMBv1",
+      "description": "Assess SMBv1 protocol availability and configuration.",
+      "order": 2,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Network/Test-SMBv1.ps1",
+        "function": "Test-WinSecSMBv1"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-NET-003",
+      "controlKey": "RemoteDesktop",
+      "sectionKey": "NetworkSecurity",
+      "name": "Remote Desktop",
+      "description": "Assess Remote Desktop security configuration, including applicable protection settings.",
+      "order": 3,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Network/Test-RDP.ps1",
+        "function": "Test-WinSecRDP"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-NET-004",
+      "controlKey": "OpenPorts",
+      "sectionKey": "NetworkSecurity",
+      "name": "Open Ports",
+      "description": "Collect listening network endpoints for security review.",
+      "order": 4,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Network/Test-OpenPorts.ps1",
+        "function": "Test-WinSecOpenPorts"
+      },
+      "assessment": {
+        "mode": "INFORMATIONAL",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-NET-005",
+      "controlKey": "NetworkConfiguration",
+      "sectionKey": "NetworkSecurity",
+      "name": "Network Configuration",
+      "description": "Collect network configuration details for assessment against defined criteria.",
+      "order": 5,
+      "visible": true,
+      "implementationStatus": "PLANNED",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Network/Test-NetworkConfiguration.ps1",
+        "function": "Test-WinSecNetworkConfiguration"
+      },
+      "assessment": {
+        "mode": "INFORMATIONAL",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+
+    {
+      "checkId": "WSA-IAM-001",
+      "controlKey": "LocalAdministrators",
+      "sectionKey": "IdentityAccess",
+      "name": "Local Administrators",
+      "description": "Assess local administrative group membership against an approved baseline.",
+      "order": 1,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Accounts/Test-LocalAdmins.ps1",
+        "function": "Test-WinSecLocalAdmins"
+      },
+      "assessment": {
+        "mode": "BASELINE_REQUIRED",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-IAM-002",
+      "controlKey": "GuestAccount",
+      "sectionKey": "IdentityAccess",
+      "name": "Guest Account",
+      "description": "Assess the built-in Windows Guest account configuration.",
+      "order": 2,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Accounts/Test-GuestAccount.ps1",
+        "function": "Test-WinSecGuestAccount"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-IAM-003",
+      "controlKey": "PasswordPolicy",
+      "sectionKey": "IdentityAccess",
+      "name": "Password Policies",
+      "description": "Assess applicable Windows password policy settings.",
+      "order": 3,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Policies/Test-PasswordPolicy.ps1",
+        "function": "Test-WinSecPasswordPolicy"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+
+    {
+      "checkId": "WSA-LOG-001",
+      "controlKey": "PowerShellLogging",
+      "sectionKey": "LoggingAuditing",
+      "name": "PowerShell Logging",
+      "description": "Assess PowerShell security logging configuration.",
+      "order": 1,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/System/Test-PowerShellLogging.ps1",
+        "function": "Test-WinSecPowerShellLogging"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+    {
+      "checkId": "WSA-LOG-002",
+      "controlKey": "AuditPolicy",
+      "sectionKey": "LoggingAuditing",
+      "name": "Windows Audit Policies",
+      "description": "Assess Windows security audit policy configuration.",
+      "order": 2,
+      "visible": true,
+      "implementationStatus": "PENDING_VALIDATION",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Policies/Test-AuditPolicy.ps1",
+        "function": "Test-WinSecAuditPolicy"
+      },
+      "assessment": {
+        "mode": "CONFIGURATION",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    },
+
+    {
+      "checkId": "WSA-HRD-001",
+      "controlKey": "WindowsServices",
+      "sectionKey": "ServicesHardening",
+      "name": "Windows Services",
+      "description": "Assess Windows service configuration against an approved security baseline.",
+      "order": 1,
+      "visible": true,
+      "implementationStatus": "PLANNED",
+      "execution": {
+        "enabled": false,
+        "type": "PowerShell",
+        "script": "src/Checks/Services/Test-WindowsServices.ps1",
+        "function": "Test-WinSecWindowsServices"
+      },
+      "assessment": {
+        "mode": "BASELINE_REQUIRED",
+        "scoringEligible": false,
+        "criteriaSource": null
+      },
+      "applicability": {
+        "platform": "Windows",
+        "strategy": "RUNTIME",
+        "onUnknown": "UNKNOWN"
+      }
+    }
+  ],
+
+  "frameworkIntegration": {
+    "mappingKey": "checkId",
+    "requireVerifiedReferences": true,
+    "inventMissingReferences": false,
+    "catalogs": [
+      "config/frameworks/cis-benchmarks.json",
+      "config/frameworks/cis-controls.json",
+      "config/frameworks/nist-csf.json",
+      "config/frameworks/mitre-attack.json"
+    ]
+  }
 }
