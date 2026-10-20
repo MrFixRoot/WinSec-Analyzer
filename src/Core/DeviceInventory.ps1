@@ -14,7 +14,8 @@
 # - Duplicate DeviceId protection
 # - Existing registration preservation
 # - TargetRegistry schema validation
-# - Atomic creation of inventory file
+# - Atomic creation/update with an exclusive writer lease
+# - Preservation of previously registered devices
 # - Separate device metadata from scan results
 #
 # PowerShell 5.1 / 7.x
@@ -46,6 +47,18 @@ function Get-WinSecDeviceInventoryPath {
 
     if (-not (Test-Path -LiteralPath $root -PathType Container)) {
         throw 'Project root does not exist.'
+    }
+
+    # A linked ancestor can redirect writes even when data/ itself is regular.
+    $ancestorPath = $root
+    while ($null -ne $ancestorPath) {
+        $ancestor = Get-Item -LiteralPath $ancestorPath -Force -ErrorAction Stop
+        if (-not $ancestor.PSIsContainer -or
+            ($ancestor.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked inventory storage ancestors are not supported.'
+        }
+        $parent = [System.IO.Directory]::GetParent($ancestorPath)
+        $ancestorPath = if ($null -eq $parent) { $null } else { $parent.FullName }
     }
 
     $dataPath = Join-Path $root 'data'
@@ -282,6 +295,137 @@ function Import-WinSecDeviceInventory {
 # REGISTER CURRENT LOCAL DEVICE
 # ============================================================
 
+function Get-WinSecDeviceInventoryFingerprint {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+
+    $path = Get-WinSecDeviceInventoryPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $path -ErrorAction Stop)) { return 'MISSING' }
+    return (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash
+}
+
+function Open-WinSecDeviceInventoryStore {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot)
+
+    $path = Get-WinSecDeviceInventoryPath -ProjectRoot $ProjectRoot
+    $directory = [System.IO.Path]::GetDirectoryName($path)
+    if (-not (Test-Path -LiteralPath $directory -ErrorAction Stop)) {
+        $null = [System.IO.Directory]::CreateDirectory($directory)
+    }
+    $path = Get-WinSecDeviceInventoryPath -ProjectRoot $ProjectRoot
+    $lockPath = Join-Path $directory '.devices.lock'
+    if (Test-Path -LiteralPath $lockPath -ErrorAction Stop) {
+        $lockFile = Get-Item -LiteralPath $lockPath -Force -ErrorAction Stop
+        if ($lockFile.PSIsContainer -or
+            ($lockFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Invalid inventory lock path.'
+        }
+    }
+    try {
+        $lease = New-Object System.IO.FileStream -ArgumentList @(
+            $lockPath, [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None,
+            1, [System.IO.FileOptions]::DeleteOnClose
+        )
+    }
+    catch { throw 'Unable to acquire inventory lock; another writer or a storage error may be present.' }
+    return [pscustomobject]@{ ProjectRoot = $ProjectRoot; Path = $path; Lock = $lease }
+}
+
+function Save-WinSecDeviceInventory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Store,
+        [Parameter(Mandatory)][string]$Json,
+        [Parameter(Mandatory)][string]$ExpectedFingerprint
+    )
+
+    $null = ConvertFrom-WinSecDeviceInventoryJson -Json $Json
+    $path = Get-WinSecDeviceInventoryPath -ProjectRoot $Store.ProjectRoot
+    $directory = [System.IO.Path]::GetDirectoryName($path)
+    $lockPath = Join-Path $directory '.devices.lock'
+    if ($Store.Path -cne $path -or $Store.Lock -isnot [System.IO.FileStream] -or
+        -not $Store.Lock.CanWrite -or $Store.Lock.Name -cne $lockPath -or
+        ($ExpectedFingerprint -cne 'MISSING' -and $ExpectedFingerprint -cnotmatch '^[A-F0-9]{64}$')) {
+        throw 'Invalid inventory write lease.'
+    }
+    if ((Get-WinSecDeviceInventoryFingerprint -ProjectRoot $Store.ProjectRoot) -cne $ExpectedFingerprint) {
+        throw 'Inventory changed before update.'
+    }
+
+    $temporaryPath = Join-Path $directory ('.devices-{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+    $created = $false
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
+        $stream = [System.IO.File]::Open($temporaryPath, [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $created = $true
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { $expectedHash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') }
+        finally { $sha.Dispose() }
+        $currentPath = Get-WinSecDeviceInventoryPath -ProjectRoot $Store.ProjectRoot
+        $temporaryFile = Get-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+        if ($currentPath -cne $path -or $temporaryFile.PSIsContainer -or
+            ($temporaryFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash -cne $expectedHash) {
+            throw 'Temporary inventory verification failed.'
+        }
+        if ((Get-WinSecDeviceInventoryFingerprint -ProjectRoot $Store.ProjectRoot) -cne $ExpectedFingerprint) {
+            throw 'Inventory changed during update.'
+        }
+
+        # Same-directory atomic creation or replacement; no copy fallback.
+        if ($ExpectedFingerprint -ceq 'MISSING') {
+            [System.IO.File]::Move($temporaryPath, $path)
+        }
+        else {
+            # A plain $null becomes an empty string in a .NET string argument.
+            [System.IO.File]::Replace($temporaryPath, $path, [System.Management.Automation.Language.NullString]::Value)
+        }
+        if ((Get-WinSecDeviceInventoryFingerprint -ProjectRoot $Store.ProjectRoot) -cne $expectedHash) {
+            throw 'Saved inventory verification failed.'
+        }
+    }
+    finally {
+        if ($created -and (Test-Path -LiteralPath $temporaryPath -ErrorAction Stop)) {
+            $null = Get-WinSecDeviceInventoryPath -ProjectRoot $Store.ProjectRoot
+            $temporaryFile = Get-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+            if ($temporaryFile.PSIsContainer -or
+                ($temporaryFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Unsafe temporary inventory cleanup path.'
+            }
+            [System.IO.File]::Delete($temporaryPath)
+        }
+    }
+}
+
+function Get-WinSecDeviceInventoryRegistration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Inventory,
+        [Parameter(Mandatory)][object]$LocalDevice,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    foreach ($target in $Inventory.targets) {
+        if ([string]::Equals($target.DeviceId, $LocalDevice.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
+            if ($target.Mode -cne 'LOCAL' -or
+                -not [string]::Equals($target.Hostname, $LocalDevice.Hostname, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Conflicting local device registration.'
+            }
+            return [pscustomobject]@{
+                Created = $false; DeviceId = [string]$target.DeviceId; Hostname = [string]$target.Hostname
+                Path = $Path; Status = 'ALREADY_REGISTERED'
+            }
+        }
+    }
+    return $null
+}
+
 function Register-WinSecLocalDevice {
     [CmdletBinding()]
     param(
@@ -315,7 +459,9 @@ function Register-WinSecLocalDevice {
 
     if (
         $null -eq $localDevice -or
-        $localDevice.Mode -cne 'LOCAL'
+        $localDevice.Mode -isnot [string] -or $localDevice.Mode -cne 'LOCAL' -or
+        -not (Test-WinSecTargetIdentifier -Value $localDevice.DeviceId) -or
+        -not (Test-WinSecTargetIdentifier -Value $localDevice.Hostname -MaximumLength 253)
     ) {
         throw 'Unable to identify the local device.'
     }
@@ -330,181 +476,109 @@ function Register-WinSecLocalDevice {
     # Reuse an existing registration
     # --------------------------------------------------------
 
-    foreach ($target in $inventory.targets) {
-        if (
-            [string]::Equals(
-                [string]$target.DeviceId,
-                [string]$localDevice.DeviceId,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        ) {
-            if (
-                $target.Mode -cne 'LOCAL' -or
-                -not [string]::Equals(
-                    [string]$target.Hostname,
-                    [string]$localDevice.Hostname,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                )
-            ) {
-                throw 'Conflicting local device registration.'
-            }
+    $existing = Get-WinSecDeviceInventoryRegistration -Inventory $inventory -LocalDevice $localDevice -Path $path
+    # A known device remains a read-only operation, including saved enablement.
+    if ($null -ne $existing) { return $existing }
 
-            # Do not change Enabled or other saved settings.
-            # Existing registrations are not rewritten.
-
-            return [pscustomobject]@{
-                Created = $false
-                DeviceId = [string]$target.DeviceId
-                Hostname = [string]$target.Hostname
-                Path = $path
-                Status = 'ALREADY_REGISTERED'
-            }
-        }
-    }
-
-    # --------------------------------------------------------
-    # Build the first persistent registration
-    # --------------------------------------------------------
-
-    $newTarget = [pscustomobject]@{
-        DeviceId = [string]$localDevice.DeviceId
-        Hostname = [string]$localDevice.Hostname
-        Mode = 'LOCAL'
-        Enabled = $true
-        Description = 'Local Windows device'
-        RegisteredAtUtc = (
-            [DateTime]::UtcNow.ToString('o')
-        )
-    }
-
-    $targets = @(
-        @($inventory.targets) + @($newTarget)
-    )
-
-    $updatedInventory = [pscustomobject]@{
-        schemaVersion = '1.0.0'
-        targets = $targets
-    }
-
-    # --------------------------------------------------------
-    # Validate before writing
-    # --------------------------------------------------------
-
-    $validation = Test-WinSecTargetRegistry `
-        -Registry $updatedInventory
-
-    if (-not $validation.Valid) {
-        throw (
-            'Device registration rejected: {0}' -f
-            ($validation.Errors -join '; ')
-        )
-    }
-
-    # --------------------------------------------------------
-    # Prepare the storage directory
-    # --------------------------------------------------------
-
-    $dataDirectory = Split-Path `
-        -Path $path `
-        -Parent
-
-    if (-not (
-        Test-Path -LiteralPath $dataDirectory
-    )) {
-        $null = New-Item `
-            -Path $dataDirectory `
-            -ItemType Directory `
-            -ErrorAction Stop
-    }
-
-    # Recheck the path after directory creation.
-
-    $path = Get-WinSecDeviceInventoryPath `
-        -ProjectRoot $ProjectRoot
-
-    # Existing inventory files must never be overwritten
-    # by first-run registration.
-
-    if (Test-Path -LiteralPath $path) {
-        throw (
-            'Inventory already exists and requires ' +
-            'a controlled update operation.'
-        )
-    }
-
-    # --------------------------------------------------------
-    # Serialize only device inventory information
-    # --------------------------------------------------------
-
-    $json = ConvertTo-Json `
-        -InputObject $updatedInventory `
-        -Depth 8
-
-    if (
-        [System.Text.Encoding]::UTF8.GetByteCount($json) -gt
-        1048576
-    ) {
-        throw 'Updated inventory exceeds 1 MiB.'
-    }
-
-    # --------------------------------------------------------
-    # Write through a temporary file
-    # --------------------------------------------------------
-
-    $temporaryPath = Join-Path `
-        $dataDirectory `
-        ('.devices-{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
-
+    $store = Open-WinSecDeviceInventoryStore -ProjectRoot $ProjectRoot
     try {
-        $encoding = New-Object System.Text.UTF8Encoding($false)
+        $path = Get-WinSecDeviceInventoryPath -ProjectRoot $ProjectRoot
+        if ($store.Path -cne $path) { throw 'Inventory storage path changed.' }
+        $fingerprint = Get-WinSecDeviceInventoryFingerprint -ProjectRoot $ProjectRoot
+        $inventory = Import-WinSecDeviceInventory -ProjectRoot $ProjectRoot
+        if ((Get-WinSecDeviceInventoryFingerprint -ProjectRoot $ProjectRoot) -cne $fingerprint) {
+            throw 'Inventory changed while loading the update snapshot.'
+        }
+        # Another cooperating instance may have registered it before we got the lock.
+        $existing = Get-WinSecDeviceInventoryRegistration -Inventory $inventory -LocalDevice $localDevice -Path $path
+        if ($null -ne $existing) { return $existing }
 
-        [System.IO.File]::WriteAllText(
-            $temporaryPath,
-            $json,
-            $encoding
+        # --------------------------------------------------------
+        # Append a registration without replacing historical records
+        # --------------------------------------------------------
+
+        $newTarget = [pscustomobject]@{
+            DeviceId = [string]$localDevice.DeviceId
+            Hostname = [string]$localDevice.Hostname
+            Mode = 'LOCAL'
+            Enabled = $true
+            Description = 'Local Windows device'
+            RegisteredAtUtc = (
+                [DateTime]::UtcNow.ToString('o')
+            )
+        }
+
+        $targets = @(
+            @($inventory.targets) + @($newTarget)
         )
 
-        # Atomic first creation on the same filesystem.
-        # File.Move rejects an already existing destination.
+        $updatedInventory = [pscustomobject]@{
+            schemaVersion = '1.0.0'
+            targets = $targets
+        }
 
-        [System.IO.File]::Move(
-            $temporaryPath,
-            $path
-        )
-    }
-    finally {
+        # --------------------------------------------------------
+        # Validate before writing
+        # --------------------------------------------------------
+
+        $validation = Test-WinSecTargetRegistry `
+            -Registry $updatedInventory
+
+        if (-not $validation.Valid) {
+            throw 'Device registration rejected.'
+        }
+
+        # --------------------------------------------------------
+        # Serialize only device inventory information
+        # --------------------------------------------------------
+
+        $json = ConvertTo-Json `
+            -InputObject $updatedInventory `
+            -Depth 8
+
         if (
-            Test-Path -LiteralPath $temporaryPath
+            [System.Text.Encoding]::UTF8.GetByteCount($json) -gt
+            1048576
         ) {
-            Remove-Item `
-                -LiteralPath $temporaryPath `
-                -Force `
-                -ErrorAction SilentlyContinue
+            throw 'Updated inventory exceeds 1 MiB.'
+        }
+
+        # --------------------------------------------------------
+        # Validate the exact document, then commit through the held write lease
+        # --------------------------------------------------------
+
+        $expectedInventory = ConvertFrom-WinSecDeviceInventoryJson -Json $json
+        $expectedSavedJson = ConvertTo-Json -InputObject $expectedInventory -Depth 8 -Compress
+        try {
+            $null = Save-WinSecDeviceInventory -Store $store -Json $json -ExpectedFingerprint $fingerprint
+        }
+        catch { throw 'Unable to save device inventory.' }
+
+        # --------------------------------------------------------
+        # Verify the stored inventory
+        # --------------------------------------------------------
+
+        $savedInventory = Import-WinSecDeviceInventory `
+            -ProjectRoot $ProjectRoot
+
+        $savedMatches = @(
+            $savedInventory.targets | Where-Object {
+                $_.DeviceId -ceq $localDevice.DeviceId
+            }
+        )
+
+        if ($savedMatches.Count -ne 1 -or
+            (ConvertTo-Json -InputObject $savedInventory -Depth 8 -Compress) -cne $expectedSavedJson) {
+            throw 'Saved local device verification failed.'
+        }
+
+        return [pscustomobject]@{
+            Created = $true
+            DeviceId = [string]$localDevice.DeviceId
+            Hostname = [string]$localDevice.Hostname
+            Path = $path
+            Status = 'REGISTERED'
         }
     }
-
-    # --------------------------------------------------------
-    # Verify the stored inventory
-    # --------------------------------------------------------
-
-    $savedInventory = Import-WinSecDeviceInventory `
-        -ProjectRoot $ProjectRoot
-
-    $savedMatches = @(
-        $savedInventory.targets | Where-Object {
-            $_.DeviceId -ceq $localDevice.DeviceId
-        }
-    )
-
-    if ($savedMatches.Count -ne 1) {
-        throw 'Saved local device verification failed.'
-    }
-
-    return [pscustomobject]@{
-        Created = $true
-        DeviceId = [string]$localDevice.DeviceId
-        Hostname = [string]$localDevice.Hostname
-        Path = $path
-        Status = 'REGISTERED'
-    }
+    finally { $store.Lock.Dispose() }
 }

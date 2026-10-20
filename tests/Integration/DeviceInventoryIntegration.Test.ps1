@@ -41,6 +41,8 @@ function Set-Content { $script:writeCalls++; throw 'Unexpected fixture write.' }
 function Add-Content { $script:writeCalls++; throw 'Unexpected fixture write.' }
 function Out-File { $script:writeCalls++; throw 'Unexpected fixture write.' }
 function Remove-Item { $script:writeCalls++; throw 'Unexpected fixture write.' }
+function Open-WinSecDeviceInventoryStore { param($ProjectRoot) $script:writeCalls++; throw 'Unexpected inventory write lease.' }
+function Save-WinSecDeviceInventory { param($Store, $Json, $ExpectedFingerprint) $script:writeCalls++; throw 'Unexpected inventory commit.' }
 function Invoke-WinSecAudit { $script:auditCalls++; throw 'Unexpected audit.' }
 
 function Assert-WinSecInventoryIntegration {
