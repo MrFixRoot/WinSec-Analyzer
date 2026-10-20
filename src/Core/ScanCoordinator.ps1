@@ -544,6 +544,89 @@ function Save-WinSecCoordinatedEvidence {
 # EXECUTE ONE COORDINATED SCAN
 # ============================================================
 
+function Get-WinSecScanConfirmationPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Coordinator,
+        [string]$DeviceId = '',
+        [string[]]$CheckIds
+    )
+
+    $target = Resolve-WinSecScanTarget -Coordinator $Coordinator -DeviceId $DeviceId
+    if ($Coordinator.ScoringEnabled -cne $false -or
+        $Coordinator.RemoteExecution -cne $false -or
+        $Coordinator.AutomaticEvidencePersistence -cne $false) {
+        throw 'Unsafe scan coordinator configuration.'
+    }
+
+    $catalogPath = Join-Path $Coordinator.ProjectRoot 'config/checks.json'
+    $catalogHash = (Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256 -ErrorAction Stop).Hash
+    $registry = Get-WinSecCheckRegistry -ProjectRoot $Coordinator.ProjectRoot
+    if ((Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256 -ErrorAction Stop).Hash -cne $catalogHash) {
+        throw 'Check catalog changed during scan preparation.'
+    }
+
+    $explicit = $PSBoundParameters.ContainsKey('CheckIds')
+    $selected = @()
+    if ($explicit) {
+        if (@($CheckIds).Count -eq 0) { throw 'CheckIds cannot be an empty explicit selection.' }
+        $seen = @{}
+        foreach ($id in $CheckIds) {
+            Assert-WinSecScanIdentifier -Value $id -FieldName 'CheckId'
+            if ($seen.ContainsKey($id)) { throw 'Duplicate selected CheckId.' }
+            $seen[$id] = $true
+            $check = Get-WinSecRegisteredCheck -Registry $registry -CheckId $id
+            if ($null -eq $check -or $check.CheckId -cne $id) {
+                throw 'Selected check is not registered.'
+            }
+            $selected += $check
+        }
+    }
+    else {
+        $selected = @(Get-WinSecExecutableChecks -Registry $registry)
+    }
+
+    $checks = @()
+    $sources = @()
+    foreach ($check in @($selected | Sort-Object CheckId)) {
+        if ($check.ExecutionEnabled -cne $true -or $check.ExecutionReady -cne $true -or
+            $check.ImplementationStatus -cne 'VALIDATED' -or $check.RegistryStatus -cne 'READY') {
+            throw 'Selected check is not executable.'
+        }
+        Assert-WinSecScanIdentifier -Value $check.CheckId -FieldName 'CheckId'
+        if (-not (Test-WinSecResultText $check.Name) -or
+            $check.SectionKey -cnotin @('SystemSecurity', 'NetworkSecurity',
+                'IdentityAccess', 'LoggingAuditing', 'ServicesHardening')) {
+            throw 'Invalid check confirmation metadata.'
+        }
+        $checks += [pscustomobject]@{
+            CheckId = $check.CheckId
+            Name = $check.Name
+            SectionKey = $check.SectionKey
+        }
+        $sources += (Get-FileHash -LiteralPath $check.ScriptPath -Algorithm SHA256 -ErrorAction Stop).Hash
+    }
+
+    $request = [pscustomobject]@{
+        Operation = 'SCAN'
+        DeviceId = $target.DeviceId
+        Hostname = $target.Hostname
+        SelectionMode = if ($explicit) { 'EXPLICIT_CHECKS' } else { 'ALL_EXECUTABLE' }
+        ReadOnly = $true
+        CatalogVersion = $registry.CatalogVersion
+        Checks = @($checks)
+    }
+    $requestJson = ConvertTo-Json -InputObject $request -Depth 8 -Compress
+    return [pscustomobject]@{
+        Target = $target
+        Registry = $registry
+        CheckIds = @($checks | ForEach-Object { $_.CheckId })
+        RequestJson = $requestJson
+        Fingerprint = [System.IO.Path]::GetFullPath($Coordinator.ProjectRoot) +
+            '|' + $catalogHash + '|' + ($sources -join '|') + '|' + $requestJson
+    }
+}
+
 function Invoke-WinSecCoordinatedScan {
     [CmdletBinding()]
     param(
@@ -556,11 +639,22 @@ function Invoke-WinSecCoordinatedScan {
 
         [string[]]$CheckIds,
 
-        [switch]$PersistEvidence
+        [switch]$PersistEvidence,
+
+        [scriptblock]$ConfirmAction,
+
+        [scriptblock]$ConfirmEvidenceAction
     )
 
     Assert-WinSecScanCoordinator `
         -Coordinator $Coordinator
+
+    if ($null -eq $ConfirmAction) {
+        throw 'Explicit confirmation is required for every scan operation.'
+    }
+    if ($PersistEvidence -and $null -eq $ConfirmEvidenceAction) {
+        throw 'Raw evidence storage requires separate explicit confirmation.'
+    }
 
     $target = Resolve-WinSecScanTarget `
         -Coordinator $Coordinator `
@@ -613,6 +707,46 @@ function Invoke-WinSecCoordinatedScan {
         }
     }
 
+    # Confirmation is per invocation; no approval flag is cached or reused.
+    $planArguments = @{ Coordinator = $Coordinator; DeviceId = $target.DeviceId }
+    if ($explicitSelection) { $planArguments.CheckIds = $CheckIds }
+    $plan = Get-WinSecScanConfirmationPlan @planArguments
+    $preview = ConvertFrom-Json -InputObject $plan.RequestJson -ErrorAction Stop
+    try { $decision = @(& $ConfirmAction $preview) }
+    catch { throw 'Unable to obtain scan confirmation.' }
+    if ($decision.Count -ne 1 -or $decision[0] -isnot [bool]) {
+        throw 'Scan confirmation must return exactly one Boolean decision.'
+    }
+    if ($decision[0] -eq $false) { return $null }
+    if ((ConvertTo-Json -InputObject $preview -Depth 8 -Compress) -cne $plan.RequestJson) {
+        throw 'The displayed scan request was modified.'
+    }
+    if ($plan.CheckIds.Count -eq 0) {
+        throw 'NO_EXECUTABLE_CHECKS: no scan was started.'
+    }
+
+    if ($PersistEvidence) {
+        $evidencePreview = ConvertFrom-Json -InputObject $plan.RequestJson -ErrorAction Stop
+        $evidencePreview.Operation = 'STORE_RAW_EVIDENCE'
+        $evidenceRequestJson = ConvertTo-Json -InputObject $evidencePreview -Depth 8 -Compress
+        try { $evidenceDecision = @(& $ConfirmEvidenceAction $evidencePreview) }
+        catch { throw 'Unable to obtain separate evidence confirmation.' }
+        if ($evidenceDecision.Count -ne 1 -or $evidenceDecision[0] -isnot [bool]) {
+            throw 'Evidence confirmation must return exactly one Boolean decision.'
+        }
+        if ($evidenceDecision[0] -eq $false) { return $null }
+        if ((ConvertTo-Json -InputObject $evidencePreview -Depth 8 -Compress) -cne $evidenceRequestJson) {
+            throw 'The displayed evidence request was modified.'
+        }
+    }
+
+    # Revalidate after user interaction, then execute exactly that selection.
+    $approvedPlan = Get-WinSecScanConfirmationPlan @planArguments
+    if ($approvedPlan.Fingerprint -cne $plan.Fingerprint -or
+        $Coordinator.Sessions.ContainsKey($key)) {
+        throw 'Scan authorization changed after confirmation; confirm a new request.'
+    }
+
     # Preflight evidence storage before running checks.
     # Actual writes only occur when PersistEvidence is set.
 
@@ -632,21 +766,12 @@ function Invoke-WinSecCoordinatedScan {
     # Production scoring requires a separate, authorized
     # CriteriaService -> EvaluationEngine -> ScoreEngine path.
 
-    if ($explicitSelection) {
-
-        $audit = Invoke-WinSecAudit `
-            -DeviceId $target.DeviceId `
-            -ScanId $ScanId `
-            -CheckIds $CheckIds `
-            -SkipScoring
-    }
-    else {
-
-        $audit = Invoke-WinSecAudit `
-            -DeviceId $target.DeviceId `
-            -ScanId $ScanId `
-            -SkipScoring
-    }
+    $audit = Invoke-WinSecAudit `
+        -DeviceId $target.DeviceId `
+        -ScanId $ScanId `
+        -CheckIds $approvedPlan.CheckIds `
+        -Registry $approvedPlan.Registry `
+        -SkipScoring
 
     # --------------------------------------------------------
     # VALIDATE AUDIT RESULT
@@ -656,6 +781,14 @@ function Invoke-WinSecCoordinatedScan {
         -AuditResult $audit `
         -DeviceId $target.DeviceId `
         -ScanId $ScanId
+
+    $executedIds = @($audit.ControlResults | Where-Object {
+        $_.Status -cne 'NOT_SELECTED'
+    } | ForEach-Object { $_.CheckId } | Sort-Object)
+    if (($executedIds -join '|') -cne (@($approvedPlan.CheckIds | Sort-Object) -join '|') -or
+        $audit.CatalogVersion -cne $approvedPlan.Registry.CatalogVersion) {
+        throw 'Audit result does not match the confirmed check selection.'
+    }
 
     $session = ConvertTo-WinSecCoordinatedSession `
         -AuditResult $audit

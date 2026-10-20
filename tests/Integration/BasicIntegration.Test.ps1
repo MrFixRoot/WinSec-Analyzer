@@ -540,13 +540,15 @@ Invoke-WinSecTest 'Results remain isolated by DeviceId' {
                 DeviceId = 'TEST-PC-01'
                 ScanId = 'SCAN-01'
                 Key = 'SystemSecurity'
-                Score = 90
+                Score = $null
+                Status = 'NOT_SCORED'
             }
             [PSCustomObject]@{
                 DeviceId = 'TEST-PC-02'
                 ScanId = 'SCAN-02'
                 Key = 'SystemSecurity'
-                Score = 40
+                Score = $null
+                Status = 'NOT_SCORED'
             }
         )
 
@@ -576,12 +578,46 @@ Invoke-WinSecTest 'Results remain isolated by DeviceId' {
         $assessment.ScanId -eq 'SCAN-01' -and
         $assessment.SectionResults.Count -eq 1 -and
         $assessment.Findings.Count -eq 1 -and
-        $assessment.OverallScore -eq 90
+        $null -eq $assessment.OverallScore -and
+        $assessment.OverallStatus -eq 'NOT_SCORED' -and
+        $null -eq $assessment.SectionResults[0].Score
     ) 'Assessment data crossed device boundaries.'
 
     Assert-WinSecTest (
         $assessment.Findings[0].DeviceId -eq 'TEST-PC-01'
     ) 'A finding belongs to the wrong device.'
+}
+
+Invoke-WinSecTest 'Legacy section scores cannot authorize a scored assessment' {
+    $state = New-WinSecNavigationState
+    $state.SelectedDeviceId = 'TEST-PC-01'
+    $context = [pscustomobject]@{
+        ScanId = 'SCAN-01'
+        Devices = @()
+        SectionResults = @(
+            [pscustomobject]@{
+                DeviceId = 'TEST-PC-01'
+                ScanId = 'SCAN-01'
+                Key = 'SystemSecurity'
+                Score = 90
+            }
+        )
+        ControlResults = @()
+        Findings = @()
+    }
+    $rejected = $false
+    $assessment = $null
+    try {
+        $assessment = Get-WinSecCLIActiveAssessment `
+            -State $state -Context $context
+    }
+    catch {
+        $rejected = $true
+    }
+
+    Assert-WinSecTest (
+        $rejected -and $null -eq $assessment
+    ) 'An unapproved section score reached the assessment.'
 }
 
 Invoke-WinSecTest 'Different scans are not combined' {

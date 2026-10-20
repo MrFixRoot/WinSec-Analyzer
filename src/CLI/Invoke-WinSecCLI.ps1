@@ -238,7 +238,7 @@ function Get-WinSecCLIActiveAssessment {
     # Public Scan Result Integration
     #
     # Resolve the active coordinated scan for the selected
-    # device without modifying legacy assessment handling.
+    # device. Legacy records are validated separately below.
     # ========================================================
 
     $activeScanMap = Get-WinSecCLIValue `
@@ -331,12 +331,27 @@ function Get-WinSecCLIActiveAssessment {
         )
 
         # ----------------------------------------------------
-        # Reject scored or raw nested records
+        # Reject foreign, scored or raw nested records
         # ----------------------------------------------------
 
         foreach ($record in @(
             $publicSections + $publicControls + $publicFindings
         )) {
+            # Validate each record independently of the public envelope.
+            # Do not coerce arrays or numbers into identity strings.
+
+            $recordDeviceId = $record.DeviceId
+            $recordScanId = $record.ScanId
+
+            if (
+                $recordDeviceId -isnot [string] -or
+                $recordScanId -isnot [string] -or
+                $recordDeviceId -cne $deviceId -or
+                $recordScanId -cne $activeScanId
+            ) {
+                throw 'Public record identity does not match the selected assessment.'
+            }
+
             if (
                 $null -ne $record.PSObject.Properties['Evidence'] -or
                 $null -ne $record.PSObject.Properties['RawEvidence']
@@ -475,6 +490,104 @@ function Get-WinSecCLIActiveAssessment {
             -DeviceId $deviceId `
             -ScanId $selectedScan
     )
+
+    # --------------------------------------------------------
+    # Keep internal evidence and scoring out of legacy views
+    # --------------------------------------------------------
+
+    # Legacy input is not a ResultModel public projection. Inspect
+    # only the selected records, including structured display fields,
+    # before publishing any part of the assessment. Reject rather
+    # than silently dropping evidence or accepting scoring metadata.
+
+    $inspectionLimit = 10000
+
+    if ($sectionResults.Count + $controlResults.Count + $findings.Count -gt $inspectionLimit) {
+        throw 'Legacy assessment exceeds the safe inspection limit.'
+    }
+
+    $pendingValues = New-Object 'System.Collections.Generic.Stack[object]'
+
+    foreach ($record in @($sectionResults + $controlResults + $findings)) {
+        $pendingValues.Push($record)
+    }
+
+    $visitedValues = 0
+
+    while ($pendingValues.Count -gt 0) {
+        $value = $pendingValues.Pop()
+        $visitedValues++
+
+        # Bound inspection even for cyclic objects or oversized graphs.
+        if ($visitedValues -gt $inspectionLimit) {
+            throw 'Legacy assessment exceeds the safe inspection limit.'
+        }
+
+        if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) {
+            continue
+        }
+
+        if ($value -is [System.Collections.IList]) {
+            if ($visitedValues + $pendingValues.Count + $value.Count -gt $inspectionLimit) {
+                throw 'Legacy assessment exceeds the safe inspection limit.'
+            }
+            foreach ($item in $value) {
+                $pendingValues.Push($item)
+            }
+            continue
+        }
+
+        $isDictionary = $value -is [System.Collections.IDictionary]
+
+        if ($isDictionary) {
+            # A dictionary entry named Keys must not hide other entries.
+            $names = @($value.psbase.Keys)
+        }
+        elseif ($value -is [PSCustomObject]) {
+            $names = @($value.PSObject.Properties.Name)
+        }
+        else {
+            throw 'Legacy assessment contains unsupported structured data.'
+        }
+
+        if ($visitedValues + $pendingValues.Count + $names.Count -gt $inspectionLimit) {
+            throw 'Legacy assessment exceeds the safe inspection limit.'
+        }
+
+        foreach ($name in $names) {
+            if ($name -isnot [string]) {
+                throw 'Legacy assessment contains an invalid property name.'
+            }
+
+            if ($name -in @('Evidence', 'RawEvidence', 'OriginalResult',
+                'ObservedValue', 'ExpectedValue')) {
+                throw 'Raw data is not allowed in legacy CLI results.'
+            }
+
+            if ($isDictionary) {
+                $childValue = $value[$name]
+            }
+            else {
+                $property = $value.PSObject.Properties[$name]
+                if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                    throw 'Legacy assessment requires plain data properties.'
+                }
+                $childValue = $property.Value
+            }
+
+            if ($name -in @('Score', 'OverallScore', 'ScoreValue',
+                'ScoreResult', 'ScoringPolicy') -and $null -ne $childValue) {
+                throw 'Unapproved scoring data is not allowed in legacy CLI results.'
+            }
+
+            if ($name -in @('ScoringEnabled', 'ScoringEligible') -and
+                ($childValue -isnot [bool] -or $childValue -ne $false)) {
+                throw 'Scoring authorization is not allowed in legacy CLI results.'
+            }
+
+            $pendingValues.Push($childValue)
+        }
+    }
 
     # --------------------------------------------------------
     # Resolve device score for matching assessment only
@@ -999,7 +1112,6 @@ function Invoke-WinSecCLILocalRescan {
     $deviceId = [string]$State.SelectedDeviceId
 
     if ([string]::IsNullOrWhiteSpace($deviceId)) {
-        return $empty
         throw 'No target device selected.'
     }
 
@@ -1051,6 +1163,10 @@ function Invoke-WinSecCLILocalRescan {
     $publicResult = Invoke-WinSecCoordinatedScan `
         -Coordinator $coordinator `
         -DeviceId $deviceId `
+        -ConfirmAction {
+            param($Request)
+            Show-WinSecScanConfirmation -Request $Request
+        } `
         -ErrorAction Stop
 
     # --------------------------------------------------------
@@ -1058,7 +1174,8 @@ function Invoke-WinSecCLILocalRescan {
     # --------------------------------------------------------
 
     if ($null -eq $publicResult) {
-        throw 'Scan returned no public result.'
+        # Cancellation is not a completed scan and must not replace history.
+        return $null
     }
 
     $scanId = [string]$publicResult.ScanId
@@ -1173,6 +1290,7 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Results.ps1'
         'src/UI/Screens/Devices.ps1'
         'src/UI/Screens/Findings.ps1'
+        'src/UI/Screens/ScanConfirmation.ps1'
     )
 
     foreach ($module in $modules) {
@@ -1206,6 +1324,7 @@ function Invoke-WinSecCLI {
         'Show-WinSecMainMenu'
         'Show-WinSecResults'
         'Show-WinSecFindings'
+        'Show-WinSecScanConfirmation'
     )
 
     foreach ($commandName in $requiredCommands) {

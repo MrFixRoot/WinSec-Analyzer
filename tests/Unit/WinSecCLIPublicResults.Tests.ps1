@@ -130,6 +130,8 @@ function New-TestPublicResult {
 
         SectionResults = @(
             [pscustomobject]@{
+                DeviceId = $DeviceId
+                ScanId = $ScanId
                 SectionKey = 'SystemSecurity'
                 Name = 'System Security'
                 Status = 'NOT_SCORED'
@@ -139,6 +141,8 @@ function New-TestPublicResult {
 
         ControlResults = @(
             [pscustomobject]@{
+                DeviceId = $DeviceId
+                ScanId = $ScanId
                 CheckId = 'WSA-SYS-001'
                 SectionKey = 'SystemSecurity'
                 Status = 'NOT_SELECTED'
@@ -716,6 +720,114 @@ Assert-WinSecUnit `
         $assessment.ControlResults[0].CheckId -ceq 'LEGACY-TEST'
     ) `
     -Description 'Legacy assessment remains available without scoring'
+
+# ------------------------------------------------------------
+# NESTED PUBLIC RECORD IDENTITY REGRESSIONS
+# ------------------------------------------------------------
+
+$identityCases = @(
+    @{ Name = 'foreign device'; Field = 'DeviceId'; Value = 'remote:OTHER-PC' }
+    @{ Name = 'foreign scan'; Field = 'ScanId'; Value = 'scan-OTHER' }
+    @{ Name = 'missing device'; Field = 'DeviceId'; Remove = $true }
+    @{ Name = 'missing scan'; Field = 'ScanId'; Remove = $true }
+    @{ Name = 'null device'; Field = 'DeviceId'; Value = $null }
+    @{ Name = 'null scan'; Field = 'ScanId'; Value = $null }
+    @{ Name = 'empty device'; Field = 'DeviceId'; Value = '' }
+    @{ Name = 'empty scan'; Field = 'ScanId'; Value = '' }
+    @{ Name = 'numeric device'; Field = 'DeviceId'; Value = 123 }
+    @{ Name = 'numeric scan'; Field = 'ScanId'; Value = 123 }
+    @{ Name = 'array device'; Field = 'DeviceId'; Value = @('local:UNIT-PC') }
+    @{ Name = 'array scan'; Field = 'ScanId'; Value = @('scan-001') }
+    @{ Name = 'device case mismatch'; Field = 'DeviceId'; Value = 'local:unit-pc' }
+    @{ Name = 'scan case mismatch'; Field = 'ScanId'; Value = 'SCAN-001' }
+)
+
+foreach ($collectionName in @('SectionResults', 'ControlResults', 'Findings')) {
+    foreach ($identityCase in $identityCases) {
+        $fixture = New-TestFixture
+
+        if ($collectionName -eq 'Findings') {
+            $fixture.Result.Findings = @(
+                [pscustomobject]@{
+                    DeviceId = 'local:UNIT-PC'
+                    ScanId = 'scan-001'
+                    FindingId = 'UNIT-FINDING-001'
+                    CheckId = 'WSA-SYS-001'
+                    Kind = 'EVALUATION_PENDING'
+                    EvaluationStatus = 'NOT_EVALUATED'
+                    Severity = 'UNASSIGNED'
+                    Priority = 'UNASSIGNED'
+                }
+            )
+        }
+
+        $record = $fixture.Result.$collectionName[0]
+        $field = $identityCase.Field
+
+        if ($identityCase.Remove) {
+            $record.PSObject.Properties.Remove($field)
+        }
+        else {
+            $record.$field = $identityCase.Value
+        }
+
+        Assert-WinSecRejected `
+            -State $fixture.State `
+            -Context $fixture.Context `
+            -Description ('{0} rejects {1}' -f $collectionName, $identityCase.Name)
+    }
+}
+
+# A valid diagnostic finding is still available to the selected assessment.
+
+$fixture = New-TestFixture
+$fixture.Result.Findings = @(
+    [pscustomobject]@{
+        DeviceId = 'local:UNIT-PC'
+        ScanId = 'scan-001'
+        FindingId = 'UNIT-FINDING-001'
+        CheckId = 'WSA-SYS-001'
+        Kind = 'EVALUATION_PENDING'
+        EvaluationStatus = 'NOT_EVALUATED'
+        Severity = 'UNASSIGNED'
+        Priority = 'UNASSIGNED'
+    }
+)
+
+$assessment = Get-WinSecCLIActiveAssessment `
+    -State $fixture.State `
+    -Context $fixture.Context
+
+Assert-WinSecUnit `
+    -Condition (
+        @($assessment.Findings).Count -eq 1 -and
+        $assessment.Findings[0].FindingId -ceq 'UNIT-FINDING-001' -and
+        $assessment.OverallStatus -ceq 'NOT_SCORED'
+    ) `
+    -Description 'Matching nested findings remain available without scoring'
+
+# Rejection must not replace the active session or change navigation state.
+
+$fixture.Result.ControlResults[0].ScanId = 'scan-OTHER'
+$contextBefore = ConvertTo-Json -InputObject $fixture.Context -Depth 12 -Compress
+$stateBefore = ConvertTo-Json -InputObject $fixture.State -Depth 4 -Compress
+
+try {
+    $null = Get-WinSecCLIActiveAssessment `
+        -State $fixture.State `
+        -Context $fixture.Context `
+        -ErrorAction Stop
+}
+catch {
+    # The rejection itself is covered by the matrix above.
+}
+
+Assert-WinSecUnit `
+    -Condition (
+        (ConvertTo-Json -InputObject $fixture.Context -Depth 12 -Compress) -ceq $contextBefore -and
+        (ConvertTo-Json -InputObject $fixture.State -Depth 4 -Compress) -ceq $stateBefore
+    ) `
+    -Description 'Rejected nested identity preserves sessions and navigation'
 
 # ------------------------------------------------------------
 # TEST SUMMARY

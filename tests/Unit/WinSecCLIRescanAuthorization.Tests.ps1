@@ -389,7 +389,7 @@ Assert-WinSecUnit `
     -Description 'KeyboardController receives authorization flag'
 
 # ------------------------------------------------------------
-# TEST 12 - NO AUDIT EXECUTION
+# TEST 12 - EXECUTION IS ISOLATED IN THE EXPLICIT CONFIRMED HELPER
 # ------------------------------------------------------------
 
 $auditCalls = @(
@@ -401,9 +401,22 @@ $auditCalls = @(
     }, $true)
 )
 
+$localHelpers = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Invoke-WinSecCLILocalRescan'
+}, $true))
+$confirmedHelperOnly = (
+    $auditCalls.Count -eq 1 -and $localHelpers.Count -eq 1 -and
+    $auditCalls[0].Extent.StartOffset -gt $localHelpers[0].Extent.StartOffset -and
+    $auditCalls[0].Extent.EndOffset -lt $localHelpers[0].Extent.EndOffset -and
+    $auditCalls[0].Extent.Text -match '-ConfirmAction' -and
+    $auditCalls[0].Extent.Text -match 'Show-WinSecScanConfirmation'
+)
+
 Assert-WinSecUnit `
-    -Condition ($auditCalls.Count -eq 0) `
-    -Description 'No audit execution added in step 4'
+    -Condition $confirmedHelperOnly `
+    -Description 'Only the explicit local helper calls the coordinator with confirmation'
 
 # ------------------------------------------------------------
 # SUMMARY

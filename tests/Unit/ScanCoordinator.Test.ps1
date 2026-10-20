@@ -936,6 +936,26 @@ $script:MockSkipScoring = $false
 $script:MockCheckIds = @()
 $script:MockMode = 'NO_CHECKS'
 
+$originalRegistryFunction = (Get-Command Get-WinSecCheckRegistry -CommandType Function).ScriptBlock
+
+function Get-WinSecCheckRegistry {
+    param([string]$ProjectRoot)
+    return [pscustomobject]@{
+        CatalogVersion = 'UNIT-TEST-ONLY'
+        Sections = @([pscustomobject]@{ key = 'SystemSecurity' })
+        Checks = @([pscustomobject]@{
+            CheckId = 'WSA-SYS-001'
+            Name = 'Synthetic unit control'
+            SectionKey = 'SystemSecurity'
+            ExecutionEnabled = $true
+            ExecutionReady = $true
+            ImplementationStatus = 'VALIDATED'
+            RegistryStatus = 'READY'
+            ScriptPath = Join-Path $ProjectRoot 'src/Checks/Defender/Test-Defender.ps1'
+        })
+    }
+}
+
 function Invoke-WinSecAudit {
     [CmdletBinding()]
     param(
@@ -974,7 +994,7 @@ function Invoke-WinSecAudit {
 try {
 
     Test-Case 'Coordinated scan calls AuditEngine with SkipScoring' {
-        $script:MockMode = 'NO_CHECKS'
+        $script:MockMode = 'COMPLETED'
         $script:MockAuditCalls = 0
         $script:MockSkipScoring = $false
 
@@ -982,7 +1002,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-001'
+            -ScanId 'UNIT-SCAN-001' -ConfirmAction { param($request) $true }
 
         Assert-Equal $script:MockAuditCalls 1
         Assert-Equal $script:MockSkipScoring $true
@@ -998,7 +1018,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-002'
+            -ScanId 'UNIT-SCAN-002' -ConfirmAction { param($request) $true }
 
         Assert-Equal $result.PublicProjection $true
         Assert-Equal $result.ContainsRawEvidence $false
@@ -1012,7 +1032,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-003'
+            -ScanId 'UNIT-SCAN-003' -ConfirmAction { param($request) $true }
 
         $json = ConvertTo-Json `
             -InputObject $result `
@@ -1030,7 +1050,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-004'
+            -ScanId 'UNIT-SCAN-004' -ConfirmAction { param($request) $true }
 
         Assert-Equal (
             $result.EvidenceStorageStatus
@@ -1047,7 +1067,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-005'
+            -ScanId 'UNIT-SCAN-005' -ConfirmAction { param($request) $true }
 
         Assert-Equal $coordinator.Sessions.Count 1
 
@@ -1067,14 +1087,14 @@ try {
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-006'
+            -ScanId 'UNIT-SCAN-006' -ConfirmAction { param($request) $true }
 
         $before = $script:MockAuditCalls
 
         Assert-Throws {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'UNIT-SCAN-006'
+                -ScanId 'UNIT-SCAN-006' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $script:MockAuditCalls $before
@@ -1090,7 +1110,7 @@ try {
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
             -ScanId 'UNIT-SCAN-007' `
-            -CheckIds @('WSA-SYS-001')
+            -CheckIds @('WSA-SYS-001') -ConfirmAction { param($request) $true }
 
         Assert-Equal $script:MockCheckIds.Count 1
         Assert-Equal $script:MockCheckIds[0] 'WSA-SYS-001'
@@ -1110,7 +1130,7 @@ try {
                 -CheckIds @(
                     'WSA-SYS-001',
                     'WSA-SYS-001'
-                )
+                ) -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $script:MockAuditCalls 0
@@ -1127,7 +1147,7 @@ try {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
                 -ScanId 'UNIT-SCAN-009' `
-                -CheckIds @('../UNSAFE')
+                -CheckIds @('../UNSAFE') -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $script:MockAuditCalls 0
@@ -1142,7 +1162,7 @@ try {
         Assert-Throws {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'SCAN/UNSAFE'
+                -ScanId 'SCAN/UNSAFE' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $script:MockAuditCalls 0
@@ -1164,7 +1184,7 @@ try {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
                 -DeviceId 'remote:SERVER-01' `
-                -ScanId 'UNIT-SCAN-010'
+                -ScanId 'UNIT-SCAN-010' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $script:MockAuditCalls 0
@@ -1178,7 +1198,7 @@ try {
         Assert-Throws {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'UNIT-SCAN-011'
+                -ScanId 'UNIT-SCAN-011' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $coordinator.Sessions.Count 0
@@ -1192,7 +1212,7 @@ try {
         Assert-Throws {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'UNIT-SCAN-012'
+                -ScanId 'UNIT-SCAN-012' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $coordinator.Sessions.Count 0
@@ -1206,7 +1226,7 @@ try {
         Assert-Throws {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'UNIT-SCAN-013'
+                -ScanId 'UNIT-SCAN-013' -ConfirmAction { param($request) $true }
         }
 
         Assert-Equal $coordinator.Sessions.Count 0
@@ -1232,7 +1252,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-014'
+            -ScanId 'UNIT-SCAN-014' -ConfirmAction { param($request) $true }
 
         $session = Get-WinSecCoordinatorSession `
             -Coordinator $coordinator `
@@ -1251,7 +1271,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-015'
+            -ScanId 'UNIT-SCAN-015' -ConfirmAction { param($request) $true }
 
         $public = Get-WinSecCoordinatorPublicResult `
             -Coordinator $coordinator `
@@ -1276,7 +1296,7 @@ try {
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-016'
+            -ScanId 'UNIT-SCAN-016' -ConfirmAction { param($request) $true }
 
         $history = @(
             Get-WinSecCoordinatorHistory `
@@ -1307,11 +1327,11 @@ try {
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-017'
+            -ScanId 'UNIT-SCAN-017' -ConfirmAction { param($request) $true }
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-018'
+            -ScanId 'UNIT-SCAN-018' -ConfirmAction { param($request) $true }
 
         $history = @(
             Get-WinSecCoordinatorHistory `
@@ -1334,7 +1354,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'UNIT-SCAN-019'
+            -ScanId 'UNIT-SCAN-019' -ConfirmAction { param($request) $true }
 
         $matching = @(
             Get-WinSecCoordinatorHistory `
@@ -1353,12 +1373,12 @@ try {
     }
 
     Test-Case 'Automatically generated ScanId is valid' {
-        $script:MockMode = 'NO_CHECKS'
+        $script:MockMode = 'COMPLETED'
 
         $coordinator = New-TestCoordinator
 
         $result = Invoke-WinSecCoordinatedScan `
-            -Coordinator $coordinator
+            -Coordinator $coordinator -ConfirmAction { param($request) $true }
 
         Assert-True (
             Test-WinSecEvidenceIdentifier $result.ScanId
@@ -1371,6 +1391,7 @@ try {
 }
 finally {
 
+    Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $originalRegistryFunction -Force
     # Restore the real AuditEngine function.
     # Unit-test mocks must not remain installed.
 
