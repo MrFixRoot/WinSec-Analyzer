@@ -99,6 +99,128 @@ function Get-WinSecDeviceInventoryPath {
 # LOAD AND VALIDATE PERSISTENT INVENTORY
 # ============================================================
 
+function ConvertFrom-WinSecDeviceInventoryJson {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [AllowEmptyString()]
+        [object]$Json
+    )
+
+    if ($Json -isnot [string] -or
+        [System.Text.Encoding]::UTF8.GetByteCount($Json) -gt 1048576) {
+        throw 'Invalid device inventory JSON.'
+    }
+    $text = $Json.TrimStart([char]0xFEFF).Trim([char[]]@([char]32, [char]9, [char]13, [char]10))
+    if ($text.Length -eq 0 -or $text[0] -ne '{') {
+        throw 'Inventory JSON root must be an object.'
+    }
+    try {
+        $registry = ConvertFrom-Json -InputObject $text -ErrorAction Stop
+    }
+    catch {
+        # Parser diagnostics can contain parts of the supplied document.
+        throw 'Invalid device inventory JSON.'
+    }
+
+    # ConvertFrom-Json can silently keep the last repeated property. Inspect
+    # lexical JSON tokens after syntax parsing, preserving object
+    # boundaries and decoding escaped property names before duplicate checks.
+    $tokens = [regex]::Matches($text, '"(?:\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4})|[^"\\\x00-\x1F])*"|//[^\r\n]*|/\*[\s\S]*?\*/|[{}\[\]:,]|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null')
+    $containers = New-Object 'System.Collections.Generic.Stack[object]'
+    $consumed = 0
+    for ($index = 0; $index -lt $tokens.Count; $index++) {
+        # No unquoted keys, single-quoted strings, unknown escapes or other
+        # parser extensions may bypass property-name inspection.
+        if ([regex]::IsMatch($text.Substring($consumed, $tokens[$index].Index - $consumed), '[^ \t\r\n]')) {
+            throw 'Invalid device inventory JSON.'
+        }
+        $consumed = $tokens[$index].Index + $tokens[$index].Length
+        $token = $tokens[$index].Value
+        if ($token.StartsWith('/')) {
+            throw 'Inventory JSON comments are not supported.'
+        }
+        if ($token -ceq '{') {
+            $containers.Push([pscustomobject]@{
+                Kind = 'OBJECT'
+                Keys = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            })
+        }
+        elseif ($token -ceq '[') {
+            $containers.Push([pscustomobject]@{ Kind = 'ARRAY' })
+        }
+        elseif ($token -in @('}', ']')) {
+            $null = $containers.Pop()
+        }
+        elseif ($token -ceq ',') {
+            $next = $tokens[$index].Index + 1
+            while ($next -lt $text.Length -and [char]::IsWhiteSpace($text[$next])) { $next++ }
+            if ($next -lt $text.Length -and $text[$next] -in @('}', ']')) {
+                throw 'Inventory JSON trailing commas are not supported.'
+            }
+        }
+        elseif ($token.StartsWith('"') -and $index + 1 -lt $tokens.Count -and
+            $tokens[$index + 1].Value -ceq ':') {
+            $key = (ConvertFrom-Json -InputObject ('{"Key":' + $token + '}') -ErrorAction Stop).Key
+            if ($containers.Count -eq 0 -or $containers.Peek().Kind -cne 'OBJECT' -or
+                -not $containers.Peek().Keys.Add([string]$key)) {
+                throw 'Duplicate inventory JSON property.'
+            }
+        }
+    }
+
+    if ([regex]::IsMatch($text.Substring($consumed), '[^ \t\r\n]')) {
+        throw 'Invalid device inventory JSON.'
+    }
+    $rootNames = @($registry.PSObject.Properties.Name)
+    if ($registry -isnot [pscustomobject] -or $rootNames.Count -ne 2 -or
+        $rootNames -cnotcontains 'schemaVersion' -or $rootNames -cnotcontains 'targets' -or
+        $registry.schemaVersion -isnot [string] -or $registry.schemaVersion -cne '1.0.0' -or
+        $registry.targets -isnot [array]) {
+        throw 'Invalid device inventory schema.'
+    }
+    foreach ($target in $registry.targets) {
+        if ($target -isnot [pscustomobject]) { throw 'Invalid inventory device record.' }
+        $names = @($target.PSObject.Properties.Name)
+        foreach ($name in $names) {
+            if ($name -cnotin @('DeviceId', 'Hostname', 'Mode', 'Enabled', 'Description', 'RegisteredAtUtc')) {
+                throw 'Unexpected inventory device field.'
+            }
+        }
+        foreach ($required in @('DeviceId', 'Hostname', 'Mode', 'Enabled')) {
+            if ($names -cnotcontains $required) { throw 'Missing inventory device field.' }
+        }
+        if ($target.DeviceId -isnot [string] -or $target.Hostname -isnot [string] -or
+            $target.Mode -isnot [string] -or $target.Mode -cnotin @('LOCAL', 'REMOTE', 'IMPORTED', 'UNKNOWN') -or
+            $target.Enabled -isnot [bool] -or
+            ($names -ccontains 'Description' -and $target.Description -isnot [string])) {
+            throw 'Invalid inventory device field type.'
+        }
+        if ($names -ccontains 'RegisteredAtUtc') {
+            $timestamp = $target.RegisteredAtUtc
+            # PowerShell 7 decodes ISO dates as DateTime; 5.1 keeps strings.
+            if ($timestamp -is [DateTime]) {
+                if ($timestamp.Kind -ne [DateTimeKind]::Utc) { throw 'Invalid inventory UTC timestamp.' }
+            }
+            elseif ($timestamp -is [string] -and
+                $timestamp -cmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$') {
+                $parsed = [DateTime]::MinValue
+                if (-not [DateTime]::TryParse($timestamp, [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) {
+                    throw 'Invalid inventory UTC timestamp.'
+                }
+            }
+            else { throw 'Invalid inventory UTC timestamp.' }
+        }
+    }
+    $validation = Test-WinSecTargetRegistry -Registry $registry
+    if (-not $validation.Valid) {
+        # Do not include values embedded in TargetRegistry diagnostics.
+        throw 'Invalid device inventory identities or metadata.'
+    }
+    return $registry
+}
+
 function Import-WinSecDeviceInventory {
     [CmdletBinding()]
     param(
@@ -152,32 +274,7 @@ function Import-WinSecDeviceInventory {
         -Encoding UTF8 `
         -ErrorAction Stop
 
-    $trimmed = $json.TrimStart(
-        [char]0xFEFF
-    ).TrimStart()
-
-    if (
-        $trimmed.Length -eq 0 -or
-        $trimmed[0] -ne '{'
-    ) {
-        throw 'Inventory JSON root must be an object.'
-    }
-
-    $registry = ConvertFrom-Json `
-        -InputObject $json `
-        -ErrorAction Stop
-
-    $validation = Test-WinSecTargetRegistry `
-        -Registry $registry
-
-    if (-not $validation.Valid) {
-        throw (
-            'Invalid device inventory: {0}' -f
-            ($validation.Errors -join '; ')
-        )
-    }
-
-    return $registry
+    return ConvertFrom-WinSecDeviceInventoryJson -Json $json
 }
 
 
