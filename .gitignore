@@ -1,4 +1,44 @@
+
+# ============================================================
+# WinSec Analyzer - Git Ignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Generated reports and logs
+# ------------------------------------------------------------
+
 reports/*
 !reports/.gitkeep
+
 logs/*
 !logs/.gitkeep
+
+# ------------------------------------------------------------
+# Codex - Private Development Instructions
+# ------------------------------------------------------------
+
+/AGENTS.md
+
+# Internal project documentation
+/docs/DECISIONS.md
+/docs/STATUS.md
+
+# Private architecture documentation
+/docs/.codex/
+
+# ------------------------------------------------------------
+# Local Device Inventory and Scan History
+# ------------------------------------------------------------
+
+/data/*
+
+# ------------------------------------------------------------
+# Temporary files
+# ------------------------------------------------------------
+
+*.tmp
+*.bak
+*.log
+
+# Local development notes
+/README.local.md
