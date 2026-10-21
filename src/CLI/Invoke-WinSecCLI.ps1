@@ -1221,9 +1221,17 @@ function Invoke-WinSecCLILocalRescan {
         return $null
     }
 
-    $scanId = [string]$publicResult.ScanId
+    # Own the producer's data before reading metadata. Do not retain its
+    # references or execute calculated input properties while validating.
+    if ($null -eq (Get-Command 'Copy-WinSecResultData' `
+        -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
+    }
+    $publicResult = Copy-WinSecResultData -Value $publicResult
+    $scanId = $publicResult.ScanId
 
     if (
+        $scanId -isnot [string] -or
         [string]::IsNullOrWhiteSpace($scanId) -or
         $publicResult.PublicProjection -cne $true -or
         $publicResult.ContainsRawEvidence -cne $false -or
@@ -1257,6 +1265,22 @@ function Invoke-WinSecCLILocalRescan {
         $scanId.Length,
         $scanId
 
+    # Apply the same nested identity/privacy guards as a public read, using
+    # temporary maps so a rejection cannot replace the active assessment.
+    $null = Get-WinSecCLIActiveAssessment `
+        -State ([pscustomobject]@{ SelectedDeviceId = $deviceId }) `
+        -Context ([pscustomobject]@{
+            ActiveScanByDevice = @{ $deviceId = $scanId }
+            PublicScans = @{ $sessionKey = $publicResult }
+        })
+
+    if ($Context.PublicScans.Contains($sessionKey)) {
+        throw 'A public scan session with this identity already exists.'
+    }
+
+    # Prepare the caller's independent response before changing any CLI maps.
+    # Copy failure must not leave an assessment partially published.
+    $response = Copy-WinSecResultData -Value $publicResult
     $Context.PublicScans[$sessionKey] = $publicResult
 
     $Context.ActiveScanByDevice[$deviceId] = $scanId
@@ -1280,9 +1304,9 @@ function Invoke-WinSecCLILocalRescan {
         )
     }
 
-    # Return only the validated public projection.
+    # Return only an owned copy of the validated public projection.
 
-    return $publicResult
+    return $response
 }
 
 function Get-WinSecCLIDeviceRemovalViewStamp {
