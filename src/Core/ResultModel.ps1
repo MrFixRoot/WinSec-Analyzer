@@ -207,6 +207,97 @@ function Assert-WinSecResultScope {
     }
 }
 
+function Copy-WinSecResultData {
+    [CmdletBinding()]
+    param([AllowNull()][object]$Value)
+
+    # Copy data only. Do not serialize evidence or invoke calculated properties.
+    $budget = @{ Nodes = 0 }
+    $ancestors = New-Object 'System.Collections.Generic.List[object]'
+    $copyNode = {
+        param([AllowNull()][object]$Node, [int]$Depth)
+        $budget.Nodes++
+        if ($Depth -gt 64 -or $budget.Nodes -gt 10000) { throw 'Snapshot limit exceeded.' }
+        if ($null -eq $Node) { return $null }
+        if ($Node -is [string] -or $Node -is [ValueType]) {
+            foreach ($property in $Node.PSObject.Properties) {
+                if ($property.IsInstance -and
+                    $property.MemberType -ne [System.Management.Automation.PSMemberTypes]::Property) {
+                    throw 'Snapshot scalars cannot carry extended properties.'
+                }
+            }
+            $type = $Node.GetType()
+            if ($type.IsEnum -or $type -in @([string],[bool],[char],[byte],[sbyte],[int16],[uint16],
+                [int32],[uint32],[int64],[uint64],[single],[double],[decimal],
+                [datetime],[datetimeoffset],[timespan],[guid])) { return ,$Node }
+            throw 'Unsupported snapshot scalar.'
+        }
+        foreach ($ancestor in $ancestors) {
+            if ([object]::ReferenceEquals($ancestor,$Node)) { throw 'Cyclic snapshot data.' }
+        }
+        $ancestors.Add($Node)
+        try {
+            if ($Node -is [array]) {
+                if ($Node.Rank -ne 1 -or $Node.GetLowerBound(0) -ne 0) { throw 'Unsupported snapshot array.' }
+                $copy = $Node.Clone()
+                for ($index=0; $index -lt $Node.Length; $index++) {
+                    $item = & $copyNode -Node $Node.GetValue($index) -Depth ($Depth+1)
+                    $copy.SetValue($item,$index)
+                }
+                return ,$copy
+            }
+            if ($Node -is [System.Collections.IDictionary]) {
+                # Own the key comparer too; never retain a caller-supplied comparer.
+                if ($Node.GetType() -eq [hashtable]) { $copy = @{} }
+                elseif ($Node.GetType() -eq [System.Collections.Specialized.OrderedDictionary]) {
+                    $copy = [ordered]@{}
+                }
+                elseif ($Node.GetType() -eq [System.Collections.Generic.Dictionary[string,object]]) {
+                    $copy = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::OrdinalIgnoreCase)
+                }
+                else { throw 'Unsupported snapshot dictionary.' }
+                $keys = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+                foreach ($entry in $Node.GetEnumerator()) {
+                    if ($entry.Key -isnot [string]) { throw 'Snapshot dictionary keys must be strings.' }
+                    if (-not $keys.Add($entry.Key)) { throw 'Ambiguous snapshot dictionary keys.' }
+                    $item = & $copyNode -Node $entry.Value -Depth ($Depth+1)
+                    $copy[$entry.Key] = $item
+                }
+                return ,$copy
+            }
+            if ($Node -is [System.Collections.IList]) {
+                $type = $Node.GetType()
+                if ($type -ne [System.Collections.ArrayList] -and
+                    (-not $type.IsGenericType -or
+                        $type.GetGenericTypeDefinition().FullName -cne 'System.Collections.Generic.List`1')) {
+                    throw 'Unsupported snapshot list.'
+                }
+                $copy = [Activator]::CreateInstance($type)
+                foreach ($item in $Node) {
+                    $copiedItem = & $copyNode -Node $item -Depth ($Depth+1)
+                    $null = $copy.Add($copiedItem)
+                }
+                return ,$copy
+            }
+            if ($Node -is [pscustomobject]) {
+                $properties = [ordered]@{}
+                foreach ($property in $Node.PSObject.Properties) {
+                    if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty -or
+                        $property.Name -in @('PSObject','psbase','psadapted','psextended','PSTypeNames','PSTypeName')) {
+                        throw 'Snapshot objects must contain simple data properties.'
+                    }
+                    $properties.Add($property.Name,(& $copyNode -Node $property.Value -Depth ($Depth+1)))
+                }
+                return ,([pscustomobject]$properties)
+            }
+            throw 'Unsupported snapshot object.'
+        }
+        finally { $ancestors.RemoveAt($ancestors.Count-1) }
+    }
+    try { return ,(& $copyNode -Node $Value -Depth 0) }
+    catch { throw 'Unable to create an isolated result snapshot.' }
+}
+
 function New-WinSecResultSession {
     [CmdletBinding()]
     param(
@@ -231,6 +322,26 @@ function New-WinSecResultSession {
         [AllowNull()][object]$ScopeType = $null,
         [AllowNull()][object]$ScopeKey = $null
     )
+
+    # Own the mutable inputs before reading identities or verifying provenance.
+    $snapshot = Copy-WinSecResultData -Value ([pscustomobject]@{
+        ExpectedCheckIds = $ExpectedCheckIds
+        ControlResults = $ControlResults
+        EvaluationResults = $EvaluationResults
+        CriteriaSelections = $CriteriaSelections
+        Findings = $Findings
+        ReviewItems = $ReviewItems
+        ScoreResult = $ScoreResult
+        ScoringPolicy = $ScoringPolicy
+    })
+    $ExpectedCheckIds = $snapshot.ExpectedCheckIds
+    $ControlResults = $snapshot.ControlResults
+    $EvaluationResults = $snapshot.EvaluationResults
+    $CriteriaSelections = $snapshot.CriteriaSelections
+    $Findings = $snapshot.Findings
+    $ReviewItems = $snapshot.ReviewItems
+    $ScoreResult = $snapshot.ScoreResult
+    $ScoringPolicy = $snapshot.ScoringPolicy
 
     if (-not (Test-WinSecResultText $DeviceId) -or
         -not (Test-WinSecResultText $ScanId)) {

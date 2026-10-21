@@ -583,7 +583,7 @@ Test-WinSecCase 'Raw evidence is not exported' {
     ) 'Public control exposes Evidence.'
 }
 
-Test-WinSecCase 'Internal model preserves collector reference' {
+Test-WinSecCase 'Internal model preserves collector evidence in its own snapshot' {
     $control = New-WinSecFixtureControl
 
     $session = New-WinSecResultSession `
@@ -594,6 +594,9 @@ Test-WinSecCase 'Internal model preserves collector reference' {
     Assert-WinSecEqual (
         $session.ControlResults[0].Evidence.SecretTestValue
     ) 'WINSEC_SECRET_DO_NOT_EXPORT_9267'
+    Assert-WinSecTrue (-not [object]::ReferenceEquals($control,$session.ControlResults[0]))
+    $control.Evidence.SecretTestValue = 'CHANGED-OUTSIDE-SESSION'
+    Assert-WinSecEqual $session.ControlResults[0].Evidence.SecretTestValue 'WINSEC_SECRET_DO_NOT_EXPORT_9267'
 }
 
 Test-WinSecCase 'Unknown public status becomes UNKNOWN' {

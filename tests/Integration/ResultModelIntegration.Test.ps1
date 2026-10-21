@@ -562,6 +562,47 @@ Test-Case 'Score mutation invalidates existing session' {
     ) $false
 }
 
+Test-Case 'Caller changes to criteria evidence and policy cannot rewrite a created session' {
+    $bundle = New-IntegrationBundle
+    $policy = Copy-Fixture $script:TestPolicy
+    $session = New-IntegratedSession -Bundle $bundle -Policy $policy
+    $before = ConvertTo-Json -InputObject (ConvertTo-WinSecPublicScanResult $session) -Depth 30 -Compress
+    $bundle.Collector.Evidence.DefenderPreferences.PUAProtection = 0
+    $bundle.Evaluation.Evaluations[0].Source.Version = 'CHANGED-OUTSIDE-SESSION'
+    $bundle.Selection.EligibleCriteria[0].Approved = $false
+    $policy.enabled = $false
+    Assert-Equal (Test-WinSecResultSession $session) $true
+    Assert-Equal (ConvertTo-Json -InputObject (ConvertTo-WinSecPublicScanResult $session) -Depth 30 -Compress) $before
+    Assert-Equal $session.ScoringPolicy.enabled $true
+    Assert-Equal $session.ControlResults[0].Evidence.DefenderPreferences.PUAProtection 1
+}
+
+Test-Case 'Two sessions created from one bundle keep independent criteria and evidence snapshots' {
+    $bundle = New-IntegrationBundle
+    $first = New-IntegratedSession -Bundle $bundle -Policy $script:RealPolicy
+    $second = New-IntegratedSession -Bundle $bundle -Policy $script:RealPolicy
+    $first.ControlResults[0].Evidence.DefenderPreferences.PUAProtection = 0
+    $first.CriteriaSelections[0].EligibleCriteria[0].Approved = $false
+    Assert-Equal $second.ControlResults[0].Evidence.DefenderPreferences.PUAProtection 1
+    Assert-Equal $second.CriteriaSelections[0].EligibleCriteria[0].Approved $true
+    Assert-Equal $bundle.Collector.Evidence.DefenderPreferences.PUAProtection 1
+    Assert-Equal $bundle.Selection.EligibleCriteria[0].Approved $true
+    Assert-Equal (Test-WinSecResultSession $second) $true
+}
+
+Test-Case 'Mutating public metadata and rows cannot modify the internal evaluation snapshot' {
+    $bundle = New-IntegrationBundle -PUA 0
+    $session = New-IntegratedSession -Bundle $bundle -Policy $script:RealPolicy
+    $before = ConvertTo-Json -InputObject $session -Depth 60 -Compress
+    $public = ConvertTo-WinSecPublicScanResult $session
+    $public.Findings[0].Kind = 'UNCLASSIFIED'
+    $public.ControlResults[0].Status = 'UNKNOWN'
+    $public.ScanId = 'different-public-copy'
+    Assert-Equal (ConvertTo-Json -InputObject $session -Depth 60 -Compress) $before
+    Assert-Equal (Test-WinSecResultSession $session) $true
+    Assert-Equal $public.OverallStatus 'NOT_SCORED'
+}
+
 # ============================================================
 # GROUP 4: DEVICE AND SCAN ISOLATION
 # ============================================================
