@@ -119,7 +119,7 @@ Test-WinSecLegacyIntegrationCase 'Safe legacy records reach UI models without ev
         $assessment.OverallStatus -ceq 'NOT_SCORED' -and
         $null -eq $assessment.OverallScore -and
         $sections[0].Status -ceq 'NOT_SCORED' -and
-        $sections[0].Score -ceq '--/100' -and
+        $sections[0].Score -ceq 'NOT_SCORED' -and
         $controls[0].Status -ceq 'NOT_EVALUATED' -and
         $controls[0].Score -ceq '--/100' -and
         $view.Findings.Count -eq 1 -and

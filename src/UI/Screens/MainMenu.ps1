@@ -11,7 +11,7 @@
 # Features:
 # - Multi-device assessment context
 # - Five security sections
-# - Security scores and assessment status
+# - Explicit NOT_SCORED and assessment status
 # - Adaptive terminal layout
 # - Keyboard navigation highlighting
 # - Context-aware keyboard shortcuts
@@ -58,93 +58,73 @@ function Get-WinSecMainMenuSections {
         }
     )
 
-    foreach ($definition in $definitions) {
-
-        $result = $null
-
-        # ----------------------------------------------------
-        # Match section with assessment data
-        # ----------------------------------------------------
-
-        foreach ($candidate in $SectionResults) {
-
-            if ($null -eq $candidate) {
-                continue
-            }
-
-            $candidateId = Get-WinSecTableValue `
-                -Row $candidate -Key 'Id'
-
-            $candidateKey = Get-WinSecTableValue `
-                -Row $candidate -Key 'Key'
-
-            $candidateName = Get-WinSecTableValue `
-                -Row $candidate -Key 'Name'
-
-            # Prefer stable section identifiers.
-            $matched = $false
-
-            if ($candidateKey) {
-
-                $matched = (
-                    $candidateKey -eq $definition.Key
-                )
-            }
-            elseif ($candidateName) {
-
-                $matched = (
-                    $candidateName -eq $definition.Name
-                )
-            }
-            elseif ($candidateId) {
-
-                $matched = (
-                    $candidateId -eq $definition.Id
-                )
-            }
-
-            if ($matched) {
-                $result = $candidate
-                break
+    # Read only data fields used by this view, without string coercion or
+    # calculated getters. Validate the whole collection before emitting rows.
+    $resultsByKey = @{}
+    $displayFields = @('Key','SectionKey','Name','Id','Score','Status')
+    $allowedStatuses = @('PENDING','NOT_SCORED','NOT_EVALUATED','UNKNOWN',
+        'ERROR','NOT_SELECTED','NOT_CHECKED','NOT_APPLICABLE','MANUAL','INFORMATIONAL')
+    if ($SectionResults.Count -gt 10000) { throw 'Too many section results.' }
+    foreach ($candidate in $SectionResults) {
+        if ($null -eq $candidate) { continue }
+        $fields = @{}
+        if ($candidate -is [System.Collections.IDictionary]) {
+            foreach ($entry in $candidate.GetEnumerator()) {
+                if ($entry.Key -isnot [string]) { throw 'Invalid section property name.' }
+                if ($entry.Key -notin $displayFields) { continue }
+                if ($fields.ContainsKey($entry.Key)) { throw 'Ambiguous section property.' }
+                $fields[$entry.Key] = $entry.Value
             }
         }
+        elseif ($candidate -is [pscustomobject]) {
+            foreach ($property in $candidate.PSObject.Properties) {
+                if ($property.Name -notin $displayFields) { continue }
+                if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                    throw 'Section display requires plain data properties.'
+                }
+                $fields[$property.Name] = $property.Value
+            }
+        }
+        else { throw 'Unsupported section result.' }
 
-        # ----------------------------------------------------
-        # Default state: no assessment performed
-        # ----------------------------------------------------
-
-        $score = '--/100'
+        $key = $null
+        if ($null -ne $fields.Key -or $null -ne $fields.SectionKey) {
+            foreach ($name in @('Key','SectionKey')) {
+                if ($null -ne $fields[$name] -and
+                    ($fields[$name] -isnot [string] -or
+                        $fields[$name] -cnotin $definitions.Key)) {
+                    throw 'Invalid section identifier.'
+                }
+            }
+            if ($null -ne $fields.Key -and $null -ne $fields.SectionKey -and
+                $fields.Key -cne $fields.SectionKey) { throw 'Conflicting section identifiers.' }
+            $key = $fields.Key
+            if ($null -eq $key) { $key = $fields.SectionKey }
+        }
+        elseif ($fields.Name -is [string]) {
+            $match = @($definitions | Where-Object { $_.Name -ceq $fields.Name })
+            if ($match.Count -eq 1) { $key = $match[0].Key }
+        }
+        elseif ($fields.Id -is [string]) {
+            $match = @($definitions | Where-Object { $_.Id -ceq $fields.Id })
+            if ($match.Count -eq 1) { $key = $match[0].Key }
+        }
+        if ($null -eq $key) { throw 'Missing or unknown section identifier.' }
+        if ($resultsByKey.ContainsKey($key)) { throw 'Duplicate section result.' }
+        if ($null -ne $fields.Score) { throw 'Security scoring is not authorized in MainMenu.' }
         $status = 'PENDING'
-
-        if ($null -ne $result) {
-
-            $rawScore = Get-WinSecTableValue `
-                -Row $result -Key 'Score'
-
-            $rawStatus = Get-WinSecTableValue `
-                -Row $result -Key 'Status'
-
-            # Accept numerical scores between 0 and 100.
-            if (
-                $rawScore -match
-                '^\s*(100|[1-9]?\d)\s*(?:/100)?\s*$'
-            ) {
-
-                $numericScore = [int]$Matches[1]
-
-                $score = '{0}/100' -f $numericScore
+        if ($null -ne $fields.Status) {
+            if ($fields.Status -isnot [string] -or $fields.Status -cnotin $allowedStatuses) {
+                throw 'Invalid unscored section status.'
             }
-
-            # Never infer PASS or FAIL from score alone.
-            if (-not [string]::IsNullOrWhiteSpace($rawStatus)) {
-
-                $status = $rawStatus.Trim().ToUpperInvariant()
-            }
-            elseif ($score -ne '--/100') {
-
-                $status = 'UNKNOWN'
-            }
+            $status = $fields.Status
         }
+        $resultsByKey[$key] = $status
+    }
+
+    foreach ($definition in $definitions) {
+        $status = 'PENDING'
+        if ($resultsByKey.ContainsKey($definition.Key)) { $status = $resultsByKey[$definition.Key] }
 
         # ----------------------------------------------------
         # Return normalized section
@@ -154,7 +134,7 @@ function Get-WinSecMainMenuSections {
             Id     = $definition.Id
             Key    = $definition.Key
             Name   = $definition.Name
-            Score  = $score
+            Score  = 'NOT_SCORED'
             Status = $status
         }
     }
@@ -296,6 +276,15 @@ function Show-WinSecMainMenu {
         [switch]$EnableRescan
     )
 
+    # No caller-supplied number or success/failure label authorizes scoring.
+    # Validate before clearing or drawing, including on a small terminal.
+    if ($null -ne $OverallScore -or $OverallStatus -cnotin @('PENDING','NOT_SCORED')) {
+        throw 'Invalid unscored MainMenu summary.'
+    }
+    $sections = @(
+        Get-WinSecMainMenuSections -SectionResults $SectionResults
+    )
+
     # --------------------------------------------------------
     # Get adaptive terminal layout
     # --------------------------------------------------------
@@ -343,11 +332,6 @@ function Show-WinSecMainMenu {
 
     $device = Get-WinSecMainMenuDevice `
         -NavigationState $NavigationState
-
-    $sections = @(
-        Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
-    )
 
     $selectedIndex = Get-WinSecMainMenuSelectedIndex `
         -NavigationState $NavigationState `
@@ -420,23 +404,8 @@ function Show-WinSecMainMenu {
     # Display overall security score
     # --------------------------------------------------------
 
-    $scoreText = '--/100'
-
-    if (
-        $null -ne $OverallScore -and
-        $OverallScore -ge 0 -and
-        $OverallScore -le 100
-    ) {
-
-        $scoreText = '{0}/100' -f $OverallScore
-    }
-
-    $status = 'PENDING'
-
-    if (-not [string]::IsNullOrWhiteSpace($OverallStatus)) {
-
-        $status = $OverallStatus.Trim().ToUpperInvariant()
-    }
+    $scoreText = 'NOT_SCORED'
+    $status = $OverallStatus
 
     $statusColor = Get-WinSecStatusColor `
         -Status $status
@@ -483,7 +452,7 @@ function Show-WinSecMainMenu {
             Key      = 'Score'
             Header   = 'Score'
             Width    = 10
-            MinWidth = 7
+            MinWidth = 10
             MaxWidth = 12
             Priority = 2
             Align    = 'Right'
