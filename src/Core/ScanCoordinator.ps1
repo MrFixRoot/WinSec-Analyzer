@@ -988,7 +988,7 @@ function Get-WinSecCoordinatorHistory {
     Assert-WinSecScanCoordinator `
         -Coordinator $Coordinator
 
-    if (-not [string]::IsNullOrWhiteSpace($DeviceId)) {
+    if ($DeviceId.Length -gt 0) {
         Assert-WinSecScanIdentifier `
             -Value $DeviceId `
             -FieldName 'DeviceId'
@@ -997,12 +997,19 @@ function Get-WinSecCoordinatorHistory {
     $history = New-Object `
         'System.Collections.Generic.List[object]'
 
-    foreach ($entry in $Coordinator.Sessions.Values) {
+    $integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
+    foreach ($item in $Coordinator.Sessions.GetEnumerator()) {
+
+        if ($item.Key -isnot [string]) { throw 'Stored scan history failed validation.' }
+        $identity = $item.Key.Split([char]'|')
+        if ($identity.Count -ne 2) { throw 'Stored scan history failed validation.' }
+        try { $null = Get-WinSecScanSessionKey -DeviceId $identity[0] -ScanId $identity[1] }
+        catch { throw 'Stored scan history failed validation.' }
 
         if (
             $DeviceId -and
             -not [string]::Equals(
-                $entry.DeviceId,
+                $identity[0],
                 $DeviceId,
                 [System.StringComparison]::OrdinalIgnoreCase
             )
@@ -1010,42 +1017,85 @@ function Get-WinSecCoordinatorHistory {
             continue
         }
 
+        # Validate an owned entry; filter by the index before reading other devices.
+        $entry = Copy-WinSecResultData -Value $item.Value
+        if (($entry -isnot [pscustomobject] -and $entry -isnot [System.Collections.IDictionary]) -or
+            $entry.DeviceId -isnot [string] -or $entry.ScanId -isnot [string] -or
+            -not [string]::Equals($entry.DeviceId,$identity[0],[StringComparison]::OrdinalIgnoreCase) -or
+            $entry.ScanId -cne $identity[1] -or $null -eq $entry.Session) {
+            throw 'Stored scan history failed validation.'
+        }
         $public = ConvertTo-WinSecPublicScanResult `
             -Session $entry.Session
+        if ($public.DeviceId -cne $entry.DeviceId -or $public.ScanId -cne $entry.ScanId) {
+            throw 'Stored scan history failed validation.'
+        }
+
+        $storage = $entry.EvidenceStorage
+        if (($storage -isnot [pscustomobject] -and $storage -isnot [System.Collections.IDictionary]) -or
+            $storage.DeviceId -isnot [string] -or $storage.ScanId -isnot [string] -or
+            $storage.DeviceId -cne $public.DeviceId -or $storage.ScanId -cne $public.ScanId -or
+            $storage.Status -isnot [string] -or
+            $storage.Status -cnotin @('NOT_REQUESTED','STORED','PARTIAL','FAILED','NO_EVIDENCE')) {
+            throw 'Stored evidence metadata failed validation.'
+        }
+        foreach ($name in @('StoredCount','FailedCount','SkippedCount')) {
+            $count = Get-WinSecResultField -InputObject $storage -Name $name
+            if ($null -eq $count -or $count.GetType() -notin $integerTypes -or
+                $count -lt 0 -or $count -gt [int]::MaxValue) {
+                throw 'Stored evidence metadata failed validation.'
+            }
+        }
+        $stored = [int]$storage.StoredCount
+        $failed = [int]$storage.FailedCount
+        $total = [long]$stored + [long]$failed + [long]$storage.SkippedCount
+        if ($storage.Status -ceq 'NOT_REQUESTED') {
+            if ($total -ne 0) { throw 'Stored evidence metadata failed validation.' }
+        }
+        else {
+            if ($total -ne @($entry.Session.ControlResults).Count) {
+                throw 'Stored evidence metadata failed validation.'
+            }
+            $consistent = switch -CaseSensitive ($storage.Status) {
+                'STORED' { $stored -gt 0 -and $failed -eq 0 }
+                'PARTIAL' { $stored -gt 0 -and $failed -gt 0 }
+                'FAILED' { $stored -eq 0 -and $failed -gt 0 }
+                'NO_EVIDENCE' { $stored -eq 0 -and $failed -eq 0 }
+            }
+            if ($consistent -cne $true) { throw 'Stored evidence metadata failed validation.' }
+        }
 
         # Only metadata is included in history.
         # No raw evidence, file paths or collector secrets.
 
-        $history.Add(
-            [pscustomobject]@{
-                DeviceId = $public.DeviceId
-                ScanId = $public.ScanId
+        $row = [pscustomobject]@{
+            DeviceId = $public.DeviceId
+            ScanId = $public.ScanId
 
-                StartedAtUTC = $public.StartedAtUTC
-                CompletedAtUTC = $public.CompletedAtUTC
+            StartedAtUTC = $public.StartedAtUTC
+            CompletedAtUTC = $public.CompletedAtUTC
 
-                ExecutionStatus = $public.ExecutionStatus
+            ExecutionStatus = $public.ExecutionStatus
 
-                OverallScore = $public.OverallScore
-                OverallStatus = $public.OverallStatus
+            OverallScore = $public.OverallScore
+            OverallStatus = $public.OverallStatus
 
-                EvidenceStorageStatus = (
-                    $entry.EvidenceStorage.Status
-                )
+            EvidenceStorageStatus = $storage.Status
 
-                StoredEvidenceCount = (
-                    $entry.EvidenceStorage.StoredCount
-                )
+            StoredEvidenceCount = $stored
 
-                FailedEvidenceCount = (
-                    $entry.EvidenceStorage.FailedCount
-                )
-            }
-        )
+            FailedEvidenceCount = $failed
+        }
+        $scopeType = Get-WinSecResultField -InputObject $public -Name 'ScopeType'
+        if ($null -ne $scopeType) {
+            $row | Add-Member -NotePropertyName ScopeType -NotePropertyValue $scopeType
+            $row | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $public.ScopeKey
+        }
+        $history.Add($row)
     }
 
     return @(
         $history.ToArray() |
-            Sort-Object StartedAtUTC, ScanId
+            Sort-Object StartedAtUTC, ScanId, DeviceId
     )
 }

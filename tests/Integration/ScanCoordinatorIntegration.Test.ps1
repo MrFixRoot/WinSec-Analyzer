@@ -1005,6 +1005,48 @@ try {
         )
     }
 
+    Test-WinSecIntCase 'History rejects structured private storage metadata from a completed scan' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-HISTORY-001' -ConfirmAction { $true }
+        $key = Get-WinSecScanSessionKey $public.DeviceId $public.ScanId
+        $coordinator.Sessions[$key].EvidenceStorage.Status = [pscustomobject]@{Evidence=$script:SecretMarker}
+        $received = New-Object 'System.Collections.Generic.List[object]'
+        $caught = $false
+        try { Get-WinSecCoordinatorHistory $coordinator | ForEach-Object { $received.Add($_) } }
+        catch { $caught=$true; Assert-WinSecIntTrue ($_.Exception.Message -notmatch $script:SecretMarker) }
+        Assert-WinSecIntTrue ($caught -and $received.Count -eq 0)
+    }
+
+    Test-WinSecIntCase 'History binds a completed scan to its actual index key' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-HISTORY-002' -ConfirmAction { $true }
+        $key = Get-WinSecScanSessionKey $public.DeviceId $public.ScanId
+        $entry = $coordinator.Sessions[$key]
+        $coordinator.Sessions.Remove($key)
+        $coordinator.Sessions[(Get-WinSecScanSessionKey $public.DeviceId 'wrong-index-scan')] = $entry
+        Assert-WinSecIntThrows { Get-WinSecCoordinatorHistory $coordinator $public.DeviceId }
+        Assert-WinSecIntEqual $coordinator.Sessions.Count 1
+    }
+
+    Test-WinSecIntCase 'History projects only validated storage metadata and preserves legacy unknown scope' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-HISTORY-003' -ConfirmAction { $true }
+        $key = Get-WinSecScanSessionKey $public.DeviceId $public.ScanId
+        $storage = $coordinator.Sessions[$key].EvidenceStorage
+        $storage.Status='FAILED';$storage.FailedCount=1
+        $storage.Failures=@([pscustomobject]@{CheckId='WSA-SYS-001';ErrorType=$script:SecretMarker;Status='STORAGE_FAILED'})
+        $rows = @(Get-WinSecCoordinatorHistory $coordinator $public.DeviceId)
+        Assert-WinSecIntEqual $rows.Count 1
+        Assert-WinSecIntEqual $rows[0].EvidenceStorageStatus 'FAILED'
+        Assert-WinSecIntEqual $rows[0].FailedEvidenceCount 1
+        Assert-WinSecIntEqual $rows[0].OverallStatus 'NOT_SCORED'
+        Assert-WinSecIntTrue ($null -eq $rows[0].PSObject.Properties['ScopeType'])
+        Assert-WinSecIntTrue ((ConvertTo-Json -InputObject $rows -Depth 20) -notmatch $script:SecretMarker)
+    }
+
     Test-WinSecIntCase 'NOT_SELECTED controls remain unscored' {
         $script:MockAuditMode = 'MIXED'
 
