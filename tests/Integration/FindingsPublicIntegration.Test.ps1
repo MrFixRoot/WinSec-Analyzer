@@ -131,6 +131,99 @@ Test-WinSecFindingIntegration 'A nested private field prevents both counting and
     Assert-WinSecFindingIntegration ($caught -eq 2 -and $script:lines.Count -eq 0 -and $script:renderCalls -eq $renders -and
         $before -ceq (ConvertTo-Json -InputObject @($state,$context,$session) -Depth 25 -Compress))
 }
+# Exportación conectada al informe real; el único escritor se sustituye en memoria.
+foreach($file in @('src/Core/TargetRegistry.ps1','src/Core/DeviceInventory.ps1',
+    'src/Services/DeviceManagementService.ps1','src/Services/ReportService.ps1','src/Services/ExportService.ps1')) { . (Join-Path $root $file) }
+$script:exportWrites=0;$script:exportFailure=$false;$script:exportedReport=$null
+function Write-WinSecMarkdownArtifact {
+    param($ProjectRoot,$Report)
+    if($script:exportFailure){throw 'SYNTHETIC-FINDINGS-RAW'}
+    $script:exportWrites++;$script:exportedReport=Copy-WinSecResultData -Value $Report
+    [pscustomobject]@{FileName='synthetic.md';RelativePath='reports/exports/synthetic/synthetic.md'}
+}
+function New-WinSecExportContext {
+    $copy=Copy-WinSecResultData -Value $context
+    $copy | Add-Member -NotePropertyName ProjectRoot -NotePropertyValue $root
+    $copy.PublicScans[$key] | Add-Member -NotePropertyName ScopeType -NotePropertyValue DEVICE
+    $copy.PublicScans[$key] | Add-Member -NotePropertyName ScopeKey -NotePropertyValue ALL
+    return $copy
+}
+$tokens=$null;$errors=$null
+$cliAst=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'src/CLI/Invoke-WinSecCLI.ps1'),[ref]$tokens,[ref]$errors)
+$exportBranches=@($cliAst.FindAll({param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text -ceq '$navigationState.PendingCommand -eq ''ExportMD'''
+},$true))
+if($errors.Count -or $exportBranches.Count -ne 1){throw 'Expected one parsed CLI export handler.'}
+$script:exportHandler=[scriptblock]::Create($exportBranches[0].Extent.Text)
+function Invoke-WinSecTestExportCommand {
+    param($State,$Context)
+    $navigationState=$State;$context=$Context
+    & $script:exportHandler
+}
+Test-WinSecFindingIntegration 'P exports only the visible control findings with source scope and no raw values' {
+    $moving=Copy-WinSecResultData -Value $state;$moving.FindingsScope='Control';$moving.ControlIndex=1
+    $exportContext=New-WinSecExportContext
+    $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
+    $enabled=Test-WinSecCLIFindingsExportEligibility $moving $exportContext
+    $keyInfo=[pscustomobject]@{VirtualKeyCode=80;Character='P';ControlKeyState=0;KeyDown=$true}
+    $action=ConvertTo-WinSecKeyboardAction -KeyInfo $keyInfo -Screen Findings -EnableExport:$enabled
+    $null=Invoke-WinSecNavigationAction -State $moving -Action $action -FindingCount 1
+    Assert-WinSecFindingIntegration ($action -ceq 'ExportMD' -and $moving.PendingCommand -ceq 'ExportMD')
+    $writes=$script:exportWrites
+    Invoke-WinSecTestExportCommand -State $moving -Context $exportContext
+    Assert-WinSecFindingIntegration ($script:exportWrites -eq ($writes+1) -and $script:scanCalls -eq 0 -and
+        $script:exportedReport.Markdown.Contains('Source scope: DEVICE / ALL') -and
+        $script:exportedReport.Markdown.Contains('Exported selection: CONTROL / WSA\-SYS\-002') -and
+        $script:exportedReport.Markdown -notmatch 'WSA\\-NET|WSA\\-SYS\\-001|SYNTHETIC-FINDINGS-RAW|"Evidence"|\d+/100' -and
+        $script:exportedReport.Markdown.Contains('PENDING_APPROVED_CRITERIA') -and
+        $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress) -and $null -eq $moving.PendingCommand)
+    Invoke-WinSecTestExportCommand -State $moving -Context $exportContext
+    Assert-WinSecFindingIntegration ($script:exportWrites -eq ($writes+1))
+}
+Test-WinSecFindingIntegration 'Section export includes matching findings and excludes another section' {
+    $exportContext=New-WinSecExportContext
+    $null=Invoke-WinSecCLIFindingsExport -State $state -Context $exportContext
+    Assert-WinSecFindingIntegration (@([regex]::Matches($script:exportedReport.Markdown,'(?m)^## ')).Count -eq 4 -and
+        $script:exportedReport.Markdown.Contains('Exported selection: SECTION / SystemSecurity') -and
+        $script:exportedReport.Markdown.Contains('WSA\-SYS\-001') -and $script:exportedReport.Markdown.Contains('WSA\-SYS\-003') -and
+        -not $script:exportedReport.Markdown.Contains('WSA\-NET\-001'))
+}
+foreach($fault in @('LegacyScope','ForeignIdentity','RawEvidence','Empty','WrongScreen')) {
+    Test-WinSecFindingIntegration ('Export rejects before write: '+$fault) {
+        $moving=Copy-WinSecResultData -Value $state;$exportContext=New-WinSecExportContext
+        switch($fault) {
+            LegacyScope {$exportContext.PublicScans[$key].PSObject.Properties.Remove('ScopeType')}
+            ForeignIdentity {$exportContext.PublicScans[$key].Findings[0].DeviceId='local:OTHER'}
+            RawEvidence {$exportContext.PublicScans[$key].Findings[0] | Add-Member -NotePropertyName Evidence -NotePropertyValue 'SYNTHETIC-FINDINGS-RAW'}
+            Empty {$exportContext.PublicScans[$key].Findings=@()}
+            WrongScreen {$moving.Screen='Section'}
+        }
+        $writes=$script:exportWrites;$caught=$false
+        Assert-WinSecFindingIntegration (-not (Test-WinSecCLIFindingsExportEligibility $moving $exportContext))
+        try{$null=Invoke-WinSecCLIFindingsExport $moving $exportContext}catch{$caught=$true}
+        Assert-WinSecFindingIntegration ($caught -and $writes -eq $script:exportWrites -and $script:scanCalls -eq 0)
+    }
+}
+Test-WinSecFindingIntegration 'Writer failure never reports export success or mutates sessions' {
+    $exportContext=New-WinSecExportContext;$snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
+    $moving=Copy-WinSecResultData -Value $state;$moving.PendingCommand='ExportMD';$moving.PendingScope='Section'
+    $script:exportFailure=$true
+    try{Invoke-WinSecTestExportCommand $moving $exportContext}finally{$script:exportFailure=$false}
+    Assert-WinSecFindingIntegration ($exportContext.LastExportMessage -ceq 'Export failed or was rejected.' -and
+        $null -eq $moving.PendingCommand -and $null -eq $moving.PendingScope -and
+        $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress) -and $script:scanCalls -eq 0)
+}
+Test-WinSecFindingIntegration 'Export shortcut and status fit a small terminal without triggering another write' {
+    $exportContext=New-WinSecExportContext
+    $exportContext | Add-Member -NotePropertyName LastExportMessage -NotePropertyValue 'Exported: reports/exports/synthetic/synthetic.md'
+    Set-WinSecFindingTestTerminal -Width 40 -Height 20
+    $writes=$script:exportWrites
+    Show-WinSecCLICurrentScreen -State $state -Context $exportContext
+    Assert-WinSecFindingIntegration (($script:lines -join '|') -match '\[P\] Export MD' -and
+        ($script:lines -join '|') -notmatch '\[R\]' -and $script:lines.Count -le 20 -and
+        @($script:lines|Where-Object{$_.Length -gt 39}).Count -eq 0 -and $writes -eq $script:exportWrites -and $script:scanCalls -eq 0)
+}
 [Console]::WriteLine('Passed: '+$script:passed)
 [Console]::WriteLine('Failed: '+$script:failed)
 if($script:failed -gt 0){throw "$script:failed public Findings integration test(s) failed."}

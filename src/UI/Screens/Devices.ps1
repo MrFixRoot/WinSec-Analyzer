@@ -178,7 +178,9 @@ function Show-WinSecDevices {
 
         [string]$Version = '0.9.0',
 
-        [string]$Message = ''
+        [string]$Message = '',
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction='Scan'
     )
 
     # --------------------------------------------------------
@@ -315,7 +317,7 @@ function Show-WinSecDevices {
             -Color Yellow
     }
 
-    Write-Host ''
+    if ($layout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define adaptive table columns
@@ -407,6 +409,11 @@ function Show-WinSecDevices {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
+    if ($deviceCount -gt 0) {
+        $scanText = '[R] {0} Local Device' -f $ScanAction
+        if (-not $EnableRescan) { $scanText += ' (unavailable)' }
+        Write-WinSecText -Text $scanText -Color Cyan
+    }
     Write-WinSecKeyboardHelp `
         -Screen 'Devices' `
         -HiddenKeys $hiddenKeys

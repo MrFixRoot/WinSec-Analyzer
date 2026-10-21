@@ -53,6 +53,7 @@ function Test-WinSecKeyboardActionAllowed {
             'Exit',
             'ShowFindings',
             'ExportTXT',
+            'ExportMD',
             'DeleteDevice',
             'Rescan'
         )]
@@ -119,9 +120,7 @@ function Test-WinSecKeyboardActionAllowed {
             return (
                 $Screen -in @(
                     'Devices',
-                    'MainMenu',
-                    'Section',
-                    'Results'
+                    'MainMenu'
                 )
             )
         }
@@ -190,6 +189,9 @@ function Test-WinSecKeyboardActionAllowed {
                 )
             )
         }
+        'ExportMD' {
+            return ([bool]$EnableExport -and $Screen -eq 'Findings')
+        }
 
         # ----------------------------------------------------
         # Security rescan
@@ -199,7 +201,7 @@ function Test-WinSecKeyboardActionAllowed {
 
             return (
                 [bool]$EnableRescan -and
-                $Screen -in @('MainMenu','Section','Results','Findings')
+                $Screen -in @('Devices','MainMenu','Section','Results')
             )
         }
     }
@@ -382,12 +384,12 @@ function ConvertTo-WinSecKeyboardAction {
                     $action = 'Exit'
                 }
 
-                'H' {
+                'F' {
                     $action = 'ShowFindings'
                 }
 
                 'P' {
-                    $action = 'ExportTXT'
+                    $action = 'ExportMD'
                 }
 
                 'R' {
@@ -482,6 +484,7 @@ function Get-WinSecKeyboardAction {
         $action -in @(
             'Exit',
             'ExportTXT',
+            'ExportMD',
             'DeleteDevice',
             'Rescan'
         )
@@ -547,10 +550,10 @@ function Test-WinSecKeyboardController {
         }
 
         @{
-            Name   = 'H on Section'
+            Name   = 'F on Section'
             Screen = 'Section'
-            Code   = 72
-            Char   = [char]'H'
+            Code   = 70
+            Char   = [char]'F'
             Expect = 'ShowFindings'
         }
 

@@ -53,7 +53,7 @@ function New-WinSecPublicationFixture {
     }
     $key='{0}:{1}{2}:{3}' -f $deviceId.Length,$deviceId,$scanId.Length,$scanId
     [pscustomobject]@{
-        State=[pscustomobject]@{SelectedDeviceId=$deviceId;Screen='MainMenu'}
+        State=[pscustomobject]@{SelectedDeviceId=$deviceId;Screen='Devices';DeviceIndex=0}
         Context=[pscustomobject]@{
             ScanCoordinator=[pscustomobject]@{ScoringEnabled=$false;RemoteExecution=$false;AutomaticEvidencePersistence=$false}
             Devices=@((New-WinSecLocalTarget));PublicScans=@{};ActiveScanByDevice=@{};LastScanMessage='previous-message'

@@ -84,7 +84,7 @@ Test-WinSecMenuIntegration 'An enabled scan shortcut only renders and does not e
     Set-WinSecMenuTestTerminal -Width 80 -Height 26
     Show-WinSecMainMenu -NavigationState $state -SectionResults $public.SectionResults `
         -OverallStatus NOT_SCORED -EnableRescan
-    Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Local Device' -and
+    Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Section' -and
         $script:lines.Count -le $script:terminal.Height -and $script:scanCalls -eq 0 -and
         $before -ceq (ConvertTo-Json -InputObject @($state,$context,$session) -Depth 25 -Compress))
 }
@@ -128,22 +128,23 @@ Test-WinSecMenuIntegration 'CLI renders Scan or Rescan from coordinator scope hi
             Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@()};Sessions=@{};
             ParallelExecution=$false;RemoteExecution=$false;AutomaticEvidencePersistence=$false;ScoringEnabled=$false}
         $context.ScanCoordinator=$coordinator
+        $state.SectionIndex=0
         Set-WinSecMenuTestTerminal -Width 80 -Height 26
         Show-WinSecCLICurrentScreen -State $state -Context $context
-        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Local Device' -and
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Section' -and
             ($script:lines -join '|') -notmatch '\[R\] Rescan')
         $scoped=New-WinSecResultSession -DeviceId $deviceId -ScanId $scanId -ControlResults $session.ControlResults `
-            -ExpectedCheckIds $session.ExpectedCheckIds -ScopeType DEVICE -ScopeKey ALL -ExecutionStatus COMPLETED `
+            -ExpectedCheckIds $session.ExpectedCheckIds -ScopeType SECTION -ScopeKey SystemSecurity -ExecutionStatus COMPLETED `
             -StartedAtUTC '2026-10-20T00:00:00Z' -CompletedAtUTC '2026-10-20T00:01:00Z'
         $coordinator.Sessions[(Get-WinSecScanSessionKey $deviceId $scanId)]=[pscustomobject]@{
             DeviceId=$deviceId;ScanId=$scanId;Session=$scoped;EvidenceStorage=[pscustomobject]@{
                 DeviceId=$deviceId;ScanId=$scanId;Status='NOT_REQUESTED';StoredCount=0;FailedCount=0;SkippedCount=0}}
         Show-WinSecCLICurrentScreen -State $state -Context $context
-        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Rescan Local Device' -and
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Rescan Section' -and
             @($script:lines|Where-Object{$_ -match '\[R\]'}).Count -eq 1 -and $script:scanCalls -eq 0)
         $scoped.ScopeKey='CHANGED'
         Show-WinSecCLICurrentScreen -State $state -Context $context
-        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan \(unavailable\)' -and $script:scanCalls -eq 0)
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Section \(unavailable\)' -and $script:scanCalls -eq 0)
     }
     finally {
         $context.ScanCoordinator=$oldCoordinator

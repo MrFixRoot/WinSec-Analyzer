@@ -101,7 +101,7 @@ Test-WinSecResultsIntegration 'Resize redraws once while preserving device scan 
 }
 Test-WinSecResultsIntegration 'Findings navigation and Escape retain the selected control and session' {
     $counts=Get-WinSecCLINavigationCounts -State $state -Context $context
-    $keyInfo=[pscustomobject]@{VirtualKeyCode=72;Character=[char]'H';ControlKeyState=0;KeyDown=$true}
+    $keyInfo=[pscustomobject]@{VirtualKeyCode=70;Character=[char]'F';ControlKeyState=0;KeyDown=$true}
     $action=ConvertTo-WinSecKeyboardAction -KeyInfo $keyInfo -Screen Section
     $null=Invoke-WinSecNavigationAction -State $state -Action $action -ControlCount $counts.ControlCount
     Assert-WinSecResultsIntegration ($state.Screen -ceq 'Findings' -and $state.ControlIndex -eq 1)

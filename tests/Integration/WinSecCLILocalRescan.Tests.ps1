@@ -307,7 +307,8 @@ if (-not $coordinatorSafe) {
 # ------------------------------------------------------------
 
 $state = [pscustomobject]@{
-    Screen = 'MainMenu'
+    Screen = 'Devices'
+    DeviceIndex = 0
     SelectedDeviceId = $localId
 }
 

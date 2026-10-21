@@ -376,7 +376,7 @@ function Show-WinSecResults {
     $hiddenKeys = @()
 
     if ($controls.Count -eq 0) {
-        $hiddenKeys = @('UP/DOWN', 'H', 'ENTER')
+        $hiddenKeys = @('UP/DOWN', 'F')
     }
 
     # Reserve actual space for heading, device,
@@ -407,7 +407,7 @@ function Show-WinSecResults {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
-    $scanText = if ($EnableRescan) { '[R] {0} Section' -f $ScanAction } else { '[R] {0} Section (unavailable)' -f $ScanAction }
+    $scanText = if ($EnableRescan) { '[R] {0} Control' -f $ScanAction } else { '[R] {0} Control (unavailable)' -f $ScanAction }
     Write-WinSecText -Text $scanText -Color Cyan
     Write-WinSecKeyboardHelp `
         -Screen 'Section' `

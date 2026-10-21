@@ -5,6 +5,7 @@ $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/Core/ScanCoordinator.ps1')
 . (Join-Path $root 'src/Services/DeviceManagementService.ps1')
+. (Join-Path $root 'src/Services/ExportService.ps1')
 . (Join-Path $root 'src/CLI/Invoke-WinSecCLI.ps1')
 . (Join-Path $root 'src/UI/Core/NavigationController.ps1')
 . (Join-Path $root 'src/UI/Core/KeyboardController.ps1')
@@ -33,15 +34,73 @@ function Test-WinSecRemovalCase {
     }
     catch { $script:failed++; Write-Host "[FAIL] $Name : $($_.Exception.Message)" }
 }
-function Invoke-WinSecRemovalFixture {
-    param([scriptblock]$Confirm={ $true },[string]$DeviceId='local:OLD-FIXTURE')
-    Remove-WinSecManagedDevice -ProjectRoot $root -DeviceId $DeviceId -Coordinator $script:coordinator -Devices $script:devices -ConfirmAction $Confirm
+function Invoke-WinSecReportRemovalPlanFixture {
+    param([switch]$Corrupt,[switch]$Linked,[switch]$Foreign)
+    $script:reportRemovalRoot=Join-Path $root ('reports/exports/' + (Get-WinSecEvidenceHash 'local:OLD-FIXTURE'))
+    $script:reportRemovalFile=Join-Path $script:reportRemovalRoot 'synthetic.md'
+    $script:reportRemovalLinked=[bool]$Linked
+    $body="# Public report`n"
+    $meta=[ordered]@{SchemaVersion='1.0.0';DeviceId=if($Foreign){'local:OTHER'}else{'local:OLD-FIXTURE'};
+        ScanId='scan-1';ContentSha256=(Get-WinSecReportTextHash $body)}
+    $script:reportRemovalText="<!-- WinSec public report`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
+    if($Corrupt){$script:reportRemovalText+='corrupt'}
+    $script:reportRemovalTestPath=(Get-Command Test-Path).ScriptBlock
+    $script:reportRemovalGetItem=(Get-Command Get-Item).ScriptBlock
+    $script:reportRemovalGetContent=(Get-Command Get-Content).ScriptBlock
+    function Test-Path {
+        [CmdletBinding()]param($LiteralPath,$Path,$PathType)
+        if($LiteralPath -in @($script:reportRemovalRoot,$script:reportRemovalFile)){return $true}
+        & $script:reportRemovalTestPath @PSBoundParameters
+    }
+    function Get-Item {
+        [CmdletBinding()]param($LiteralPath,[switch]$Force)
+        if($LiteralPath -in @($script:reportRemovalRoot,$script:reportRemovalFile)){
+            return [pscustomobject]@{FullName=$LiteralPath;PSIsContainer=($LiteralPath -eq $script:reportRemovalRoot);
+                Length=[Text.Encoding]::UTF8.GetByteCount($script:reportRemovalText);
+                Attributes=if($script:reportRemovalLinked){[IO.FileAttributes]::ReparsePoint}else{[IO.FileAttributes]::Normal}}
+        }
+        & $script:reportRemovalGetItem @PSBoundParameters
+    }
+    function Get-ChildItem {
+        [CmdletBinding()]param($LiteralPath,[switch]$Force)
+        if($LiteralPath -eq $script:reportRemovalRoot){return Get-Item $script:reportRemovalFile}
+        throw 'Unexpected fixture enumeration.'
+    }
+    function Get-Content {
+        [CmdletBinding()]param($LiteralPath,[switch]$Raw,$Encoding)
+        if($LiteralPath -eq $script:reportRemovalFile){return $script:reportRemovalText}
+        & $script:reportRemovalGetContent @PSBoundParameters
+    }
+    function Get-FileHash {
+        [CmdletBinding()]param($LiteralPath,$Algorithm)
+        if($LiteralPath -eq $script:reportRemovalFile){return [pscustomobject]@{Hash=(Get-WinSecReportTextHash $script:reportRemovalText)}}
+        throw 'Unexpected fixture hash.'
+    }
+    Get-WinSecDeviceRemovalPlan -ProjectRoot $root -DeviceId 'local:OLD-FIXTURE' -Coordinator $script:coordinator -Devices $script:devices
 }
 function Assert-WinSecRemovalThrows {
     param([scriptblock]$Action)
     $caught=$false
     try { $null=& $Action } catch { $caught=$true }
     Assert-WinSecRemoval $caught
+}
+Test-WinSecRemovalCase 'Removal plan includes owned Markdown exports with integrity checked' {
+    $plan=Invoke-WinSecReportRemovalPlanFixture
+    Assert-WinSecRemoval ($plan.Files.Count -eq 1 -and $plan.Files[0].Path -ceq $script:reportRemovalFile -and
+        $plan.Roots -contains $script:reportRemovalRoot -and $script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Corrupt or foreign Markdown prevents removal before confirmation' {
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Corrupt}
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Foreign}
+    Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Linked Markdown export storage rejects removal without traversing it' {
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Linked}
+    Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
+}
+function Invoke-WinSecRemovalFixture {
+    param([scriptblock]$Confirm={ $true },[string]$DeviceId='local:OLD-FIXTURE')
+    Remove-WinSecManagedDevice -ProjectRoot $root -DeviceId $DeviceId -Coordinator $script:coordinator -Devices $script:devices -ConfirmAction $Confirm
 }
 Test-WinSecRemovalCase 'No confirmation handler rejects before mutation' {
     $before=$script:inventoryMemory.Json

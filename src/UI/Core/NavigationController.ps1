@@ -442,18 +442,6 @@ function Invoke-WinSecNavigationAction {
                         $State.ControlIndex = 0
                     }
                 }
-                'Section' {
-                    if ($ControlCount -gt 0) {
-                        $State = Set-WinSecNavigationScreen -State $State -Screen 'Findings'
-                        $State.FindingsScope = 'Control'
-                    }
-                }
-                'Results' {
-                    if ($ControlCount -gt 0) {
-                        $State = Set-WinSecNavigationScreen -State $State -Screen 'Findings'
-                        $State.FindingsScope = 'Control'
-                    }
-                }
             }
         }
 
@@ -538,6 +526,12 @@ function Invoke-WinSecNavigationAction {
         # Export security report
         # ----------------------------------------------------
 
+        'ExportMD' {
+            if ($State.Screen -ceq 'Findings') {
+                $State.PendingCommand = 'ExportMD'
+                $State.PendingScope = $State.FindingsScope
+            }
+        }
         'ExportTXT' {
 
             switch ($State.Screen) {
@@ -592,15 +586,14 @@ function Invoke-WinSecNavigationAction {
         'Rescan' {
 
             if (
-                $State.Screen -in @('MainMenu','Section','Results','Findings') -and
-                $State.SelectedDeviceId
+                $State.Screen -in @('Devices','MainMenu','Section','Results')
             ) {
 
                 $State.PendingCommand = 'Rescan'
                 $State.PendingScope = switch ($State.Screen) {
-                    'MainMenu' {'Device'}
-                    'Findings' {$State.FindingsScope}
-                    default {'Section'}
+                    'Devices' {'Device'}
+                    'MainMenu' {'Section'}
+                    default {'Control'}
                 }
             }
         }

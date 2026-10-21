@@ -519,13 +519,13 @@ function Show-WinSecMainMenu {
     if ($EnableRescan.IsPresent -and $device.Selected) {
 
         Write-WinSecText `
-            -Text ('[R] {0} Local Device' -f $ScanAction) `
+            -Text ('[R] {0} Section' -f $ScanAction) `
             -Color Cyan
     }
     else {
 
         Write-WinSecText `
-            -Text ('[R] {0} (unavailable)' -f $ScanAction) `
+            -Text ('[R] {0} Section (unavailable)' -f $ScanAction) `
             -Color DarkGray
     }
 

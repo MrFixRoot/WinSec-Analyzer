@@ -835,7 +835,9 @@ function Show-WinSecFindings {
 
         [string]$Version = '0.9.0',
         [switch]$EnableRescan,
-        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan',
+        [switch]$EnableExport,
+        [string]$Message = ''
     )
 
     # --------------------------------------------------------
@@ -856,7 +858,7 @@ function Show-WinSecFindings {
 
     $baseLayout = Get-WinSecLayout `
         -Screen 'Findings' `
-        -ReservedRows 13
+        -ReservedRows 12 -EnableExport:$EnableExport
 
     Clear-WinSecScreen
 
@@ -920,13 +922,13 @@ function Show-WinSecFindings {
     # The remaining content area belongs to the table.
 
     $reservedRows = (
-        13 + $detailPlan.ReservedRows
+        12 + $detailPlan.ReservedRows + [int](-not [string]::IsNullOrWhiteSpace($Message))
     )
 
     $layout = Get-WinSecLayout `
         -Screen 'Findings' `
         -BannerRows $baseLayout.BannerRows `
-        -ReservedRows $reservedRows
+        -ReservedRows $reservedRows -EnableExport:$EnableExport
 
     # --------------------------------------------------------
     # Render adaptive project branding
@@ -1130,9 +1132,6 @@ function Show-WinSecFindings {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
-    $scanScope = if ($assessment.Scope -ceq 'Control') { 'Control' } else { 'Section' }
-    $scanText = '[R] {0} {1}' -f $ScanAction,$scanScope
-    if (-not $EnableRescan) { $scanText += ' (unavailable)' }
-    Write-WinSecText -Text $scanText -Color Cyan
-    Write-WinSecKeyboardHelp -Screen 'Findings'
+    if ($Message) { Write-WinSecFindingField -Label 'Export' -Value $Message -MaxLines 1 }
+    Write-WinSecKeyboardHelp -Screen 'Findings' -EnableExport:$EnableExport
 }

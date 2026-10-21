@@ -335,7 +335,8 @@ if (-not $coordinatorSafe) {
 # ------------------------------------------------------------
 
 $state = [pscustomobject]@{
-    Screen = 'MainMenu'
+    Screen = 'Devices'
+    DeviceIndex = 0
     SelectedDeviceId = $localId
     PendingCommand = 'Rescan'
     PendingScope = 'Device'
@@ -571,6 +572,8 @@ Assert-WinSecIntegration `
 # ------------------------------------------------------------
 
 $state.SelectedDeviceId = 'remote:INTEGRATION-TEST'
+$context.Devices += @([pscustomobject]@{DeviceId='remote:INTEGRATION-TEST';Mode='REMOTE';Enabled=$true})
+$state.DeviceIndex = $context.Devices.Count - 1
 $state.PendingCommand = 'Rescan'
 $state.PendingScope = 'Device'
 
@@ -610,6 +613,7 @@ Assert-WinSecIntegration `
 # ------------------------------------------------------------
 
 $state.SelectedDeviceId = $localId
+$state.DeviceIndex = 0
 $state.PendingCommand = 'SelectDevice'
 $state.PendingScope = 'Device'
 

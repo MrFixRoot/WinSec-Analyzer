@@ -88,7 +88,7 @@ function Add-WinSecConfirmationIntegrationKey {
 function New-WinSecConfirmationIntegrationContext {
     $target = New-WinSecLocalTarget
     return [pscustomobject]@{
-        State = [pscustomobject]@{ Screen = 'MainMenu'; SelectedDeviceId = $target.DeviceId }
+        State = [pscustomobject]@{ Screen = 'Devices'; DeviceIndex=0; SelectedDeviceId = $target.DeviceId }
         Context = [pscustomobject]@{
             Devices = @($target)
             ScanCoordinator = New-WinSecScanCoordinator

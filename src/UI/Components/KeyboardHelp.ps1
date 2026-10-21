@@ -84,17 +84,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Open Section'
                 }
                 @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             if ($EnableRescan) {
                 $items += @{
@@ -129,21 +122,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Navigate'
                 }
                 @{
-                    Key    = 'ENTER'
-                    Action = 'Open Control'
-                }
-                @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             $items += @{
                 Key    = 'ESC'
@@ -169,7 +151,7 @@ function Get-WinSecKeyboardShortcuts {
             if ($EnableExport) {
                 $items += @{
                     Key    = 'P'
-                    Action = 'Export TXT'
+                    Action = 'Export MD'
                 }
             }
 
@@ -206,17 +188,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Navigate'
                 }
                 @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             $items += @{
                 Key    = 'ESC'

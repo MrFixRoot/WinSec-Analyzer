@@ -242,7 +242,8 @@ function Reset-TestFixture {
     }
 
     $script:testState = [pscustomobject]@{
-        Screen = 'MainMenu'
+        Screen = 'Devices'
+        DeviceIndex = 0
         SelectedDeviceId = 'local:UNIT-PC'
     }
 
@@ -361,6 +362,7 @@ Assert-WinSecUnit `
 Reset-TestFixture
 
 $script:testState.SelectedDeviceId = 'remote:OTHER-PC'
+$script:testContext.Devices[0].DeviceId = 'remote:OTHER-PC'
 
 $beforeCalls = $script:scanCalls
 

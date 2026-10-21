@@ -8,7 +8,7 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Core/TerminalRenderer.ps1','src/UI/Core/LayoutManager.ps1','src/UI/Core/KeyboardController.ps1',
     'src/UI/Core/NavigationController.ps1','src/UI/Core/ResizeHandler.ps1','src/UI/Components/Banner.ps1',
     'src/UI/Components/Table.ps1','src/UI/Components/KeyboardHelp.ps1','src/UI/Screens/MainMenu.ps1',
-    'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/ScanConfirmation.ps1')){. (Join-Path $root $file)}
+    'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/Devices.ps1','src/UI/Screens/ScanConfirmation.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 if(@($script:catalog.Checks|Where-Object{$_.ExecutionEnabled}).Count){throw 'Production checks must remain disabled.'}
 $script:passed=0;$script:failed=0
@@ -17,7 +17,7 @@ function Assert-WinSecNavigationScan {param([bool]$Condition);if(-not $Condition
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $registry=Copy-WinSecResultData -Value $script:catalog
-    foreach($check in $registry.Checks){if($check.CheckId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-NET-001')){
+    foreach($check in $registry.Checks){if($check.CheckId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-NET-001') -and $check.CheckId -cne $script:disabledCheck){
         $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
     }}
     return $registry
@@ -59,12 +59,13 @@ function Invoke-WinSecNavigationKey {
 }
 function Test-WinSecScopedNavigation {
     param([string]$Name,[scriptblock]$Action)
+    $script:disabledCheck=$null
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
     $script:keys=New-Object 'System.Collections.Generic.Queue[object]';$script:collected=New-Object 'System.Collections.Generic.List[string]'
     $script:terminal=[pscustomobject]@{Width=100;ContentWidth=99;Height=40}
     $target=New-WinSecLocalTarget
     $script:state=New-WinSecNavigationState
-    $script:state.Screen='MainMenu';$script:state.SelectedDeviceId=$target.DeviceId;$script:state.SelectedDeviceName=$target.Hostname
+    $script:state.Screen='Devices';$script:state.SelectedDeviceId=$target.DeviceId;$script:state.SelectedDeviceName=$target.Hostname
     $script:context=[pscustomobject]@{Version='0.9.0';Devices=@($target);ScanCoordinator=New-WinSecScanCoordinator;
         ActiveScanByDevice=@{};ActiveScanByScope=@{};PublicScans=@{};ScanId='';SectionResults=@();ControlResults=@();Findings=@();LastScanMessage=''}
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
@@ -76,15 +77,22 @@ Test-WinSecScopedNavigation 'R resolves DEVICE, SECTION and CONTROL through real
     Invoke-WinSecNavigationKey 82 R
     Assert-WinSecNavigationScan ($script:state.PendingScope -ceq 'Device')
     Invoke-WinSecNavigationKey 13
-    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'Section')
+    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'MainMenu')
     Invoke-WinSecNavigationKey 82 R
     Assert-WinSecNavigationScan ($script:state.PendingScope -ceq 'Section' -and
         (Get-WinSecCLIScanScope $script:state).ScopeKey -ceq 'SystemSecurity')
     Invoke-WinSecNavigationKey 13
-    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'Findings' -and $script:state.FindingsScope -ceq 'Control')
+    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'Section')
     Invoke-WinSecNavigationKey 82 R
     Assert-WinSecNavigationScan ($script:state.PendingScope -ceq 'Control' -and
         (Get-WinSecCLIScanScope $script:state).ScopeKey -ceq 'WSA-SYS-001' -and $script:collected.Count -eq 0)
+    $script:state.PendingCommand=$null
+    Invoke-WinSecNavigationKey 13
+    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'Section')
+    Invoke-WinSecNavigationKey 70 F
+    Assert-WinSecNavigationScan ($script:state.Screen -ceq 'Findings' -and $script:state.FindingsScope -ceq 'Control')
+    Invoke-WinSecNavigationKey 82 R
+    Assert-WinSecNavigationScan ($null -eq $script:state.PendingCommand -and $script:collected.Count -eq 0)
 }
 Test-WinSecScopedNavigation 'Partial scans append separate sessions and never replace the device assessment' {
     Add-WinSecNavigationKey
@@ -94,18 +102,23 @@ Test-WinSecScopedNavigation 'Partial scans append separate sessions and never re
     Invoke-WinSecNavigationKey 13
     Add-WinSecNavigationKey
     $section=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
+    Invoke-WinSecNavigationKey 70 F
     Assert-WinSecNavigationScan ($section.ScopeType -ceq 'SECTION' -and
         (Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $section.ScanId)
+    Invoke-WinSecNavigationKey 27
     Show-WinSecCLICurrentScreen -State $script:state -Context $script:context
     Assert-WinSecNavigationScan (($script:lines -join '|') -match '\[R\] Rescan Section' -and $script:collected.Count -eq 5)
     Invoke-WinSecNavigationKey 13
     Add-WinSecNavigationKey
     $control=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
+    Show-WinSecCLICurrentScreen -State $script:state -Context $script:context
+    Assert-WinSecNavigationScan (($script:lines -join '|') -match '\[R\] Rescan Control' -and $script:collected.Count -eq 6)
+    Invoke-WinSecNavigationKey 70 F
     Assert-WinSecNavigationScan ($control.ScopeType -ceq 'CONTROL' -and $control.ScopeKey -ceq 'WSA-SYS-001' -and
         @($control.ControlResults|Where-Object{$_.Status -cne 'NOT_SELECTED'}).Count -eq 1 -and
         (Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $control.ScanId)
     Show-WinSecCLICurrentScreen -State $script:state -Context $script:context
-    Assert-WinSecNavigationScan (($script:lines -join '|') -match '\[R\] Rescan Control' -and $script:collected.Count -eq 6)
+    Assert-WinSecNavigationScan (($script:lines -join '|') -notmatch '\[R\]' -and $script:collected.Count -eq 6)
     Invoke-WinSecNavigationKey 27
     Assert-WinSecNavigationScan ((Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $section.ScanId)
     Invoke-WinSecNavigationKey 27
@@ -119,6 +132,7 @@ Test-WinSecScopedNavigation 'A first section scan works without a device scan an
     Invoke-WinSecNavigationKey 13
     Add-WinSecNavigationKey
     $partial=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
+    Invoke-WinSecNavigationKey 70 F
     Assert-WinSecNavigationScan ((Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $partial.ScanId -and
         $script:context.ActiveScanByDevice.Count -eq 0)
     Invoke-WinSecNavigationKey 27
@@ -144,7 +158,7 @@ Test-WinSecScopedNavigation 'Changing control selection inside confirmation abor
         $script:context.PublicScans.Count -eq 0 -and $script:context.ActiveScanByScope.Count -eq 0)
 }
 Test-WinSecScopedNavigation 'Disabled control remains unavailable and cannot run even by direct request' {
-    Invoke-WinSecNavigationKey 13;$script:state.ControlIndex=2;Invoke-WinSecNavigationKey 13
+    Invoke-WinSecNavigationKey 13;Invoke-WinSecNavigationKey 13;$script:state.ControlIndex=2
     $presentation=Get-WinSecCLIScanPresentation $script:state $script:context
     $caught=$false
     try{$null=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context}catch{$caught=$true}
@@ -164,11 +178,21 @@ foreach($size in @(@{W=120;H=45},@{W=80;H=26},@{W=40;H=20})){
             $script:collected.Count -eq 0)
     }
 }
+Test-WinSecScopedNavigation 'Disabled control retains contextual Rescan history without authorizing execution' {
+    Invoke-WinSecNavigationKey 13;Invoke-WinSecNavigationKey 13;Add-WinSecNavigationKey
+    $result=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
+    $script:disabledCheck='WSA-SYS-001'
+    $presentation=Get-WinSecCLIScanPresentation $script:state $script:context
+    $calls=$script:collected.Count;$caught=$false
+    try{$null=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context}catch{$caught=$true}
+    Assert-WinSecNavigationScan ($presentation.ScanAction -ceq 'Rescan' -and -not $presentation.EnableRescan -and
+        $caught -and $script:collected.Count -eq $calls -and $script:context.ScanCoordinator.Sessions.Count -eq 1 -and
+        $result.ScopeType -ceq 'CONTROL')
+}
 Test-WinSecScopedNavigation 'A partial session cannot masquerade as the device assessment through a forged device map' {
     Invoke-WinSecNavigationKey 13
     Add-WinSecNavigationKey
     $partial=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
-    Invoke-WinSecNavigationKey 27
     $script:context.ActiveScanByDevice[$partial.DeviceId]=$partial.ScanId
     $caught=$false
     try{$null=Get-WinSecCLIActiveAssessment $script:state $script:context}catch{$caught=$true}
@@ -177,7 +201,7 @@ Test-WinSecScopedNavigation 'A partial session cannot masquerade as the device a
 Test-WinSecScopedNavigation 'A forged scoped selection cannot read a different scope even with a valid session ID' {
     Add-WinSecNavigationKey
     $full=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
-    Invoke-WinSecNavigationKey 13
+    Invoke-WinSecNavigationKey 13;Invoke-WinSecNavigationKey 13
     $script:context.ActiveScanByScope[(Get-WinSecCLIScopeKey $full.DeviceId SECTION SystemSecurity)]=$full.ScanId
     $caught=$false
     try{$null=Get-WinSecCLIActiveAssessment $script:state $script:context}catch{$caught=$true}
