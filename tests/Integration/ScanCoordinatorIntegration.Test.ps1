@@ -1033,7 +1033,10 @@ try {
     Test-WinSecIntCase 'History projects only validated storage metadata and preserves legacy unknown scope' {
         $script:MockAuditMode = 'COMPLETED'
         $coordinator = New-WinSecIntCoordinator
-        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-HISTORY-003' -ConfirmAction { $true }
+        # An explicit legacy subset has no declared scope. New default scans
+        # now correctly declare DEVICE/ALL and are covered by scope tests.
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-HISTORY-003' `
+            -CheckIds @('WSA-SYS-001') -ConfirmAction { $true }
         $key = Get-WinSecScanSessionKey $public.DeviceId $public.ScanId
         $storage = $coordinator.Sessions[$key].EvidenceStorage
         $storage.Status='FAILED';$storage.FailedCount=1

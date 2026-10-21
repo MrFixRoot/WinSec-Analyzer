@@ -13,6 +13,58 @@ function Show-WinSecScanConfirmation {
         throw 'Invalid scan confirmation request.'
     }
 
+    $scope = if ($Request.SelectionMode -ceq 'ALL_EXECUTABLE') {
+        'Local device - all executable controls'
+    } else { 'Explicit control selection (scope unspecified)' }
+    $scopeFields = @{}
+    if ($Request -is [System.Collections.IDictionary]) {
+        foreach ($name in $Request.psbase.Keys) {
+            if ($name -isnot [string] -or $name -notin @('ScopeType','ScopeKey')) { continue }
+            if ($scopeFields.ContainsKey($name)) { throw 'Ambiguous scan confirmation scope.' }
+            $scopeFields[$name] = $Request[$name]
+        }
+    }
+    else {
+        foreach ($name in @('ScopeType','ScopeKey')) {
+            $property = $Request.PSObject.Properties[$name]
+            if ($null -ne $property) {
+                if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                    throw 'Scan scope requires plain data properties.'
+                }
+                $scopeFields[$name] = $property.Value
+            }
+        }
+    }
+    if ($scopeFields.Count -gt 0) {
+        $type = $scopeFields.ScopeType
+        $key = $scopeFields.ScopeKey
+        if ($scopeFields.Count -ne 2 -or $type -isnot [string] -or $key -isnot [string] -or
+            $type -cnotin @('DEVICE','SECTION','CONTROL')) { throw 'Invalid scan confirmation scope.' }
+        switch -CaseSensitive ($type) {
+            'DEVICE' {
+                if ($key -cne 'ALL' -or $Request.SelectionMode -cne 'ALL_EXECUTABLE') {
+                    throw 'Invalid device confirmation scope.'
+                }
+            }
+            'SECTION' {
+                if ($key -cnotin @('SystemSecurity','NetworkSecurity','IdentityAccess','LoggingAuditing','ServicesHardening') -or
+                    $Request.SelectionMode -cne 'EXPLICIT_CHECKS' -or
+                    @($Request.Checks | Where-Object { $_.SectionKey -isnot [string] -or $_.SectionKey -cne $key }).Count -gt 0) {
+                    throw 'Invalid section confirmation scope.'
+                }
+                $scope = 'Section: ' + $key + ' - executable controls only'
+            }
+            'CONTROL' {
+                if ($key -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z' -or
+                    $Request.SelectionMode -cne 'EXPLICIT_CHECKS' -or $Request.Checks.Count -ne 1 -or
+                    $Request.Checks[0].CheckId -isnot [string] -or $Request.Checks[0].CheckId -cne $key) {
+                    throw 'Invalid control confirmation scope.'
+                }
+                $scope = 'Control: ' + $key
+            }
+        }
+    }
+
     $display = [pscustomobject]@{ CanConfirm = $false }
     $render = {
         param($UnusedState)
@@ -20,12 +72,6 @@ function Show-WinSecScanConfirmation {
         $terminal = Get-WinSecTerminalSize
         Clear-WinSecScreen
         $width = [Math]::Max(1, [int]$terminal.ContentWidth)
-        $scope = if ($Request.SelectionMode -ceq 'ALL_EXECUTABLE') {
-            'Local device - all executable controls'
-        }
-        else {
-            'Explicit control selection'
-        }
         $lines = @(
             'WINSEC ANALYZER - CONFIRM SCAN / RESCAN'
             ('Device: {0}' -f $Request.Hostname)

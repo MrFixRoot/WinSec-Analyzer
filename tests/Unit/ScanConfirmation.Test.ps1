@@ -358,6 +358,61 @@ Test-WinSecConfirmationCase 'The scan dialog cannot authorize raw evidence stora
     $request.Operation = 'STORE_RAW_EVIDENCE'
     Assert-WinSecConfirmationRejected { Show-WinSecScanConfirmation -Request $request }
 }
+foreach ($scopeSpec in @(@{Type='DEVICE';Key='ALL';Mode='ALL_EXECUTABLE';Label='Local device'},
+    @{Type='SECTION';Key='SystemSecurity';Mode='EXPLICIT_CHECKS';Label='Section: SystemSecurity'},
+    @{Type='CONTROL';Key='WSA-SYS-001';Mode='EXPLICIT_CHECKS';Label='Control: WSA-SYS-001'})) {
+    Test-WinSecConfirmationCase ('UI displays the precise declared scope: ' + $scopeSpec.Type) {
+        $request = New-WinSecConfirmationUIFixture
+        $request.SelectionMode = $scopeSpec.Mode
+        $request | Add-Member -NotePropertyName ScopeType -NotePropertyValue $scopeSpec.Type
+        $request | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $scopeSpec.Key
+        $script:keys.Enqueue((New-WinSecConfirmationKey -Character Y))
+        Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $request)
+        Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains($scopeSpec.Label))
+    }
+}
+foreach ($invalidScope in @(
+    @{ScopeType='DEVICE'}, @{ScopeKey='ALL'}, @{ScopeType=$null;ScopeKey=$null},
+    @{ScopeType='device';ScopeKey='ALL'}, @{ScopeType='DEVICE';ScopeKey='PARTIAL'},
+    @{ScopeType=@('DEVICE');ScopeKey='ALL'}, @{ScopeType='CONTROL';ScopeKey=@('WSA-SYS-001')},
+    @{ScopeType='SECTION';ScopeKey='NetworkSecurity'}, @{ScopeType='CONTROL';ScopeKey='WSA-SYS-002'}
+)) {
+    Test-WinSecConfirmationCase 'Invalid or contradictory scope cannot reach confirmation rendering' {
+        $request = New-WinSecConfirmationUIFixture
+        foreach ($name in $invalidScope.Keys) {
+            $request | Add-Member -NotePropertyName $name -NotePropertyValue $invalidScope[$name]
+        }
+        $script:lines = @('unchanged')
+        Assert-WinSecConfirmationRejected { Show-WinSecScanConfirmation -Request $request }
+        Assert-WinSecConfirmationTest (($script:lines -join '|') -ceq 'unchanged')
+    }
+}
+foreach ($field in @('ScopeType','ScopeKey')) {
+    Test-WinSecConfirmationCase ('Calculated scope cannot execute during validation: ' + $field) {
+        $request = New-WinSecConfirmationUIFixture
+        $script:getterCalls = 0
+        $request | Add-Member -MemberType ScriptProperty -Name $field -Value {$script:getterCalls++;'PRIVATE-FIXTURE'}
+        Assert-WinSecConfirmationRejected { Show-WinSecScanConfirmation -Request $request }
+        Assert-WinSecConfirmationTest ($script:getterCalls -eq 0)
+    }
+}
+Test-WinSecConfirmationCase 'Case-ambiguous scope fields cannot hide a contradictory dictionary request' {
+    $request = New-WinSecConfirmationUIFixture
+    $dictionary = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+    foreach ($property in $request.PSObject.Properties) { $dictionary[$property.Name] = $property.Value }
+    $dictionary.Add('ScopeType','DEVICE'); $dictionary.Add('scopetype','CONTROL'); $dictionary.Add('ScopeKey','ALL')
+    Assert-WinSecConfirmationRejected { Show-WinSecScanConfirmation -Request $dictionary }
+}
+Test-WinSecConfirmationCase 'Dictionary requests display their declared scope rather than an inferred label' {
+    $request = New-WinSecConfirmationUIFixture
+    $dictionary = @{}
+    foreach ($property in $request.PSObject.Properties) { $dictionary[$property.Name] = $property.Value }
+    $dictionary.SelectionMode = 'EXPLICIT_CHECKS'
+    $dictionary.ScopeType = 'CONTROL'; $dictionary.ScopeKey = 'WSA-SYS-001'
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Character Y))
+    Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $dictionary)
+    Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains('Control: WSA-SYS-001'))
+}
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"
 if ($script:failed -gt 0) { throw "$script:failed confirmation unit test(s) failed." }

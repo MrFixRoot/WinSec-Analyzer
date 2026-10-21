@@ -398,7 +398,10 @@ function ConvertTo-WinSecCoordinatedSession {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [object]$AuditResult
+        [object]$AuditResult,
+
+        [AllowNull()][object]$ScopeType = $null,
+        [AllowNull()][object]$ScopeKey = $null
     )
 
     $expectedIds = @(
@@ -417,7 +420,13 @@ function ConvertTo-WinSecCoordinatedSession {
     # No findings are created from raw check statuses.
     # No ScoreResult or ScoringPolicy is supplied.
 
-    $session = New-WinSecResultSession `
+    $scopeArguments = @{}
+    if ($PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')) {
+        $scopeArguments.ScopeType = $ScopeType
+        $scopeArguments.ScopeKey = $ScopeKey
+    }
+
+    $session = New-WinSecResultSession @scopeArguments `
         -DeviceId $AuditResult.DeviceId `
         -ScanId $AuditResult.ScanId `
         -ComputerName $AuditResult.ComputerName `
@@ -574,8 +583,29 @@ function Get-WinSecScanConfirmationPlan {
     param(
         [Parameter(Mandatory)][object]$Coordinator,
         [string]$DeviceId = '',
-        [string[]]$CheckIds
+        [string[]]$CheckIds,
+        [AllowNull()][object]$ScopeType = $null,
+        [AllowNull()][object]$ScopeKey = $null
     )
+
+    $explicit = $PSBoundParameters.ContainsKey('CheckIds')
+    $hasScope = $PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')
+    if ($hasScope -and $explicit) {
+        throw 'Scope and legacy CheckIds cannot be combined.'
+    }
+    # The existing default selects the whole device. An arbitrary legacy
+    # CheckIds subset cannot establish a DEVICE, SECTION or CONTROL scope.
+    if (-not $hasScope -and -not $explicit) {
+        $hasScope = $true
+        $ScopeType = 'DEVICE'
+        $ScopeKey = 'ALL'
+    }
+    if ($hasScope) {
+        Assert-WinSecResultScope -ScopeType $ScopeType -ScopeKey $ScopeKey
+        if ($ScopeType -ceq 'CONTROL') {
+            Assert-WinSecScanIdentifier -Value $ScopeKey -FieldName 'CheckId'
+        }
+    }
 
     $target = Resolve-WinSecScanTarget -Coordinator $Coordinator -DeviceId $DeviceId
     if ($Coordinator.ScoringEnabled -cne $false -or
@@ -591,9 +621,18 @@ function Get-WinSecScanConfirmationPlan {
         throw 'Check catalog changed during scan preparation.'
     }
 
-    $explicit = $PSBoundParameters.ContainsKey('CheckIds')
     $selected = @()
-    if ($explicit) {
+    if ($hasScope -and $ScopeType -ceq 'SECTION') {
+        $selected = @(Get-WinSecExecutableChecks -Registry $registry -SectionKey $ScopeKey)
+    }
+    elseif ($hasScope -and $ScopeType -ceq 'CONTROL') {
+        $check = Get-WinSecRegisteredCheck -Registry $registry -CheckId $ScopeKey
+        if ($null -eq $check -or $check.CheckId -cne $ScopeKey) {
+            throw 'Selected scope control is not registered.'
+        }
+        $selected = @($check)
+    }
+    elseif ($explicit) {
         if (@($CheckIds).Count -eq 0) { throw 'CheckIds cannot be an empty explicit selection.' }
         $seen = @{}
         foreach ($id in $CheckIds) {
@@ -613,16 +652,23 @@ function Get-WinSecScanConfirmationPlan {
 
     $checks = @()
     $sources = @()
+    $selectedIds = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($check in @($selected | Sort-Object CheckId)) {
         if ($check.ExecutionEnabled -cne $true -or $check.ExecutionReady -cne $true -or
             $check.ImplementationStatus -cne 'VALIDATED' -or $check.RegistryStatus -cne 'READY') {
             throw 'Selected check is not executable.'
         }
         Assert-WinSecScanIdentifier -Value $check.CheckId -FieldName 'CheckId'
+        if (-not $selectedIds.Add($check.CheckId)) { throw 'Duplicate executable CheckId.' }
         if (-not (Test-WinSecResultText $check.Name) -or
             $check.SectionKey -cnotin @('SystemSecurity', 'NetworkSecurity',
                 'IdentityAccess', 'LoggingAuditing', 'ServicesHardening')) {
             throw 'Invalid check confirmation metadata.'
+        }
+        if ($hasScope -and
+            (($ScopeType -ceq 'SECTION' -and $check.SectionKey -cne $ScopeKey) -or
+             ($ScopeType -ceq 'CONTROL' -and $check.CheckId -cne $ScopeKey))) {
+            throw 'Check selection does not match the requested scope.'
         }
         $checks += [pscustomobject]@{
             CheckId = $check.CheckId
@@ -636,16 +682,24 @@ function Get-WinSecScanConfirmationPlan {
         Operation = 'SCAN'
         DeviceId = $target.DeviceId
         Hostname = $target.Hostname
-        SelectionMode = if ($explicit) { 'EXPLICIT_CHECKS' } else { 'ALL_EXECUTABLE' }
+        SelectionMode = if ($explicit -or ($hasScope -and $ScopeType -cne 'DEVICE')) {
+            'EXPLICIT_CHECKS'
+        } else { 'ALL_EXECUTABLE' }
         ReadOnly = $true
         CatalogVersion = $registry.CatalogVersion
         Checks = @($checks)
+    }
+    if ($hasScope) {
+        $request | Add-Member -NotePropertyName ScopeType -NotePropertyValue $ScopeType
+        $request | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $ScopeKey
     }
     $requestJson = ConvertTo-Json -InputObject $request -Depth 8 -Compress
     return [pscustomobject]@{
         Target = $target
         Registry = $registry
         CheckIds = @($checks | ForEach-Object { $_.CheckId })
+        ScopeType = if ($hasScope) { $ScopeType } else { $null }
+        ScopeKey = if ($hasScope) { $ScopeKey } else { $null }
         RequestJson = $requestJson
         Fingerprint = [System.IO.Path]::GetFullPath($Coordinator.ProjectRoot) +
             '|' + $catalogHash + '|' + ($sources -join '|') + '|' + $requestJson
@@ -668,7 +722,10 @@ function Invoke-WinSecCoordinatedScan {
 
         [scriptblock]$ConfirmAction,
 
-        [scriptblock]$ConfirmEvidenceAction
+        [scriptblock]$ConfirmEvidenceAction,
+
+        [AllowNull()][object]$ScopeType = $null,
+        [AllowNull()][object]$ScopeKey = $null
     )
 
     Assert-WinSecScanCoordinator `
@@ -735,6 +792,9 @@ function Invoke-WinSecCoordinatedScan {
     # Confirmation is per invocation; no approval flag is cached or reused.
     $planArguments = @{ Coordinator = $Coordinator; DeviceId = $target.DeviceId }
     if ($explicitSelection) { $planArguments.CheckIds = $CheckIds }
+    foreach ($name in @('ScopeType','ScopeKey')) {
+        if ($PSBoundParameters.ContainsKey($name)) { $planArguments[$name] = $PSBoundParameters[$name] }
+    }
     $plan = Get-WinSecScanConfirmationPlan @planArguments
     $preview = ConvertFrom-Json -InputObject $plan.RequestJson -ErrorAction Stop
     try { $decision = @(& $ConfirmAction $preview) }
@@ -814,8 +874,22 @@ function Invoke-WinSecCoordinatedScan {
         $audit.CatalogVersion -cne $approvedPlan.Registry.CatalogVersion) {
         throw 'Audit result does not match the confirmed check selection.'
     }
+    # Validate catalog section identity as well as the selected CheckIds.
+    # A collector cannot relabel its result while retaining an approved ID.
+    foreach ($record in $audit.ControlResults) {
+        if ($record.Status -ceq 'NOT_SELECTED') { continue }
+        $check = Get-WinSecRegisteredCheck -Registry $approvedPlan.Registry -CheckId $record.CheckId
+        if ($null -eq $check -or $record.SectionKey -cne $check.SectionKey) {
+            throw 'Audit result does not match the confirmed control section.'
+        }
+    }
 
-    $session = ConvertTo-WinSecCoordinatedSession `
+    $scopeArguments = @{}
+    if ($null -ne $approvedPlan.ScopeType) {
+        $scopeArguments.ScopeType = $approvedPlan.ScopeType
+        $scopeArguments.ScopeKey = $approvedPlan.ScopeKey
+    }
+    $session = ConvertTo-WinSecCoordinatedSession @scopeArguments `
         -AuditResult $audit
 
     # The public representation contains no raw Evidence.
