@@ -442,6 +442,18 @@ function Invoke-WinSecNavigationAction {
                         $State.ControlIndex = 0
                     }
                 }
+                'Section' {
+                    if ($ControlCount -gt 0) {
+                        $State = Set-WinSecNavigationScreen -State $State -Screen 'Findings'
+                        $State.FindingsScope = 'Control'
+                    }
+                }
+                'Results' {
+                    if ($ControlCount -gt 0) {
+                        $State = Set-WinSecNavigationScreen -State $State -Screen 'Findings'
+                        $State.FindingsScope = 'Control'
+                    }
+                }
             }
         }
 
@@ -580,12 +592,16 @@ function Invoke-WinSecNavigationAction {
         'Rescan' {
 
             if (
-                $State.Screen -eq 'MainMenu' -and
+                $State.Screen -in @('MainMenu','Section','Results','Findings') -and
                 $State.SelectedDeviceId
             ) {
 
                 $State.PendingCommand = 'Rescan'
-                $State.PendingScope = 'Device'
+                $State.PendingScope = switch ($State.Screen) {
+                    'MainMenu' {'Device'}
+                    'Findings' {$State.FindingsScope}
+                    default {'Section'}
+                }
             }
         }
 

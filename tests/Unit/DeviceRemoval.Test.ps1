@@ -244,6 +244,22 @@ Test-WinSecRemovalCase 'A hash table key named Keys cannot hide inconsistent ses
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
     Assert-WinSecRemoval ((Import-WinSecDeviceInventory $root).targets.Count -eq 2 -and $script:coordinator.Sessions.Count -eq 2)
 }
+Test-WinSecRemovalCase 'Device removal clears only its scoped selections and preserves other devices' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $oldKey=Get-WinSecCLIScopeKey 'local:OLD-FIXTURE' SECTION SystemSecurity
+    $otherKey=Get-WinSecCLIScopeKey 'local:CURRENT-FIXTURE' CONTROL WSA-SYS-001
+    $context|Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue @{$oldKey='scan-1';$otherKey='scan-1'}
+    $null=Invoke-WinSecCLIDeviceRemoval -State $state -Context $context
+    Assert-WinSecRemoval ($context.ActiveScanByScope.Count -eq 1 -and $context.ActiveScanByScope.ContainsKey($otherKey))
+}
+Test-WinSecRemovalCase 'Scope selection changes during deletion confirmation require fresh consent' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $context|Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue @{}
+    $script:scopeChangeContext=$context
+    $script:dialogAction={ $script:scopeChangeContext.ActiveScanByScope['changed']='scan-2';$true }
+    Assert-WinSecRemovalThrows {Invoke-WinSecCLIDeviceRemoval -State $state -Context $context}
+    Assert-WinSecRemoval ((Import-WinSecDeviceInventory $root).targets.Count -eq 2)
+}
 # Exercise the actual dialog against the existing in-memory removal backend.
 function Get-WinSecTerminalSize {[pscustomobject]@{Width=100;ContentWidth=99;Height=40}}
 function Clear-WinSecScreen {}

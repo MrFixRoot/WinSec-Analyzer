@@ -119,7 +119,9 @@ function Test-WinSecKeyboardActionAllowed {
             return (
                 $Screen -in @(
                     'Devices',
-                    'MainMenu'
+                    'MainMenu',
+                    'Section',
+                    'Results'
                 )
             )
         }
@@ -197,7 +199,7 @@ function Test-WinSecKeyboardActionAllowed {
 
             return (
                 [bool]$EnableRescan -and
-                $Screen -eq 'MainMenu'
+                $Screen -in @('MainMenu','Section','Results','Findings')
             )
         }
     }

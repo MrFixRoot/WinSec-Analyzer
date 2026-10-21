@@ -129,6 +129,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Navigate'
                 }
                 @{
+                    Key    = 'ENTER'
+                    Action = 'Open Control'
+                }
+                @{
                     Key    = 'H'
                     Action = 'Findings'
                 }

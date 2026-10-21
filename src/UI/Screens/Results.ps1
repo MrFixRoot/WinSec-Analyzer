@@ -197,7 +197,9 @@ function Show-WinSecResults {
         [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
-        [string]$Version = '0.9.0'
+        [string]$Version = '0.9.0',
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
     )
 
     # --------------------------------------------------------
@@ -320,7 +322,7 @@ function Show-WinSecResults {
         -Text $summary `
         -Color $statusColor
 
-    Write-Host ''
+    if ($layout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define adaptive security controls table
@@ -374,7 +376,7 @@ function Show-WinSecResults {
     $hiddenKeys = @()
 
     if ($controls.Count -eq 0) {
-        $hiddenKeys = @('UP/DOWN', 'H')
+        $hiddenKeys = @('UP/DOWN', 'H', 'ENTER')
     }
 
     # Reserve actual space for heading, device,
@@ -384,7 +386,7 @@ function Show-WinSecResults {
         -Screen 'Section' `
         -BannerRows $layout.BannerRows `
         -HiddenKeys $hiddenKeys `
-        -ReservedRows 12
+        -ReservedRows 13
 
     $maxRows = [Math]::Max(
         1,
@@ -405,6 +407,8 @@ function Show-WinSecResults {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
+    $scanText = if ($EnableRescan) { '[R] {0} Section' -f $ScanAction } else { '[R] {0} Section (unavailable)' -f $ScanAction }
+    Write-WinSecText -Text $scanText -Color Cyan
     Write-WinSecKeyboardHelp `
         -Screen 'Section' `
         -HiddenKeys $hiddenKeys

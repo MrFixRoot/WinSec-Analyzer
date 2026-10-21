@@ -249,6 +249,27 @@ function Get-WinSecCLIActiveAssessment {
         -InputObject $Context `
         -Name 'PublicScans'
 
+    $expectedScope = $null
+    $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
+    if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
+    if ($null -ne $scopeMap -and $scopeMap.Count -gt 0 -and
+        $State.Screen -cin @('Section','Results','Findings')) {
+        $viewScope = Get-WinSecCLIScanScope -State $State
+        $candidates = @($viewScope)
+        if ($viewScope.ScopeType -ceq 'CONTROL') {
+            $candidates += Get-WinSecCLIScanScope -State ([pscustomobject]@{
+                Screen='Section';SectionIndex=$State.SectionIndex})
+        }
+        foreach ($candidate in $candidates) {
+            $scopeKey = Get-WinSecCLIScopeKey $deviceId $candidate.ScopeType $candidate.ScopeKey
+            if ($scopeMap.ContainsKey($scopeKey)) {
+                $activeScanMap = @{ $deviceId = $scopeMap[$scopeKey] }
+                $expectedScope = $candidate
+                break
+            }
+        }
+    }
+
     if (
         $activeScanMap -is [System.Collections.IDictionary] -and
         $activeScanMap.Contains($deviceId)
@@ -295,6 +316,17 @@ function Get-WinSecCLIActiveAssessment {
             . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
         }
         $publicResult = Copy-WinSecResultData -Value $publicResult
+        if ($null -ne $expectedScope -and
+            ($publicResult.ScopeType -isnot [string] -or $publicResult.ScopeKey -isnot [string] -or
+             $publicResult.ScopeType -cne $expectedScope.ScopeType -or $publicResult.ScopeKey -cne $expectedScope.ScopeKey)) {
+            throw 'Public session does not match the selected scope.'
+        }
+        if ($null -eq $expectedScope -and $State.Screen -cin @('MainMenu','Section','Results','Findings') -and
+            ($null -ne $publicResult.ScopeType -or $null -ne $publicResult.ScopeKey) -and
+            ($publicResult.ScopeType -isnot [string] -or $publicResult.ScopeKey -isnot [string] -or
+             $publicResult.ScopeType -cne 'DEVICE' -or $publicResult.ScopeKey -cne 'ALL')) {
+            throw 'A partial session cannot replace the device assessment.'
+        }
 
         # ----------------------------------------------------
         # Validate the public result before rendering
@@ -836,29 +868,32 @@ function Show-WinSecCLICurrentScreen {
 
 
         'Section' {
+            $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
             Show-WinSecResults `
                 -NavigationState $State `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
-                -Version $Context.Version
+                -Version $Context.Version @scanPresentation
         }
 
         'Results' {
+            $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
             Show-WinSecResults `
                 -NavigationState $State `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
-                -Version $Context.Version
+                -Version $Context.Version @scanPresentation
         }
 
         'Findings' {
+            $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
             Show-WinSecFindings `
                 -NavigationState $State `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
                 -Findings $assessment.Findings `
                 -ScanId $assessment.ScanId `
-                -Version $Context.Version
+                -Version $Context.Version @scanPresentation
         }
 
         default {
@@ -975,6 +1010,54 @@ function Get-WinSecCLINavigationCounts {
 # No audit execution
 # ============================================================
 
+function Get-WinSecCLIScanScope {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State)
+    if ($State.Screen -ceq 'MainMenu') {
+        return [pscustomobject]@{ScopeType='DEVICE';ScopeKey='ALL';Label='Local Device'}
+    }
+    if ($State.Screen -cnotin @('Section','Results','Findings')) { throw 'This screen has no scan scope.' }
+    $sections = @(Get-WinSecMainMenuSections)
+    if ($State.SectionIndex -isnot [int] -or $State.SectionIndex -lt 0 -or $State.SectionIndex -ge $sections.Count) {
+        throw 'Invalid scan section selection.'
+    }
+    $section = $sections[$State.SectionIndex]
+    if ($State.Screen -ceq 'Findings' -and $State.FindingsScope -cnotin @('Section','Control')) {
+        throw 'Invalid scan navigation scope.'
+    }
+    if ($State.Screen -ceq 'Findings' -and $State.FindingsScope -ceq 'Control') {
+        $controls = @(Get-WinSecSectionControls -SectionKey $section.Key)
+        if ($State.ControlIndex -isnot [int] -or $State.ControlIndex -lt 0 -or $State.ControlIndex -ge $controls.Count) {
+            throw 'Invalid scan control selection.'
+        }
+        return [pscustomobject]@{ScopeType='CONTROL';ScopeKey=$controls[$State.ControlIndex].CheckId;Label='Control'}
+    }
+    return [pscustomobject]@{ScopeType='SECTION';ScopeKey=$section.Key;Label='Section'}
+}
+
+function Get-WinSecCLIScopeKey {
+    [CmdletBinding()]
+    param([string]$DeviceId,[object]$ScopeType,[object]$ScopeKey)
+    Assert-WinSecResultScope -ScopeType $ScopeType -ScopeKey $ScopeKey
+    return '{0}:{1}{2}:{3}{4}:{5}' -f $DeviceId.Length,$DeviceId,$ScopeType.Length,$ScopeType,$ScopeKey.Length,$ScopeKey
+}
+
+function Get-WinSecCLIScanPresentation {
+    [CmdletBinding()]
+    param([psobject]$State,[psobject]$Context)
+    $scope = Get-WinSecCLIScanScope $State
+    $devices = @(Get-WinSecCLIValue $Context 'Devices' | Where-Object { $null -ne $_ })
+    $enabled = Test-WinSecCLIRescanEligibility -State $State -Devices $devices -Coordinator $Context.ScanCoordinator
+    $action = 'Scan'
+    if ($enabled) {
+        try {
+            $action = Get-WinSecScanAction $Context.ScanCoordinator $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
+        }
+        catch { $enabled = $false }
+    }
+    return @{EnableRescan=[bool]$enabled;ScanAction=$action}
+}
+
 function Test-WinSecCLIRescanEligibility {
     [CmdletBinding()]
     param(
@@ -991,14 +1074,14 @@ function Test-WinSecCLIRescanEligibility {
     )
 
     # --------------------------------------------------------
-    # Require a coordinator and the main menu
+    # Require a coordinator and a supported scan screen
     # --------------------------------------------------------
 
     if ($null -eq $Coordinator) {
         return $false
     }
 
-    if ($State.Screen -cne 'MainMenu') {
+    if ($State.Screen -cnotin @('MainMenu','Section','Results','Findings')) {
         return $false
     }
 
@@ -1013,6 +1096,13 @@ function Test-WinSecCLIRescanEligibility {
     # --------------------------------------------------------
 
     try {
+        $requestedScope = Get-WinSecCLIScanScope -State $State
+        if ($requestedScope.ScopeType -ceq 'CONTROL') {
+            $registry = Get-WinSecCheckRegistry -ProjectRoot $Coordinator.ProjectRoot
+            $check = Get-WinSecRegisteredCheck -Registry $registry -CheckId $requestedScope.ScopeKey
+            if ($null -eq $check -or $check.ExecutionEnabled -cne $true -or $check.ExecutionReady -cne $true -or
+                $check.ImplementationStatus -cne 'VALIDATED' -or $check.RegistryStatus -cne 'READY') { return $false }
+        }
         $localTarget = New-WinSecLocalTarget
 
         if ($null -eq $localTarget) {
@@ -1115,6 +1205,10 @@ function Invoke-WinSecCLILocalRescan {
 
     $coordinator = $Context.ScanCoordinator
     $deviceId = [string]$State.SelectedDeviceId
+    $scope = Get-WinSecCLIScanScope -State $State
+    $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
+    if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
+    if ($null -eq $scopeMap) { $scopeMap = @{} }
 
     if ([string]::IsNullOrWhiteSpace($deviceId)) {
         throw 'No target device selected.'
@@ -1165,12 +1259,23 @@ function Invoke-WinSecCLILocalRescan {
     #
     # PersistEvidence is intentionally NOT supplied.
 
-    $publicResult = Invoke-WinSecCoordinatedScan `
+    $scopeArguments = @{}
+    if ($scope.ScopeType -cne 'DEVICE') {
+        $scopeArguments = @{ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
+    }
+    $publicResult = Invoke-WinSecCoordinatedScan @scopeArguments `
         -Coordinator $coordinator `
         -DeviceId $deviceId `
         -ConfirmAction {
             param($Request)
-            Show-WinSecScanConfirmation -Request $Request
+            $before = Get-WinSecCLIScanScope -State $State
+            if ($State.SelectedDeviceId -cne $deviceId -or $before.ScopeType -cne $scope.ScopeType -or
+                $before.ScopeKey -cne $scope.ScopeKey) { throw 'Scan navigation changed before confirmation.' }
+            $answer = Show-WinSecScanConfirmation -Request $Request
+            $after = Get-WinSecCLIScanScope -State $State
+            if ($State.SelectedDeviceId -cne $deviceId -or $after.ScopeType -cne $scope.ScopeType -or
+                $after.ScopeKey -cne $scope.ScopeKey) { throw 'Scan navigation changed during confirmation.' }
+            return $answer
         } `
         -ErrorAction Stop
 
@@ -1190,6 +1295,15 @@ function Invoke-WinSecCLILocalRescan {
         . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
     }
     $publicResult = Copy-WinSecResultData -Value $publicResult
+    if ($scope.ScopeType -cne 'DEVICE' -or $null -ne $publicResult.ScopeType -or $null -ne $publicResult.ScopeKey) {
+        if ($publicResult.ScopeType -cne $scope.ScopeType -or $publicResult.ScopeKey -cne $scope.ScopeKey) {
+            throw 'Scan result does not match the requested scope.'
+        }
+        $selectedIds = @($publicResult.ControlResults | Where-Object { $_.Status -cne 'NOT_SELECTED' } | ForEach-Object { $_.CheckId })
+        Assert-WinSecResultScope -ScopeType $scope.ScopeType -ScopeKey $scope.ScopeKey `
+            -ExpectedCheckIds $selectedIds -ControlResults $publicResult.ControlResults `
+            -DerivedResults $publicResult.Findings -ExecutionStatus $publicResult.ExecutionStatus
+    }
     $scanId = $publicResult.ScanId
 
     if (
@@ -1243,9 +1357,17 @@ function Invoke-WinSecCLILocalRescan {
     # Prepare the caller's independent response before changing any CLI maps.
     # Copy failure must not leave an assessment partially published.
     $response = Copy-WinSecResultData -Value $publicResult
+    $publicationScopeKey = $null
+    if ($scope.ScopeType -cne 'DEVICE') { $publicationScopeKey = Get-WinSecCLIScopeKey $deviceId $scope.ScopeType $scope.ScopeKey }
     $Context.PublicScans[$sessionKey] = $publicResult
 
-    $Context.ActiveScanByDevice[$deviceId] = $scanId
+    if ($scope.ScopeType -ceq 'DEVICE') {
+        $Context.ActiveScanByDevice[$deviceId] = $scanId
+    }
+    else {
+        $scopeMap[$publicationScopeKey] = $scanId
+        $Context | Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue $scopeMap -Force
+    }
 
     # --------------------------------------------------------
     # Update display-only message
@@ -1264,6 +1386,9 @@ function Invoke-WinSecCLILocalRescan {
         $Context.LastScanMessage = (
             'Scan completed. Security score: NOT_SCORED.'
         )
+        if ($scope.ScopeType -cne 'DEVICE') {
+            $Context.LastScanMessage = '{0} scan completed. Security score: NOT_SCORED.' -f $scope.Label
+        }
     }
 
     # Return only an owned copy of the validated public projection.
@@ -1283,8 +1408,14 @@ function Get-WinSecCLIDeviceRemovalViewStamp {
         if ($pair.Value -isnot [string]) { throw 'Invalid active session metadata.' }
         [pscustomobject]@{DeviceId=[string]$pair.Key; ScanId=$pair.Value}
     })
+    $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
+    if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
+    $scoped=@(if ($null -ne $scopeMap) { foreach ($pair in @($scopeMap.GetEnumerator() | Sort-Object Key)) {
+        if ($pair.Key -isnot [string] -or $pair.Value -isnot [string]) { throw 'Invalid scoped session metadata.' }
+        [pscustomobject]@{Key=$pair.Key;ScanId=$pair.Value}
+    } })
     return (ConvertTo-Json -InputObject ([pscustomobject]@{
-        Screen=[string]$State.Screen; Index=[int]$State.DeviceIndex; Public=$public; Active=$active
+        Screen=[string]$State.Screen; Index=[int]$State.DeviceIndex; Public=$public; Active=$active; Scoped=$scoped
         Devices=@($Context.Devices | ForEach-Object { [string]$_.DeviceId })
     }) -Depth 5 -Compress)
 }
@@ -1340,6 +1471,13 @@ function Invoke-WinSecCLIDeviceRemoval {
     foreach ($key in $publicKeys) { $Context.PublicScans.Remove($key) }
     foreach ($key in @($Context.ActiveScanByDevice.GetEnumerator() | ForEach-Object { $_.Key })) {
         if ([string]::Equals([string]$key,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $Context.ActiveScanByDevice.Remove($key) }
+    }
+    $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
+    if ($null -ne $scopeMap) {
+        $prefix = '{0}:{1}' -f $deviceId.Length,$deviceId
+        foreach ($key in @($scopeMap.Keys)) {
+            if ($key.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { $scopeMap.Remove($key) }
+        }
     }
     foreach ($field in $remainingRecords.Keys) { $Context.$field = @($remainingRecords[$field]) }
     $hasOtherLegacyRecords = $false
@@ -1733,6 +1871,7 @@ function Invoke-WinSecCLI {
         ScanId         = $ScanId
         ScanCoordinator = $scanCoordinator
         ActiveScanByDevice = @{}
+        ActiveScanByScope = @{}
         PublicScans = @{}
         LastScanMessage = ''
         LastDeviceMessage = ''

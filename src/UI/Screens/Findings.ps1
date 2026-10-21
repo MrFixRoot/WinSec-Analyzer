@@ -833,7 +833,9 @@ function Show-WinSecFindings {
 
         [string]$Platform = 'Windows',
 
-        [string]$Version = '0.9.0'
+        [string]$Version = '0.9.0',
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
     )
 
     # --------------------------------------------------------
@@ -854,7 +856,7 @@ function Show-WinSecFindings {
 
     $baseLayout = Get-WinSecLayout `
         -Screen 'Findings' `
-        -ReservedRows 12
+        -ReservedRows 13
 
     Clear-WinSecScreen
 
@@ -918,7 +920,7 @@ function Show-WinSecFindings {
     # The remaining content area belongs to the table.
 
     $reservedRows = (
-        12 + $detailPlan.ReservedRows
+        13 + $detailPlan.ReservedRows
     )
 
     $layout = Get-WinSecLayout `
@@ -1006,7 +1008,7 @@ function Show-WinSecFindings {
             -MaxLines 1
     }
 
-    Write-Host ''
+    if ($baseLayout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define responsive findings table
@@ -1128,5 +1130,9 @@ function Show-WinSecFindings {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
+    $scanScope = if ($assessment.Scope -ceq 'Control') { 'Control' } else { 'Section' }
+    $scanText = '[R] {0} {1}' -f $ScanAction,$scanScope
+    if (-not $EnableRescan) { $scanText += ' (unavailable)' }
+    Write-WinSecText -Text $scanText -Color Cyan
     Write-WinSecKeyboardHelp -Screen 'Findings'
 }
