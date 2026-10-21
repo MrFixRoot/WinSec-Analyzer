@@ -35,6 +35,11 @@ function ConvertFrom-WinSecPublicHistoryRecord {
         $r.CatalogVersion -isnot [string] -or $r.CatalogVersion.Length -gt 128 -or $r.CatalogVersion -match '[\p{C}]' -or
         $r.ExpectedCheckIds -isnot [array] -or $r.PublicResult -isnot [pscustomobject]){throw 'Invalid public history schema.'}
     $p=$r.PublicResult
+    foreach ($finding in @($p.Findings)) {
+        if ($null -ne (Get-WinSecResultField $finding 'Guidance')) {
+            $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
+        }
+    }
     foreach($id in $r.ExpectedCheckIds){if(-not (Test-WinSecTargetIdentifier $id)){throw 'Invalid historical check identifier.'}}
     foreach($field in @('StartedAtUTC','CompletedAtUTC')){
         $value=Get-WinSecResultField $p $field

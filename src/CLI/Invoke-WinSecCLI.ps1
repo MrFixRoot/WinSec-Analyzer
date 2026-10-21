@@ -1030,8 +1030,10 @@ function Get-WinSecCLIFindingsExportSelection {
     return [pscustomobject]@{DeviceId=$view.DeviceId;ScanId=$view.ScanId;SourceScopeType=$assessment.SourceScopeType;
         SourceScopeKey=$assessment.SourceScopeKey;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey;
         CatalogVersion=$assessment.CatalogVersion;Findings=@(foreach($f in $view.Findings){
-            [pscustomobject]@{FindingId=$f.FindingId;CheckId=$f.CheckId;DeviceId=$f.DeviceId;ScanId=$f.ScanId;
+            $exportFinding=[pscustomobject]@{FindingId=$f.FindingId;CheckId=$f.CheckId;DeviceId=$f.DeviceId;ScanId=$f.ScanId;
                 Kind=$f.Kind;EvaluationStatus=$f.EvaluationStatus}
+            if ($null -ne $f.Guidance) {$exportFinding|Add-Member -NotePropertyName Guidance -NotePropertyValue (Copy-WinSecResultData $f.Guidance)}
+            $exportFinding
         })}
 }
 
@@ -1742,6 +1744,8 @@ function Invoke-WinSecCLI {
     if ($null -eq $scanCoordinator) {
         throw 'ScanCoordinator initialization returned null.'
     }
+    # Evaluation is distinct from numeric scoring. Draft criteria stay blocked.
+    $scanCoordinator.AssessmentEnabled = $true
 
     # Production security invariants.
 

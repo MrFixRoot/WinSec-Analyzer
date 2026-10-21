@@ -54,6 +54,10 @@ $script:WinSecCoordinatorDependencies = @(
     'src/Core/AuditEngine.ps1'
     'src/Services/DeviceManagementService.ps1'
     'src/Services/PublicHistoryService.ps1'
+    'src/Services/CriteriaService.ps1'
+    'src/Core/EvaluationEngine.ps1'
+    'src/Core/FindingsEngine.ps1'
+    'src/Services/AssessmentService.ps1'
 )
 
 # Load functions in the current scope so they remain available
@@ -158,7 +162,7 @@ function Assert-WinSecScanCoordinator {
     if ($null -ne $inventoryRequirement -and $inventoryRequirement -isnot [bool]) {
         throw 'Invalid inventory authorization requirement.'
     }
-    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed')){
+    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed','AssessmentEnabled')){
         $value=Get-WinSecTargetField $Coordinator $field
         if($null -ne $value -and $value -isnot [bool]){throw 'Invalid public history coordination flag.'}
     }
@@ -214,6 +218,7 @@ function New-WinSecScanCoordinator {
         Registry = $registry
         RequireDeviceInventory = $false
         PublicHistoryEnabled = $false
+        AssessmentEnabled = $false
         HistoryLoadFailed = $false
 
         CreatedAtUTC = [DateTime]::UtcNow.ToString('o')
@@ -409,7 +414,8 @@ function ConvertTo-WinSecCoordinatedSession {
         [object]$AuditResult,
 
         [AllowNull()][object]$ScopeType = $null,
-        [AllowNull()][object]$ScopeKey = $null
+        [AllowNull()][object]$ScopeKey = $null,
+        [AllowNull()][object]$Assessment = $null
     )
 
     $expectedIds = @(
@@ -420,15 +426,15 @@ function ConvertTo-WinSecCoordinatedSession {
         }
     )
 
-    # IMPORTANT:
-    # AuditEngine currently collects observations.
-    # The EvaluationEngine / FindingsEngine integration
-    # is not yet part of its production pipeline.
-    #
-    # No findings are created from raw check statuses.
-    # No ScoreResult or ScoringPolicy is supplied.
+    # Findings come from the criteria/evaluation pipeline, never raw statuses.
+    # No ScoreResult or ScoringPolicy is supplied: numeric scoring stays disabled.
 
     $scopeArguments = @{}
+    if ($null -ne $Assessment) {
+        $scopeArguments.EvaluationResults = @($Assessment.EvaluationResults)
+        $scopeArguments.CriteriaSelections = @($Assessment.CriteriaSelections)
+        $scopeArguments.Findings = @($Assessment.Findings)
+    }
     if ($PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')) {
         $scopeArguments.ScopeType = $ScopeType
         $scopeArguments.ScopeKey = $ScopeKey
@@ -742,7 +748,9 @@ function Invoke-WinSecCoordinatedScan {
         [AllowNull()][object]$ScopeKey = $null,
 
         [scriptblock]$ProgressCallback,
-        [scriptblock]$CancellationAction
+        [scriptblock]$CancellationAction,
+        [AllowNull()][object]$TargetContext = $null,
+        [AllowNull()][System.Collections.IDictionary]$DependencyEvidence = $null
     )
 
     Assert-WinSecScanCoordinator `
@@ -753,6 +761,8 @@ function Invoke-WinSecCoordinatedScan {
     }
     if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history must be recovered before scanning.' }
     $publicHistoryEnabled=(Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true
+    $assessmentEnabled=(Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true
+    $assessmentInputs = Copy-WinSecResultData ([pscustomobject]@{TargetContext=$TargetContext;DependencyEvidence=$DependencyEvidence})
     if ($PersistEvidence -and $null -eq $ConfirmEvidenceAction) {
         throw 'Raw evidence storage requires separate explicit confirmation.'
     }
@@ -772,6 +782,11 @@ function Invoke-WinSecCoordinatedScan {
     $key = Get-WinSecScanSessionKey `
         -DeviceId $target.DeviceId `
         -ScanId $ScanId
+
+    if ($null -ne $assessmentInputs.TargetContext -and
+        ($assessmentInputs.TargetContext.DeviceId -cne $target.DeviceId -or $assessmentInputs.TargetContext.ScanId -cne $ScanId)) {
+        throw 'Assessment context belongs to another device or scan.'
+    }
 
     if ($Coordinator.Sessions.ContainsKey($key)) {
         throw (
@@ -855,6 +870,15 @@ function Invoke-WinSecCoordinatedScan {
         $Coordinator.Sessions.ContainsKey($key)) {
         throw 'Scan authorization changed after confirmation; confirm a new request.'
     }
+    # Freeze approved-catalog data before collecting. Evaluation never silently
+    # switches to a policy edited while a collector is running.
+    $assessmentCatalogs = @{}
+    if ($assessmentEnabled) {
+        foreach ($checkId in $approvedPlan.CheckIds) {
+            $assessmentCatalogs[$checkId] = Copy-WinSecResultData `
+                (Get-WinSecAssessmentCatalog -ProjectRoot $Coordinator.ProjectRoot -CheckId $checkId)
+        }
+    }
 
     # Preflight evidence storage before running checks.
     # Actual writes only occur when PersistEvidence is set.
@@ -876,7 +900,9 @@ function Invoke-WinSecCoordinatedScan {
     # CriteriaService -> EvaluationEngine -> ScoreEngine path.
 
     if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history became unavailable before collection.' }
+    Assert-WinSecScanCoordinator -Coordinator $Coordinator
     if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during confirmation.'}
+    if(((Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true) -cne $assessmentEnabled){throw 'Assessment mode changed during confirmation.'}
     $executionCallbacks = @{}
     if ($null -ne $ProgressCallback) { $executionCallbacks.ProgressCallback = $ProgressCallback }
     if ($null -ne $CancellationAction) { $executionCallbacks.CancellationAction = $CancellationAction }
@@ -933,6 +959,15 @@ function Invoke-WinSecCoordinatedScan {
         $scopeArguments.ScopeType = $approvedPlan.ScopeType
         $scopeArguments.ScopeKey = $approvedPlan.ScopeKey
     }
+    Assert-WinSecScanCoordinator -Coordinator $Coordinator
+    if (((Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true) -cne $assessmentEnabled) {
+        throw 'Assessment mode changed during collection.'
+    }
+    if ($assessmentEnabled) {
+        $scopeArguments.Assessment = Invoke-WinSecScanAssessment -AuditResult $audit -ProjectRoot $Coordinator.ProjectRoot `
+            -TargetContext $assessmentInputs.TargetContext -DependencyEvidence $assessmentInputs.DependencyEvidence `
+            -CatalogSnapshots $assessmentCatalogs
+    }
     $session = ConvertTo-WinSecCoordinatedSession @scopeArguments `
         -AuditResult $audit
 
@@ -969,8 +1004,10 @@ function Invoke-WinSecCoordinatedScan {
         RegisteredAtUTC = [DateTime]::UtcNow.ToString('o')
     }
 
+    Assert-WinSecScanCoordinator -Coordinator $Coordinator
     if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history is unavailable.' }
     if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during collection.'}
+    if(((Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true) -cne $assessmentEnabled){throw 'Assessment mode changed during validation.'}
     if ($publicHistoryEnabled -and
         $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')) {
         $null=Save-WinSecPublicHistory -ProjectRoot $Coordinator.ProjectRoot -Session $session

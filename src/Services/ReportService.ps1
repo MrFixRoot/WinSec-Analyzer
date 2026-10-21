@@ -34,7 +34,7 @@ function New-WinSecFindingsMarkdown {
     foreach ($finding in $copy.Findings) {
         if ($finding -isnot [pscustomobject]) { throw 'Invalid public finding.' }
         foreach ($p in $finding.PSObject.Properties) {
-            if ($p.Name -cnotin @('FindingId','CheckId','DeviceId','ScanId','Kind','EvaluationStatus')) { throw 'Unsafe finding field.' }
+            if ($p.Name -cnotin @('FindingId','CheckId','DeviceId','ScanId','Kind','EvaluationStatus','Guidance')) { throw 'Unsafe finding field.' }
         }
         if ($finding.DeviceId -cne $copy.DeviceId -or $finding.ScanId -cne $copy.ScanId -or
             -not (Test-WinSecTargetIdentifier $finding.FindingId) -or $seen.ContainsKey($finding.FindingId) -or
@@ -54,6 +54,9 @@ function New-WinSecFindingsMarkdown {
             throw 'Finding outside report scope.'
         }
         $seen[$finding.FindingId] = $true
+        if ($null -ne $finding.Guidance) {
+            $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
+        }
     }
     # Cargar los cuatro catálogos estrictamente, sin interpretar borradores como aprobación.
     $frameworks = @()
@@ -78,7 +81,10 @@ function New-WinSecFindingsMarkdown {
         ('Exported selection: ' + $copy.ScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.ScopeKey)),
         ('Check catalog: ' + (ConvertTo-WinSecMarkdownText $copy.CatalogVersion)),
         ('Exported at UTC: ' + [DateTime]::UtcNow.ToString('o')),
-        'Score: NOT_SCORED','Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.','',
+        'Score: NOT_SCORED',
+        $(if (@($copy.Findings|Where-Object {$null -ne $_.Guidance}).Count -gt 0) {
+            'Criteria: original verified criterion snapshots are recorded per finding.'
+        } else {'Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
         'Public results only. Framework references provide context; they do not certify compliance.',
         'A partial selection does not replace a complete assessment.','', '## Configured frameworks','')) { $lines.Add($line) }
     for ($i=0; $i -lt $frameworks.Count; $i++) {
@@ -100,7 +106,23 @@ function New-WinSecFindingsMarkdown {
                 (ConvertTo-WinSecMarkdownText $ref.FrameworkName),(ConvertTo-WinSecMarkdownText $ref.FrameworkVersion),
                 (ConvertTo-WinSecMarkdownText $ref.ReferenceId),(ConvertTo-WinSecMarkdownText $ref.Title)))
         }
-        $lines.Add(''); $lines.Add('Manual recommendations: PENDING_APPROVED_CRITERIA. No framework-specific remediation has been approved for export.')
+        $lines.Add('')
+        if ($null -ne $finding.Guidance) {
+            $g=$finding.Guidance
+            $lines.Add('### Original criterion and manual recommendation')
+            foreach ($entry in @(
+                ('Criterion: ' + $g.CriterionId + ' / ' + $g.CriterionTitle),
+                ('Criteria catalog: ' + $g.CatalogId + '; version: ' + $g.CatalogVersion + '; SHA256: ' + $g.CatalogSha256),
+                ('Applicability: ' + $g.OSFamily + ' / ' + $g.OSRelease + ' / ' + $g.Edition + ' / ' + $g.Profile),
+                ('Verified at UTC: ' + $g.VerifiedAtUTC),
+                ('Source: ' + $g.Framework + '; version: ' + $g.FrameworkVersion + '; control: ' + $g.ReferenceId),
+                ('Reference: ' + $g.ReferenceTitle + ' / ' + $g.ReferenceUrl),
+                ('Manual recommendation: ' + $g.Recommendation)
+            )) { $lines.Add((ConvertTo-WinSecMarkdownText $entry)) }
+            $lines.Add('Original recommendation retained from the scan; configured framework context above is resolved at export time.')
+        } else {
+            $lines.Add('Manual recommendations: PENDING_APPROVED_CRITERIA. No framework-specific remediation has been approved for export.')
+        }
     }
     return [pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;Markdown=($lines -join "`n") + "`n"}
 }

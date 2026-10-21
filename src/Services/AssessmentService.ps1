@@ -1,0 +1,102 @@
+# Read-only evaluation orchestration. Catalogs are data; no scripts/remediation.
+function Get-WinSecAssessmentCatalog {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$CheckId)
+    if ($CheckId -cne 'WSA-SYS-001') { return $null }
+    $path = Join-Path $ProjectRoot 'config/criteria/defender.json'
+    Assert-WinSecDeviceRemovalPath -ProjectRoot $ProjectRoot -Path $path
+    $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+    if ($file.PSIsContainer -or $file.Length -gt 1048576) { throw 'Invalid assessment catalog file.' }
+    $before = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash
+    $catalog = ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop)
+    foreach ($criterion in @($catalog.Criteria)) {
+        $reviewed = Get-WinSecCriteriaField (Get-WinSecCriteriaField $criterion 'Verification') 'ReviewedAtUTC'
+        if ($reviewed -is [datetime] -and $reviewed.Kind -eq [DateTimeKind]::Utc) {
+            $criterion.Verification.ReviewedAtUTC = $reviewed.ToString('o')
+        }
+    }
+    if ($before -cne (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash -or
+        $catalog.CheckId -cne $CheckId -or -not (Test-WinSecCriteriaCatalog $catalog).Valid) {
+        throw 'Invalid or changed assessment catalog.'
+    }
+    [pscustomobject]@{Catalog=$catalog;Sha256=$before}
+}
+
+function Invoke-WinSecScanAssessment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$AuditResult,
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [AllowNull()][object]$TargetContext = $null,
+        [AllowNull()][System.Collections.IDictionary]$DependencyEvidence = $null,
+        [AllowNull()][System.Collections.IDictionary]$CatalogSnapshots = $null
+    )
+    $evaluations = New-Object 'System.Collections.Generic.List[object]'
+    $selections = New-Object 'System.Collections.Generic.List[object]'
+    $findings = New-Object 'System.Collections.Generic.List[object]'
+    if ($null -eq $TargetContext) {
+        # Do not guess Windows release, edition, profile or prerequisites from a hostname.
+        $TargetContext = [pscustomobject]@{DeviceId=$AuditResult.DeviceId;ScanId=$AuditResult.ScanId;
+            OSFamily='Windows';OSRelease='UNRESOLVED';Edition='UNRESOLVED';Profile='UNRESOLVED'}
+    }
+    $context = Copy-WinSecResultData $TargetContext
+    if ($context.DeviceId -cne $AuditResult.DeviceId -or $context.ScanId -cne $AuditResult.ScanId) {
+        throw 'Assessment context belongs to another device or scan.'
+    }
+    foreach ($inputControl in $AuditResult.ControlResults) {
+        if ($inputControl.Status -ceq 'NOT_SELECTED') { continue }
+        $control = Copy-WinSecResultData $inputControl
+        if ($control.DeviceId -cne $AuditResult.DeviceId -or $control.ScanId -cne $AuditResult.ScanId) {
+            throw 'Foreign control in assessment input.'
+        }
+        # AuditEngine retains a technical ERROR in ObservedStatus even when unscored.
+        if ($control.ObservedStatus -ceq 'ERROR') { $control.Status = 'ERROR' }
+        $snapshot = if ($null -ne $CatalogSnapshots) {
+            if (-not $CatalogSnapshots.Contains($control.CheckId)) { throw 'Assessment catalog was not prepared for this control.' }
+            Copy-WinSecResultData $CatalogSnapshots[$control.CheckId]
+        } else { Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $control.CheckId }
+        $selection = $null
+        $criteria = @()
+        if ($null -ne $snapshot) {
+            $dependencies = $null
+            if ($null -ne $DependencyEvidence -and $DependencyEvidence.Contains($control.CheckId)) {
+                $dependencies = $DependencyEvidence[$control.CheckId]
+                if ($dependencies -isnot [System.Collections.IDictionary]) { throw 'Invalid assessment prerequisites.' }
+            }
+            $selection = Get-WinSecApplicableCriteria -Catalog $snapshot.Catalog -TargetContext $context `
+                -ControlResult $control -ProjectRoot $ProjectRoot -DependencyEvidence $dependencies -ForEvaluation
+            $selection|Add-Member -NotePropertyName CatalogVersion -NotePropertyValue $snapshot.Catalog.CatalogVersion
+            $selection|Add-Member -NotePropertyName CatalogSha256 -NotePropertyValue $snapshot.Sha256
+            $selections.Add($selection)
+            if ($selection.Status -ceq 'READY') { $criteria = @($selection.EligibleCriteria) }
+        }
+        $evaluation = Invoke-WinSecControlEvaluation -ControlResult $control -Criteria $criteria -TargetContext $context
+        $generated = ConvertTo-WinSecFindings -EvaluationResult $evaluation -ControlResult $control -SelectionResult $selection
+        if ($generated.Status -ceq 'INVALID_INPUT') { throw 'Assessment findings validation failed.' }
+        $evaluations.Add($evaluation)
+        foreach ($finding in $generated.Findings) {
+            if ($finding.Kind -ceq 'CONFIGURATION_DEVIATION') {
+                $criterion = @($criteria|Where-Object {$_.CriterionId -ceq $finding.CriterionId})
+                if ($criterion.Count -ne 1 -or -not (Test-WinSecCriteriaApprovalReady $criterion[0])) {
+                    throw 'A deviation has no verified applicable criterion.'
+                }
+                $rule = $criterion[0]
+                $guidance = [pscustomobject]@{
+                    SchemaVersion='1.0.0';CheckId=$control.CheckId;CatalogId=$snapshot.Catalog.CatalogId
+                    CatalogVersion=$snapshot.Catalog.CatalogVersion;CatalogSha256=$snapshot.Sha256
+                    CriterionId=$rule.CriterionId;CriterionTitle=$rule.Name;Recommendation=$rule.Recommendation
+                    Framework=$rule.Source.Framework;FrameworkVersion=$rule.Source.Version
+                    ReferenceId=$rule.Source.ControlId;ReferenceTitle=$rule.Source.Title;ReferenceUrl=$rule.Source.Url
+                    VerifiedAtUTC=([DateTimeOffset]::Parse($rule.Verification.ReviewedAtUTC)).UtcDateTime.ToString('o')
+                    OSFamily=$rule.Applicability.OSFamily;OSRelease=$rule.Applicability.OSRelease
+                    Edition=$rule.Applicability.Edition;Profile=$rule.Applicability.Profile
+                }
+                $finding|Add-Member -NotePropertyName Guidance -NotePropertyValue `
+                    (ConvertTo-WinSecPublicFindingGuidance $finding $guidance)
+            }
+            $findings.Add($finding)
+        }
+    }
+    [pscustomobject]@{EvaluationResults=@($evaluations.ToArray());CriteriaSelections=@($selections.ToArray());
+        Findings=@($findings.ToArray())}
+}

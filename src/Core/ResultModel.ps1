@@ -135,6 +135,9 @@ function Assert-WinSecResultItems {
         if ($RequireKnownCheck -and -not $known.Contains([string]$recordCheck)) {
             throw "$Kind references an unknown CheckId: $recordCheck"
         }
+        if ($Kind -ceq 'Findings' -and $null -ne (Get-WinSecResultField $item 'Guidance')) {
+            $null = ConvertTo-WinSecPublicFindingGuidance -Finding $item -Guidance (Get-WinSecResultField $item 'Guidance')
+        }
 
         if ($RequireUnique) {
             $identity = Get-WinSecResultField $item $IdentityField
@@ -296,6 +299,83 @@ function Copy-WinSecResultData {
     }
     try { return ,(& $copyNode -Node $Value -Depth 0) }
     catch { throw 'Unable to create an isolated result snapshot.' }
+}
+
+function ConvertTo-WinSecPublicFindingGuidance {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Finding, [Parameter(Mandatory)][object]$Guidance)
+    $copy = Copy-WinSecResultData $Guidance
+    $fields = @('SchemaVersion','CheckId','CatalogId','CatalogVersion','CatalogSha256','CriterionId','CriterionTitle',
+        'Recommendation','Framework','FrameworkVersion','ReferenceId','ReferenceTitle','ReferenceUrl',
+        'VerifiedAtUTC','OSFamily','OSRelease','Edition','Profile')
+    if ($copy -isnot [pscustomobject] -or @($copy.PSObject.Properties).Count -ne $fields.Count -or
+        @($copy.PSObject.Properties|Where-Object {$_.Name -cnotin $fields}).Count -gt 0 -or
+        $Finding.Kind -cne 'CONFIGURATION_DEVIATION' -or $Finding.EvaluationStatus -cne 'FAIL' -or
+        $copy.SchemaVersion -cne '1.0.0' -or $copy.CheckId -cne $Finding.CheckId) {
+        throw 'Invalid public finding guidance contract.'
+    }
+    if ($copy.VerifiedAtUTC -is [datetime] -and $copy.VerifiedAtUTC.Kind -eq [DateTimeKind]::Utc) {
+        $copy.VerifiedAtUTC = $copy.VerifiedAtUTC.ToString('o')
+    }
+    foreach ($field in $fields) {
+        $limit = if ($field -ceq 'Recommendation') {4096} elseif ($field -ceq 'ReferenceUrl') {1024} else {256}
+        $value = $copy.$field
+        if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value) -or $value.Length -gt $limit -or
+            $value -match '[\x00-\x1f\x7f]') { throw 'Invalid public guidance field.' }
+    }
+    if ($copy.Framework -cnotin @('LOCAL_POLICY','CIS Benchmarks') -or $copy.OSFamily -cne 'Windows' -or
+        $copy.CatalogSha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
+        $copy.CriterionId -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z' -or
+        $copy.ReferenceId -ceq 'NOT_ASSIGNED' -or
+        @('OSRelease','Edition','Profile'|Where-Object {$copy.$_ -cin @('*','PENDING_SELECTION','UNRESOLVED')}).Count -gt 0) {
+        throw 'Unverified public guidance metadata.'
+    }
+    $date = ConvertTo-WinSecResultUtc $copy.VerifiedAtUTC 'VerifiedAtUTC'
+    if ($date -gt [DateTimeOffset]::UtcNow) { throw 'Future guidance verification date.' }
+    $copy.VerifiedAtUTC = $date.UtcDateTime.ToString('o')
+    $uri = $null
+    if (-not [Uri]::TryCreate($copy.ReferenceUrl,[UriKind]::Absolute,[ref]$uri) -or
+        $uri.Scheme -cne 'https' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment) {
+        throw 'Unsafe public guidance URL.'
+    }
+    return $copy
+}
+
+function Assert-WinSecFindingGuidanceProvenance {
+    [CmdletBinding()]
+    param([object]$Session,[object]$Finding,[object]$Guidance)
+    # Restored public sessions have no raw evaluations: retain their validated
+    # original snapshot, without claiming to re-evaluate or authenticate it.
+    if ($Session.EvaluationResults.Count -eq 0 -and $Session.CriteriaSelections.Count -eq 0) { return }
+    $selection=@($Session.CriteriaSelections|Where-Object {$_.CheckId -ceq $Finding.CheckId})
+    $evaluation=@($Session.EvaluationResults|Where-Object {$_.CheckId -ceq $Finding.CheckId})
+    $control=@($Session.ControlResults|Where-Object {$_.CheckId -ceq $Finding.CheckId})
+    if ($selection.Count -ne 1 -or $evaluation.Count -ne 1 -or $control.Count -ne 1 -or
+        $selection[0].Status -cne 'READY' -or
+        (($selection[0].ScoringEligible -isnot [bool] -or $selection[0].ScoringEligible -cne $true) -and
+         ($selection[0].EvaluationEligible -isnot [bool] -or $selection[0].EvaluationEligible -cne $true)) -or
+        $selection[0].CatalogId -cne $Guidance.CatalogId -or $selection[0].CatalogVersion -cne $Guidance.CatalogVersion -or
+        $selection[0].CatalogSha256 -cne $Guidance.CatalogSha256 -or $control[0].ObservedStatus -ceq 'ERROR') {
+        throw 'Guidance does not match its original selection and collection.'
+    }
+    $rule=@($selection[0].EligibleCriteria|Where-Object {$_.CriterionId -ceq $Guidance.CriterionId})
+    $item=@($evaluation[0].Evaluations|Where-Object {$_.CriterionId -ceq $Guidance.CriterionId})
+    if ($rule.Count -ne 1 -or $item.Count -ne 1 -or $item[0].Status -cne 'FAIL' -or
+        $Finding.CriterionId -cne $Guidance.CriterionId -or
+        $rule[0].Name -cne $Guidance.CriterionTitle -or $rule[0].Recommendation -cne $Guidance.Recommendation -or
+        $rule[0].Source.Framework -cne $Guidance.Framework -or $rule[0].Source.Version -cne $Guidance.FrameworkVersion -or
+        $rule[0].Source.ControlId -cne $Guidance.ReferenceId -or $rule[0].Source.Title -cne $Guidance.ReferenceTitle -or
+        $rule[0].Source.Url -cne $Guidance.ReferenceUrl) { throw 'Guidance source differs from the selected criterion.' }
+    if (([DateTimeOffset]::Parse($rule[0].Verification.ReviewedAtUTC)).UtcDateTime.ToString('o') -cne $Guidance.VerifiedAtUTC) {
+        throw 'Guidance verification date differs from the selected criterion.'
+    }
+    $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily=$Guidance.OSFamily;
+        OSRelease=$Guidance.OSRelease;Edition=$Guidance.Edition;Profile=$Guidance.Profile}
+    $verified=Invoke-WinSecCriterionEvaluation -Criterion $rule[0] -Evidence $control[0].Evidence -TargetContext $context `
+        -CheckId $Finding.CheckId -DeviceId $Session.DeviceId -ScanId $Session.ScanId
+    if ($verified.Status -cne 'FAIL' -or $verified.ScoringEligible -cne $true) {
+        throw 'Guidance deviation cannot be independently reproduced.'
+    }
 }
 
 function New-WinSecResultSession {
@@ -712,7 +792,7 @@ function ConvertTo-WinSecPublicScanResult {
     )
     $findings = @(
         foreach ($item in $Session.Findings) {
-            [pscustomobject]@{
+            $safeFinding = [pscustomobject]@{
                 FindingId = $item.FindingId
                 CheckId = $item.CheckId
                 DeviceId = $Session.DeviceId
@@ -724,6 +804,13 @@ function ConvertTo-WinSecPublicScanResult {
                 Severity = 'UNASSIGNED'
                 Priority = 'UNASSIGNED'
             }
+            if ($null -ne (Get-WinSecResultField $item 'Guidance')) {
+                $guidance=ConvertTo-WinSecPublicFindingGuidance -Finding $item -Guidance $item.Guidance
+                Assert-WinSecFindingGuidanceProvenance -Session $Session -Finding $item -Guidance $guidance
+                $safeFinding | Add-Member -NotePropertyName Guidance -NotePropertyValue `
+                    $guidance
+            }
+            $safeFinding
         }
     )
     $safeSections = @(

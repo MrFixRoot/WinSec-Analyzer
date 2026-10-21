@@ -432,13 +432,24 @@ function Get-WinSecSelectedFindings {
         if ([string]::IsNullOrWhiteSpace($description)) {
             $description = 'Check: {0} | Kind: {1} | Evaluation: {2}' -f $definition.CheckId,$kind,$evaluation
         }
-        $checked.Add([pscustomobject]@{
+        $guidance = $null
+        if ($null -ne $finding.Guidance) {
+            $guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
+            $title = $guidance.CriterionTitle
+            $description = 'Criterion: {0} | Policy: {1} / {2} | Evaluation: {3}' -f `
+                $guidance.CriterionId,$guidance.CatalogId,$guidance.CatalogVersion,$evaluation
+        }
+        $row = [pscustomobject]@{
             Id=$id; FindingId=$id; Finding=$title; Description=$description
             Kind=$kind; EvaluationStatus=$evaluation; Severity='UNASSIGNED'; Priority='UNASSIGNED'
-            Evidence=''; Recommendation=$finding.Recommendation; Reference=''; FrameworkReferences=@()
+            Evidence=''; Recommendation=if ($null -ne $guidance) {$guidance.Recommendation} else {$finding.Recommendation}
+            Reference=if ($null -ne $guidance) {'{0} {1} / {2}: {3}' -f $guidance.Framework,$guidance.FrameworkVersion,$guidance.ReferenceId,$guidance.ReferenceUrl} else {''}
+            FrameworkReferences=@()
             CheckId=$definition.CheckId; ControlKey=$definition.ControlKey; SectionKey=$definition.SectionKey
             DeviceId=$finding.DeviceId; ScanId=$finding.ScanId; Visible=$definition.Visible
-        })
+        }
+        if ($null -ne $guidance) { $row|Add-Member -NotePropertyName Guidance -NotePropertyValue $guidance }
+        $checked.Add($row)
     }
 
     if (-not $ScanId) {

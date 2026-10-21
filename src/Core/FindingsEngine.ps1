@@ -344,8 +344,12 @@ function ConvertTo-WinSecFindings {
     if ($null -ne $SelectionResult) {
         $selectionReady = (
             (Get-WinSecFindingProperty $SelectionResult 'Status') -ceq 'READY' -and
-            (Get-WinSecFindingProperty $SelectionResult 'ScoringEligible') -is [bool] -and
-            (Get-WinSecFindingProperty $SelectionResult 'ScoringEligible') -eq $true
+            (
+                ((Get-WinSecFindingProperty $SelectionResult 'ScoringEligible') -is [bool] -and
+                 (Get-WinSecFindingProperty $SelectionResult 'ScoringEligible') -ceq $true) -or
+                ((Get-WinSecFindingProperty $SelectionResult 'EvaluationEligible') -is [bool] -and
+                 (Get-WinSecFindingProperty $SelectionResult 'EvaluationEligible') -ceq $true)
+            )
         )
 
         if ($selectionReady) {
