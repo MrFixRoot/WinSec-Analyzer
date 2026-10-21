@@ -28,8 +28,6 @@
                          mrRoot
 ```
 
-> **Development status:** This README is a proposed revision of the existing public `README.md`, not a claim that the planned features below have all shipped. Review against the checked-out repository before replacing the existing README.
-
 ## Overview
 
 WinSec Analyzer is a Windows command-line security assessment project written primarily in PowerShell. Its purpose is to **inspect local security configuration**, organize findings by security domain, and eventually produce reports with context from recognized security frameworks.
