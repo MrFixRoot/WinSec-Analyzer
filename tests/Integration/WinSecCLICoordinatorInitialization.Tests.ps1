@@ -192,7 +192,7 @@ Assert-WinSecIntegration `
 # TEST 9: Current local device exists
 # ------------------------------------------------------------
 
-$expectedLocalId = "local:$env:COMPUTERNAME"
+$expectedLocalId = (New-WinSecLocalTarget).DeviceId
 
 $localDevices = @(
     $devices | Where-Object {

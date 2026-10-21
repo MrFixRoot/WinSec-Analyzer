@@ -65,6 +65,13 @@ foreach ($path in @(
 . $script:ScoreEnginePath
 . $script:AuditEnginePath
 
+# Hardware identity is synthetic; never query the computer running the suite.
+function Get-CimInstance {
+    [CmdletBinding()]
+    param($Namespace, $ClassName, $Property, $OperationTimeoutSec)
+    return [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
+
 # ------------------------------------------------------------
 # Test state
 # ------------------------------------------------------------
@@ -1054,6 +1061,10 @@ try {
 
 . '$escapedPath'
 
+function Get-CimInstance {
+    [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
+
 `$audit = Invoke-WinSecAudit -SkipScoring
 
 if (`$audit.ExecutionStatus -ne 'NO_EXECUTABLE_CHECKS') {
@@ -1093,6 +1104,16 @@ finally {
             -PathType Container
     ) {
         try {
+            $cleanupPath = [IO.Path]::GetFullPath($script:FixtureRoot)
+            $cleanupBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
+            if ([IO.Path]::GetDirectoryName($cleanupPath) -cne $cleanupBase -or
+                [IO.Path]::GetFileName($cleanupPath) -cnotmatch '^WinSec-AuditTests-[a-f0-9]{32}$') {
+                throw 'Unsafe audit fixture cleanup path.'
+            }
+            $cleanupItems = @((Get-Item -LiteralPath $cleanupPath -Force)) + @(Get-ChildItem -LiteralPath $cleanupPath -Recurse -Force)
+            foreach ($item in $cleanupItems) {
+                if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsafe audit fixture link.' }
+            }
             Remove-Item `
                 -LiteralPath $script:FixtureRoot `
                 -Recurse `
@@ -1100,12 +1121,10 @@ finally {
                 -ErrorAction Stop
         }
         catch {
-            Write-Warning (
-                'Could not delete temporary test files: {0}' -f `
-                    $_.Exception.Message
-            )
+            throw 'Could not safely delete temporary audit test files.'
         }
     }
+    if ([IO.Directory]::Exists($script:FixtureRoot)) { throw 'Audit fixture cleanup failed.' }
 }
 
 # ============================================================

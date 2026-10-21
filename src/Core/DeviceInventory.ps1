@@ -112,7 +112,7 @@ function Get-WinSecDeviceInventoryPath {
 # LOAD AND VALIDATE PERSISTENT INVENTORY
 # ============================================================
 
-function ConvertFrom-WinSecDeviceInventoryJson {
+function ConvertFrom-WinSecStoredJson {
     [CmdletBinding()]
     param(
         [AllowNull()]
@@ -175,6 +175,7 @@ function ConvertFrom-WinSecDeviceInventoryJson {
         elseif ($token.StartsWith('"') -and $index + 1 -lt $tokens.Count -and
             $tokens[$index + 1].Value -ceq ':') {
             $key = (ConvertFrom-Json -InputObject ('{"Key":' + $token + '}') -ErrorAction Stop).Key
+            if ($key -iin @('PSObject','psbase')) { throw 'Reserved stored JSON property.' }
             if ($containers.Count -eq 0 -or $containers.Peek().Kind -cne 'OBJECT' -or
                 -not $containers.Peek().Keys.Add([string]$key)) {
                 throw 'Duplicate inventory JSON property.'
@@ -185,12 +186,32 @@ function ConvertFrom-WinSecDeviceInventoryJson {
     if ([regex]::IsMatch($text.Substring($consumed), '[^ \t\r\n]')) {
         throw 'Invalid device inventory JSON.'
     }
+    return $registry
+}
+
+function ConvertFrom-WinSecDeviceInventoryJson {
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyString()][object]$Json)
+    $registry = ConvertFrom-WinSecStoredJson -Json $Json
     $rootNames = @($registry.PSObject.Properties.Name)
-    if ($registry -isnot [pscustomobject] -or $rootNames.Count -ne 2 -or
+    if ($registry -isnot [pscustomobject] -or
         $rootNames -cnotcontains 'schemaVersion' -or $rootNames -cnotcontains 'targets' -or
-        $registry.schemaVersion -isnot [string] -or $registry.schemaVersion -cne '1.0.0' -or
+        $registry.schemaVersion -isnot [string] -or $registry.schemaVersion -cnotin @('1.0.0','1.1.0') -or
         $registry.targets -isnot [array]) {
         throw 'Invalid device inventory schema.'
+    }
+    if ($registry.schemaVersion -ceq '1.0.0') {
+        if ($rootNames.Count -ne 2) { throw 'Invalid device inventory schema.' }
+    }
+    else {
+        if ($rootNames.Count -ne 3 -or $rootNames -cnotcontains 'removedDeviceHashes' -or
+            $registry.removedDeviceHashes -isnot [array]) { throw 'Invalid inventory removal metadata.' }
+        $seenHashes = New-Object 'System.Collections.Generic.HashSet[string]'
+        foreach ($hash in $registry.removedDeviceHashes) {
+            if ($hash -isnot [string] -or $hash -cnotmatch '^[a-f0-9]{64}$' -or -not $seenHashes.Add($hash)) {
+                throw 'Invalid inventory removal metadata.'
+            }
+        }
     }
     foreach ($target in $registry.targets) {
         if ($target -isnot [pscustomobject]) { throw 'Invalid inventory device record.' }
@@ -226,12 +247,39 @@ function ConvertFrom-WinSecDeviceInventoryJson {
             else { throw 'Invalid inventory UTC timestamp.' }
         }
     }
-    $validation = Test-WinSecTargetRegistry -Registry $registry
+    $validation = Test-WinSecTargetRegistry -Registry ([pscustomobject]@{schemaVersion='1.0.0'; targets=$registry.targets})
     if (-not $validation.Valid) {
         # Do not include values embedded in TargetRegistry diagnostics.
         throw 'Invalid device inventory identities or metadata.'
     }
+    if ($registry.schemaVersion -ceq '1.1.0') {
+        foreach ($target in $registry.targets) {
+            if ($registry.removedDeviceHashes -ccontains (Get-WinSecDeviceInventoryIdentityHash $target.DeviceId)) {
+                throw 'Device is both registered and removed.'
+            }
+        }
+    }
     return $registry
+}
+
+function Get-WinSecDeviceInventoryIdentityHash {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$DeviceId)
+    if (-not (Test-WinSecTargetIdentifier $DeviceId)) { throw 'Invalid device identity.' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($DeviceId.ToUpperInvariant()))).Replace('-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+}
+
+function Test-WinSecDeviceInventoryRemoval {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Inventory, [Parameter(Mandatory)][string]$DeviceId)
+    if ($Inventory.schemaVersion -ceq '1.1.0') {
+        return ($Inventory.removedDeviceHashes -ccontains (Get-WinSecDeviceInventoryIdentityHash $DeviceId))
+    }
+    return $false
 }
 
 function Import-WinSecDeviceInventory {
@@ -333,6 +381,12 @@ function Open-WinSecDeviceInventoryStore {
     return [pscustomobject]@{ ProjectRoot = $ProjectRoot; Path = $path; Lock = $lease }
 }
 
+function Invoke-WinSecDeviceInventoryReplace {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination)
+    [System.IO.File]::Replace($Source, $Destination, [System.Management.Automation.Language.NullString]::Value)
+}
+
 function Save-WinSecDeviceInventory {
     [CmdletBinding()]
     param(
@@ -383,8 +437,29 @@ function Save-WinSecDeviceInventory {
             [System.IO.File]::Move($temporaryPath, $path)
         }
         else {
-            # A plain $null becomes an empty string in a .NET string argument.
-            [System.IO.File]::Replace($temporaryPath, $path, [System.Management.Automation.Language.NullString]::Value)
+            # A transient sharing lock/1175 retains both original filenames.
+            # Retry only that known state, revalidating both files each time.
+            for ($attempt=0; ; $attempt++) {
+                if ((Get-WinSecDeviceInventoryPath -ProjectRoot $Store.ProjectRoot) -cne $path -or
+                    (Get-WinSecDeviceInventoryFingerprint -ProjectRoot $Store.ProjectRoot) -cne $ExpectedFingerprint) {
+                    throw 'Inventory changed before atomic replacement.'
+                }
+                $temporaryFile=Get-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+                if ($temporaryFile.PSIsContainer -or
+                    ($temporaryFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash -cne $expectedHash) {
+                    throw 'Temporary inventory changed before atomic replacement.'
+                }
+                try {
+                    $null=Invoke-WinSecDeviceInventoryReplace -Source $temporaryPath -Destination $path
+                    break
+                }
+                catch {
+                    $code=$_.Exception.GetBaseException().HResult -band 65535
+                    if ($attempt -ge 4 -or $code -notin @(32,33,1175)) { throw }
+                    [Threading.Thread]::Sleep(50*($attempt+1))
+                }
+            }
         }
         if ((Get-WinSecDeviceInventoryFingerprint -ProjectRoot $Store.ProjectRoot) -cne $expectedHash) {
             throw 'Saved inventory verification failed.'
@@ -413,8 +488,13 @@ function Get-WinSecDeviceInventoryRegistration {
 
     foreach ($target in $Inventory.targets) {
         if ([string]::Equals($target.DeviceId, $LocalDevice.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
-            if ($target.Mode -cne 'LOCAL' -or
-                -not [string]::Equals($target.Hostname, $LocalDevice.Hostname, [System.StringComparison]::OrdinalIgnoreCase)) {
+            if ($target.Mode -cne 'LOCAL') {
+                throw 'Conflicting local device registration.'
+            }
+            if (-not [string]::Equals($target.Hostname, $LocalDevice.Hostname, [System.StringComparison]::OrdinalIgnoreCase)) {
+                # A verified hardware identity survives a Windows rename/reinstall.
+                # Legacy hostname identities cannot establish that relationship.
+                if ($target.DeviceId -match '^local:hw1-[a-f0-9]{64}$') { return $null }
                 throw 'Conflicting local device registration.'
             }
             return [pscustomobject]@{
@@ -507,14 +587,38 @@ function Register-WinSecLocalDevice {
                 [DateTime]::UtcNow.ToString('o')
             )
         }
+        # Do not turn a saved disablement into permission during the one-time
+        # transition from hostname IDs. Keep legacy records and sessions separate.
+        $legacyDisabled = @($inventory.targets | Where-Object {
+            $_.Mode -ceq 'LOCAL' -and $_.Enabled -ceq $false -and
+            $_.DeviceId -notmatch '^local:hw1-[a-f0-9]{64}$' -and
+            [string]::Equals($_.Hostname, $localDevice.Hostname, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($legacyDisabled.Count -gt 0) { $newTarget.Enabled = $false }
 
-        $targets = @(
-            @($inventory.targets) + @($newTarget)
-        )
+        $previous = @($inventory.targets | Where-Object {
+            [string]::Equals($_.DeviceId, $localDevice.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        $created = $previous.Count -eq 0
+        if ($created) {
+            $targets = @(@($inventory.targets) + @($newTarget))
+        }
+        else {
+            # Only the display name changes; identity, flags and original metadata survive.
+            $previous[0].Hostname = [string]$localDevice.Hostname
+            $newTarget = $previous[0]
+            $targets = @($inventory.targets)
+        }
 
         $updatedInventory = [pscustomobject]@{
-            schemaVersion = '1.0.0'
+            schemaVersion = $inventory.schemaVersion
             targets = $targets
+        }
+        if ($inventory.schemaVersion -ceq '1.1.0') {
+            $currentHash = Get-WinSecDeviceInventoryIdentityHash $localDevice.DeviceId
+            $updatedInventory | Add-Member -NotePropertyName removedDeviceHashes -NotePropertyValue @(
+                $inventory.removedDeviceHashes | Where-Object { $_ -cne $currentHash }
+            )
         }
 
         # --------------------------------------------------------
@@ -522,7 +626,7 @@ function Register-WinSecLocalDevice {
         # --------------------------------------------------------
 
         $validation = Test-WinSecTargetRegistry `
-            -Registry $updatedInventory
+            -Registry ([pscustomobject]@{schemaVersion='1.0.0'; targets=$targets})
 
         if (-not $validation.Valid) {
             throw 'Device registration rejected.'
@@ -563,7 +667,7 @@ function Register-WinSecLocalDevice {
 
         $savedMatches = @(
             $savedInventory.targets | Where-Object {
-                $_.DeviceId -ceq $localDevice.DeviceId
+                $_.DeviceId -ceq $newTarget.DeviceId
             }
         )
 
@@ -573,11 +677,11 @@ function Register-WinSecLocalDevice {
         }
 
         return [pscustomobject]@{
-            Created = $true
-            DeviceId = [string]$localDevice.DeviceId
-            Hostname = [string]$localDevice.Hostname
+            Created = $created
+            DeviceId = [string]$newTarget.DeviceId
+            Hostname = [string]$newTarget.Hostname
             Path = $path
-            Status = 'REGISTERED'
+            Status = if ($created) { 'REGISTERED' } else { 'ALREADY_REGISTERED' }
         }
     }
     finally { $store.Lock.Dispose() }

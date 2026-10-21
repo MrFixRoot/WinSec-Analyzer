@@ -1,13 +1,16 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "targets": [
     {
-      "DeviceId": "local:MRUNNOROOT",
+      "DeviceId": "local:hw1-eaf141f01f07f994ec4c77af5b83c9a301e80d67eaf39ef0002fca9eefcc8859",
       "Hostname": "MRUNNOROOT",
       "Mode": "LOCAL",
       "Enabled": true,
       "Description": "Local Windows device",
-      "RegisteredAtUtc": "2026-10-16T06:03:31.4489757Z"
+      "RegisteredAtUtc": "2026-10-21T00:38:45.6441301Z"
     }
+  ],
+  "removedDeviceHashes": [
+    "36d1713215f277ca77162f88de9afbdb3e621d92b801a242f32d3f7f15ebbbc7"
   ]
 }

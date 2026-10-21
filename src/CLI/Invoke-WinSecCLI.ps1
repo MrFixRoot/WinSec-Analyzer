@@ -668,7 +668,8 @@ function Show-WinSecCLICurrentScreen {
         Show-WinSecDevices `
             -NavigationState $State `
             -Devices $Context.Devices `
-            -Version $Context.Version
+            -Version $Context.Version `
+            -Message ([string](Get-WinSecCLIValue -InputObject $Context -Name 'LastDeviceMessage'))
 
         return
     }
@@ -1014,7 +1015,7 @@ function Test-WinSecCLIRescanEligibility {
             return $false
         }
 
-        if ($selectedId -cne [string]$localTarget.DeviceId) {
+        if (-not [string]::Equals($selectedId, $localTarget.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
             return $false
         }
 
@@ -1242,6 +1243,95 @@ function Invoke-WinSecCLILocalRescan {
     return $publicResult
 }
 
+function Get-WinSecCLIDeviceRemovalViewStamp {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State, [Parameter(Mandatory)][psobject]$Context)
+    $public=@(foreach ($pair in @($Context.PublicScans.GetEnumerator() | Sort-Object Key)) {
+        $key=$pair.Key; $scan=$pair.Value
+        if ($scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string]) { throw 'Invalid public session metadata.' }
+        [pscustomobject]@{Key=[string]$key; DeviceId=$scan.DeviceId; ScanId=$scan.ScanId}
+    })
+    $active=@(foreach ($pair in @($Context.ActiveScanByDevice.GetEnumerator() | Sort-Object Key)) {
+        if ($pair.Value -isnot [string]) { throw 'Invalid active session metadata.' }
+        [pscustomobject]@{DeviceId=[string]$pair.Key; ScanId=$pair.Value}
+    })
+    return (ConvertTo-Json -InputObject ([pscustomobject]@{
+        Screen=[string]$State.Screen; Index=[int]$State.DeviceIndex; Public=$public; Active=$active
+        Devices=@($Context.Devices | ForEach-Object { [string]$_.DeviceId })
+    }) -Depth 5 -Compress)
+}
+
+function Invoke-WinSecCLIDeviceRemoval {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State, [Parameter(Mandatory)][psobject]$Context)
+    if ($State.Screen -cne 'Devices' -or $Context.PublicScans -isnot [hashtable] -or
+        $Context.ActiveScanByDevice -isnot [hashtable]) { throw 'Invalid device management context.' }
+    $devices = @($Context.Devices)
+    $index = [int]$State.DeviceIndex
+    if ($index -lt 0 -or $index -ge $devices.Count) { throw 'Select a device to remove.' }
+    $deviceId = [string]$devices[$index].DeviceId
+    $publicKeys = @(
+        foreach ($pair in $Context.PublicScans.GetEnumerator()) {
+            $key=$pair.Key; $scan = $pair.Value
+            if ($scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string] -or
+                $key -cne (Get-WinSecScanSessionKey -DeviceId $scan.DeviceId -ScanId $scan.ScanId)) {
+                throw 'Inconsistent public scan ownership.'
+            }
+            if ([string]::Equals($scan.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $key }
+        }
+    )
+    $remainingRecords = @{}
+    foreach ($field in @('SectionResults','ControlResults','Findings')) {
+        $remainingRecords[$field] = @(
+            foreach ($record in @(Get-WinSecCLIValue -InputObject $Context -Name $field)) {
+                if ($null -eq $record) { continue }
+                $owner = Get-WinSecCLIValue -InputObject $record -Name 'DeviceId'
+                if ($owner -isnot [string] -or [string]::IsNullOrWhiteSpace($owner)) {
+                    if ($devices.Count -eq 1) { continue }
+                    throw 'Cannot associate legacy records with one device.'
+                }
+                if (-not [string]::Equals($owner,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $record }
+            }
+        )
+    }
+    $viewStamp = Get-WinSecCLIDeviceRemovalViewStamp -State $State -Context $Context
+    $result = Remove-WinSecManagedDevice -ProjectRoot $Context.ProjectRoot -DeviceId $deviceId `
+        -Coordinator $Context.ScanCoordinator -Devices $devices -ConfirmAction {
+            param($Request)
+            $response = @(Show-WinSecDeviceRemovalConfirmation -Request $Request)
+            if ((Get-WinSecCLIDeviceRemovalViewStamp -State $State -Context $Context) -cne $viewStamp) {
+                throw 'Device view changed during confirmation.'
+            }
+            return $response
+        }
+    if ($null -eq $result) { return $null }
+    if ($result.Status -cnotin @('REMOVED','INCOMPLETE') -or $result.DeviceId -isnot [string] -or
+        -not [string]::Equals($result.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Invalid device removal result.'
+    }
+    foreach ($key in $publicKeys) { $Context.PublicScans.Remove($key) }
+    foreach ($key in @($Context.ActiveScanByDevice.GetEnumerator() | ForEach-Object { $_.Key })) {
+        if ([string]::Equals([string]$key,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $Context.ActiveScanByDevice.Remove($key) }
+    }
+    foreach ($field in $remainingRecords.Keys) { $Context.$field = @($remainingRecords[$field]) }
+    $hasOtherLegacyRecords = $false
+    foreach ($field in $remainingRecords.Keys) { if ($remainingRecords[$field].Count -gt 0) { $hasOtherLegacyRecords = $true } }
+    if (-not $hasOtherLegacyRecords) { $Context.ScanId = '' }
+    if ($result.Status -ceq 'REMOVED') {
+        $Context.Devices = @($devices | Where-Object { -not [string]::Equals($_.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase) })
+        $Context.LastDeviceMessage = 'Device and its application-owned history were deleted.'
+    }
+    else {
+        $Context.LastDeviceMessage = 'Deletion is incomplete. Some history may already be deleted. Resolve the storage error and confirm a retry.'
+    }
+    $State.Screen = 'Devices'
+    $State.SelectedDeviceId = $null; $State.SelectedDeviceName = $null
+    $State.DeviceIndex = [Math]::Max(0,[Math]::Min($index,@($Context.Devices).Count-1))
+    $State.SectionIndex = 0; $State.ControlIndex = 0; $State.FindingsOffset = 0
+    $State.History.Clear()
+    return $result
+}
+
 function Invoke-WinSecCLI {
     [CmdletBinding()]
     param(
@@ -1291,6 +1381,8 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Devices.ps1'
         'src/UI/Screens/Findings.ps1'
         'src/UI/Screens/ScanConfirmation.ps1'
+        'src/UI/Screens/DeviceRemovalConfirmation.ps1'
+        'src/Services/DeviceManagementService.ps1'
     )
 
     foreach ($module in $modules) {
@@ -1325,6 +1417,8 @@ function Invoke-WinSecCLI {
         'Show-WinSecResults'
         'Show-WinSecFindings'
         'Show-WinSecScanConfirmation'
+        'Show-WinSecDeviceRemovalConfirmation'
+        'Remove-WinSecManagedDevice'
     )
 
     foreach ($commandName in $requiredCommands) {
@@ -1564,7 +1658,7 @@ function Invoke-WinSecCLI {
 
         $localMatches = @(
             $registeredDevices | Where-Object {
-                $_.DeviceId -ceq $registration.DeviceId
+                [string]::Equals($_.DeviceId, $registration.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)
             }
         )
 
@@ -1574,6 +1668,9 @@ function Invoke-WinSecCLI {
                 'resolved in the CLI inventory.'
             )
         }
+        # A saved disablement also blocks the backend, including direct calls.
+        # Configured permissions remain authoritative; inventory cannot grant any.
+        $scanCoordinator.RequireDeviceInventory = $true
     }
 
     # --------------------------------------------------------
@@ -1586,6 +1683,11 @@ function Invoke-WinSecCLI {
     # Initialize navigation and resize state
     # --------------------------------------------------------
 
+    # Saved removals also hide explicit catalog entries, without editing permissions.
+    $inventoryForDisplay = Import-WinSecDeviceInventory -ProjectRoot $ProjectRoot
+    $registeredDevices = @($registeredDevices | Where-Object {
+        -not (Test-WinSecDeviceInventoryRemoval -Inventory $inventoryForDisplay -DeviceId $_.DeviceId)
+    })
     $navigationState = New-WinSecNavigationState
     $resizeState = New-WinSecResizeState
 
@@ -1605,6 +1707,7 @@ function Invoke-WinSecCLI {
         ActiveScanByDevice = @{}
         PublicScans = @{}
         LastScanMessage = ''
+        LastDeviceMessage = ''
     }
 
     # --------------------------------------------------------
@@ -1714,6 +1817,15 @@ function Invoke-WinSecCLI {
 
             $navigationState.PendingCommand = $null
             $navigationState.PendingScope = $null
+        }
+
+        if ($navigationState.PendingCommand -eq 'DeleteDevice') {
+            try {
+                $null = Invoke-WinSecCLIDeviceRemoval -State $navigationState -Context $context -ErrorAction Stop
+                $registeredDevices = @($context.Devices)
+            }
+            catch { $context.LastDeviceMessage = 'Device deletion failed or was rejected. No successful deletion was confirmed.' }
+            finally { $navigationState.PendingCommand = $null; $navigationState.PendingScope = $null }
         }
 
         # ====================================================

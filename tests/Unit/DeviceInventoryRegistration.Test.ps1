@@ -34,6 +34,45 @@ function Assert-WinSecRegistrationRejected {
     Assert-WinSecRegistrationUnit ($caught.Exception.Message -notmatch 'PRIVATE-INVENTORY-WRITE-FIXTURE')
 }
 
+Test-WinSecRegistrationUnitCase 'Hardware rename updates only hostname without creating another identity' {
+    $id = 'local:hw1-' + ('a' * 64)
+    Reset-WinSecInventoryMemoryStore -Json ('{"schemaVersion":"1.0.0","targets":[{"DeviceId":"' + $id +
+        '","Hostname":"OLD-NAME","Mode":"LOCAL","Enabled":false,"Description":"Preserve","RegisteredAtUtc":"2026-01-01T00:00:00Z"}]}')
+    $script:inventoryMemory.LocalId = $id
+    $script:inventoryMemory.LocalHostname = 'NEW-NAME'
+    $result = Register-WinSecLocalDevice -ProjectRoot $root
+    $saved = Import-WinSecDeviceInventory -ProjectRoot $root
+    Assert-WinSecRegistrationUnit (-not $result.Created -and $result.Status -ceq 'ALREADY_REGISTERED' -and
+        $saved.targets.Count -eq 1 -and $saved.targets[0].Hostname -ceq 'NEW-NAME' -and
+        $saved.targets[0].Enabled -ceq $false -and $saved.targets[0].Description -ceq 'Preserve')
+    $savedJson = $script:inventoryMemory.Json
+    $null = Register-WinSecLocalDevice -ProjectRoot $root
+    Assert-WinSecRegistrationUnit ($script:inventoryMemory.Saves -eq 1 -and $script:inventoryMemory.Json -ceq $savedJson)
+}
+Test-WinSecRegistrationUnitCase 'A failed rename preserves saved identity metadata and enablement' {
+    $id = 'local:hw1-' + ('a' * 64)
+    Reset-WinSecInventoryMemoryStore -Json ('{"schemaVersion":"1.0.0","targets":[{"DeviceId":"' + $id +
+        '","Hostname":"OLD-NAME","Mode":"LOCAL","Enabled":false}]}')
+    $script:inventoryMemory.LocalId = $id
+    $script:inventoryMemory.LocalHostname = 'NEW-NAME'
+    $script:inventoryMemory.FailSave = $true
+    $before = $script:inventoryMemory.Json
+    $caught = $false
+    try { $null = Register-WinSecLocalDevice -ProjectRoot $root } catch { $caught = $true }
+    Assert-WinSecRegistrationUnit ($caught -and $script:inventoryMemory.Json -ceq $before -and
+        $script:inventoryMemory.Releases -eq 1)
+}
+Test-WinSecRegistrationUnitCase 'Legacy identity is retained separately and its disablement is not bypassed' {
+    Reset-WinSecInventoryMemoryStore
+    $script:inventoryMemory.LocalId = 'local:hw1-' + ('a' * 64)
+    $script:inventoryMemory.LocalHostname = 'OLD-FIXTURE'
+    $result = Register-WinSecLocalDevice -ProjectRoot $root
+    $saved = Import-WinSecDeviceInventory -ProjectRoot $root
+    Assert-WinSecRegistrationUnit ($result.Created -and $saved.targets.Count -eq 2 -and
+        $saved.targets[0].DeviceId -ceq 'local:OLD-FIXTURE' -and $saved.targets[0].Enabled -ceq $false -and
+        $saved.targets[1].DeviceId -ceq $script:inventoryMemory.LocalId -and $saved.targets[1].Enabled -ceq $false)
+}
+
 Test-WinSecRegistrationUnitCase 'First launch registers only the current device' {
     Reset-WinSecInventoryMemoryStore -Json '{"schemaVersion":"1.0.0","targets":[]}' -Exists $false
     $result = Register-WinSecLocalDevice -ProjectRoot $root

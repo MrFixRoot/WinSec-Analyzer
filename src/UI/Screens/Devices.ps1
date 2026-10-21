@@ -180,7 +180,9 @@ function Show-WinSecDevices {
 
         [int]$SelectedIndex = -1,
 
-        [string]$Version = '0.9.0'
+        [string]$Version = '0.9.0',
+
+        [string]$Message = ''
     )
 
     # --------------------------------------------------------
@@ -219,6 +221,7 @@ function Show-WinSecDevices {
         $hiddenKeys = @(
             'UP/DOWN'
             'ENTER'
+            'DEL/SUPR'
         )
     }
 
@@ -292,6 +295,8 @@ function Show-WinSecDevices {
 
     Write-WinSecSectionTitle `
         -Title 'Managed Devices'
+
+    if (-not [string]::IsNullOrWhiteSpace($Message)) { Write-WinSecText -Text $Message -Color Yellow }
 
     Write-WinSecText `
         -Text "REGISTERED DEVICES: $deviceCount" `

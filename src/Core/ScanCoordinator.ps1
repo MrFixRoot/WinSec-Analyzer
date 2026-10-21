@@ -48,6 +48,7 @@ $script:WinSecCoordinatorProjectRoot = (
 $script:WinSecCoordinatorDependencies = @(
     'src/Core/CheckRegistry.ps1'
     'src/Core/TargetRegistry.ps1'
+    'src/Core/DeviceInventory.ps1'
     'src/Core/ResultModel.ps1'
     'src/Services/EvidenceService.ps1'
     'src/Core/AuditEngine.ps1'
@@ -151,6 +152,10 @@ function Assert-WinSecScanCoordinator {
     if (-not $validation.Valid) {
         throw 'Coordinator contains an invalid target registry.'
     }
+    $inventoryRequirement = Get-WinSecTargetField -InputObject $Coordinator -Name 'RequireDeviceInventory'
+    if ($null -ne $inventoryRequirement -and $inventoryRequirement -isnot [bool]) {
+        throw 'Invalid inventory authorization requirement.'
+    }
 }
 
 # ============================================================
@@ -201,6 +206,7 @@ function New-WinSecScanCoordinator {
         ProjectRoot = $resolvedRoot
 
         Registry = $registry
+        RequireDeviceInventory = $false
 
         CreatedAtUTC = [DateTime]::UtcNow.ToString('o')
 
@@ -281,6 +287,25 @@ function Resolve-WinSecScanTarget {
             'Target is not the current local Windows device.'
         )
     }
+
+    # A confirmed removal also revokes direct calls made outside the CLI.
+    $inventory = Import-WinSecDeviceInventory -ProjectRoot $Coordinator.ProjectRoot
+    if (Test-WinSecDeviceInventoryRemoval -Inventory $inventory -DeviceId $target.DeviceId) {
+        throw 'Target was removed from the managed inventory.'
+    }
+    # Persistence can restrict permission; it never adds targets to the catalog.
+    if ((Get-WinSecTargetField -InputObject $Coordinator -Name 'RequireDeviceInventory') -ceq $true) {
+        $saved = @($inventory.targets | Where-Object {
+            [string]::Equals($_.DeviceId, $localDevice.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($saved.Count -ne 1 -or $saved[0].Mode -cne 'LOCAL' -or $saved[0].Enabled -cne $true -or
+            -not [string]::Equals($saved[0].Hostname, $localDevice.Hostname, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Local inventory does not permit this operation.'
+        }
+    }
+    # Hostname is display metadata, never the authorization identity.
+    $target.Hostname = $localDevice.Hostname
+    $target.Name = $localDevice.Hostname
 
     return $target
 }

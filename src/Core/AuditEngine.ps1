@@ -60,6 +60,10 @@ function Import-WinSecAuditDependencies {
         [switch]$SkipScoring
     )
 
+    if (-not (Get-Command New-WinSecLocalTarget -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot 'TargetRegistry.ps1')
+    }
+
     if (-not (
         Get-Command `
             -Name 'Get-WinSecCheckRegistry' `
@@ -677,9 +681,7 @@ function Invoke-WinSecAudit {
     [CmdletBinding()]
     param(
         [ValidateNotNullOrEmpty()]
-        [string]$DeviceId = (
-            'local:{0}' -f $env:COMPUTERNAME
-        ),
+        [string]$DeviceId = '',
 
         [string]$ScanId = '',
 
@@ -702,12 +704,9 @@ function Invoke-WinSecAudit {
     # Enforce local execution
     # --------------------------------------------------------
 
-    $allowedDeviceIds = @(
-        $env:COMPUTERNAME
-        ('local:{0}' -f $env:COMPUTERNAME)
-    )
-
-    if ($DeviceId -notin $allowedDeviceIds) {
+    $localTarget = New-WinSecLocalTarget
+    if (-not $PSBoundParameters.ContainsKey('DeviceId')) { $DeviceId = $localTarget.DeviceId }
+    if (-not [string]::Equals($DeviceId, $localTarget.DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw (
             "Remote device execution is not implemented. " +
             "Only the current Windows device can be audited."
