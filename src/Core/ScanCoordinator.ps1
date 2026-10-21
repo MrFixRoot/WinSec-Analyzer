@@ -600,7 +600,8 @@ function Get-WinSecScanConfirmationPlan {
         [string]$DeviceId = '',
         [string[]]$CheckIds,
         [AllowNull()][object]$ScopeType = $null,
-        [AllowNull()][object]$ScopeKey = $null
+        [AllowNull()][object]$ScopeKey = $null,
+        [AllowNull()][object]$AssessmentProfile = $null
     )
 
     $explicit = $PSBoundParameters.ContainsKey('CheckIds')
@@ -714,6 +715,15 @@ function Get-WinSecScanConfirmationPlan {
             -ScopeType $ScopeType -ScopeKey $ScopeKey
     }
     $request | Add-Member -NotePropertyName ScanAction -NotePropertyValue $scanAction
+    $profilePlan = $null
+    if ($PSBoundParameters.ContainsKey('AssessmentProfile')) {
+        if ((Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -cne $true) {
+            throw 'Profile selection requires the assessment pipeline.'
+        }
+        $profilePlan = Get-WinSecAssessmentProfilePlan -ProjectRoot $Coordinator.ProjectRoot `
+            -CheckIds @($checks|ForEach-Object {$_.CheckId}) -Profile $AssessmentProfile
+        $request | Add-Member -NotePropertyName EvaluationProfile -NotePropertyValue $profilePlan.Preview
+    }
     $requestJson = ConvertTo-Json -InputObject $request -Depth 8 -Compress
     return [pscustomobject]@{
         Target = $target
@@ -721,6 +731,7 @@ function Get-WinSecScanConfirmationPlan {
         CheckIds = @($checks | ForEach-Object { $_.CheckId })
         ScopeType = if ($hasScope) { $ScopeType } else { $null }
         ScopeKey = if ($hasScope) { $ScopeKey } else { $null }
+        AssessmentCatalogs = if ($null -ne $profilePlan) { $profilePlan.Catalogs } else { $null }
         RequestJson = $requestJson
         Fingerprint = [System.IO.Path]::GetFullPath($Coordinator.ProjectRoot) +
             '|' + $catalogHash + '|' + ($sources -join '|') + '|' + $requestJson
@@ -751,7 +762,8 @@ function Invoke-WinSecCoordinatedScan {
         [scriptblock]$ProgressCallback,
         [scriptblock]$CancellationAction,
         [AllowNull()][object]$TargetContext = $null,
-        [AllowNull()][System.Collections.IDictionary]$DependencyEvidence = $null
+        [AllowNull()][System.Collections.IDictionary]$DependencyEvidence = $null,
+        [AllowNull()][object]$AssessmentProfile = $null
     )
 
     Assert-WinSecScanCoordinator `
@@ -764,6 +776,18 @@ function Invoke-WinSecCoordinatedScan {
     $publicHistoryEnabled=(Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true
     $assessmentEnabled=(Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true
     $assessmentInputs = Copy-WinSecResultData ([pscustomobject]@{TargetContext=$TargetContext;DependencyEvidence=$DependencyEvidence})
+    $hasProfile = $PSBoundParameters.ContainsKey('AssessmentProfile')
+    if ($hasProfile) {
+        if (-not $assessmentEnabled -or -not (Test-WinSecTargetIdentifier $AssessmentProfile) -or
+            $AssessmentProfile -in @('UNRESOLVED','PENDING_SELECTION')) {
+            throw 'A concrete profile requires the assessment pipeline.'
+        }
+        $contextProfile = Get-WinSecResultField $assessmentInputs.TargetContext 'Profile'
+        if ($null -ne $contextProfile -and ($contextProfile -isnot [string] -or
+            ($contextProfile -cne 'UNRESOLVED' -and $contextProfile -cne $AssessmentProfile))) {
+            throw 'Explicit profile conflicts with the assessment context.'
+        }
+    }
     if ($PersistEvidence -and $null -eq $ConfirmEvidenceAction) {
         throw 'Raw evidence storage requires separate explicit confirmation.'
     }
@@ -785,7 +809,8 @@ function Invoke-WinSecCoordinatedScan {
         -ScanId $ScanId
 
     if ($null -ne $assessmentInputs.TargetContext -and
-        ($assessmentInputs.TargetContext.DeviceId -cne $target.DeviceId -or $assessmentInputs.TargetContext.ScanId -cne $ScanId)) {
+        ($assessmentInputs.TargetContext.DeviceId -isnot [string] -or $assessmentInputs.TargetContext.ScanId -isnot [string] -or
+         $assessmentInputs.TargetContext.DeviceId -cne $target.DeviceId -or $assessmentInputs.TargetContext.ScanId -cne $ScanId)) {
         throw 'Assessment context belongs to another device or scan.'
     }
 
@@ -826,6 +851,7 @@ function Invoke-WinSecCoordinatedScan {
 
     # Confirmation is per invocation; no approval flag is cached or reused.
     $planArguments = @{ Coordinator = $Coordinator; DeviceId = $target.DeviceId }
+    if ($hasProfile) { $planArguments.AssessmentProfile = $AssessmentProfile }
     if ($explicitSelection) { $planArguments.CheckIds = $CheckIds }
     foreach ($name in @('ScopeType','ScopeKey')) {
         if ($PSBoundParameters.ContainsKey($name)) { $planArguments[$name] = $PSBoundParameters[$name] }
@@ -874,7 +900,10 @@ function Invoke-WinSecCoordinatedScan {
     # Freeze approved-catalog data before collecting. Evaluation never silently
     # switches to a policy edited while a collector is running.
     $assessmentCatalogs = @{}
-    if ($assessmentEnabled) {
+    if ($hasProfile) {
+        $assessmentCatalogs = Copy-WinSecResultData $approvedPlan.AssessmentCatalogs
+    }
+    elseif ($assessmentEnabled) {
         foreach ($checkId in $approvedPlan.CheckIds) {
             $assessmentCatalogs[$checkId] = Copy-WinSecResultData `
                 (Get-WinSecAssessmentCatalog -ProjectRoot $Coordinator.ProjectRoot -CheckId $checkId)
@@ -970,6 +999,15 @@ function Invoke-WinSecCoordinatedScan {
             # local scan. Policy profile remains unresolved until selected.
             $assessmentInputs.TargetContext = Get-WinSecLocalAssessmentContext `
                 -DeviceId $target.DeviceId -ScanId $ScanId
+        }
+        if ($hasProfile) {
+            if ($assessmentInputs.TargetContext -is [System.Collections.IDictionary]) {
+                $assessmentInputs.TargetContext['Profile'] = $AssessmentProfile
+            }
+            elseif ($assessmentInputs.TargetContext -is [pscustomobject]) {
+                $assessmentInputs.TargetContext | Add-Member -NotePropertyName Profile -NotePropertyValue $AssessmentProfile -Force
+            }
+            else { throw 'Invalid assessment target context.' }
         }
         $scopeArguments.Assessment = Invoke-WinSecScanAssessment -AuditResult $audit -ProjectRoot $Coordinator.ProjectRoot `
             -TargetContext $assessmentInputs.TargetContext -DependencyEvidence $assessmentInputs.DependencyEvidence `

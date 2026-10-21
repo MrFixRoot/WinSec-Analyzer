@@ -113,6 +113,16 @@ function Test-WinSecAssessmentIntegration {
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
     catch{$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+' : '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace)}
 }
+function Invoke-WinSecAssessmentProfileIntegrationScan {
+    param([string]$ScanId='profile-integration-1',[string]$ScopeType='CONTROL',[string]$ScopeKey='WSA-SYS-001',
+        [scriptblock]$ConfirmAction={param($request);$script:profileRequest=Copy-WinSecResultData $request;$true})
+    $id=$script:context.Devices[0].DeviceId
+    $os=[pscustomobject]@{DeviceId=$id;ScanId=$ScanId;OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='UNRESOLVED'}
+    $p=Invoke-WinSecCoordinatedScan -Coordinator $script:context.ScanCoordinator -DeviceId $id -ScanId $ScanId `
+        -ScopeType $ScopeType -ScopeKey $ScopeKey -AssessmentProfile TEST -TargetContext $os -ConfirmAction $ConfirmAction
+    Assert-WinSecAssessmentIntegration ($os.Profile -ceq 'UNRESOLVED')
+    return $p
+}
 Test-WinSecAssessmentIntegration 'Initialization never reads Defender or evaluates a catalog' {
     Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:catalogReads -eq 0 -and $script:store.Count -eq 0)
 }
@@ -231,6 +241,98 @@ Test-WinSecAssessmentIntegration 'A later passive scan cannot rewrite an earlier
     $null=Export-WinSecFindingsMarkdown $root $selection
     Assert-WinSecAssessmentIntegration ($script:exports[0].Markdown.Contains((ConvertTo-WinSecMarkdownText 'SYNTHETIC: Review real-time protection manually.')) -and
         $script:reads -eq 2 -and $script:store['normal-first'] -ceq $originalJson)
+}
+foreach($scope in @(@{Type='DEVICE';Key='ALL'},@{Type='SECTION';Key='SystemSecurity'},@{Type='CONTROL';Key='WSA-SYS-001'})){
+    Test-WinSecAssessmentIntegration ('Explicit approved profile reaches guidance through confirmation: '+$scope.Type) {
+        $p=Invoke-WinSecAssessmentProfileIntegrationScan -ScopeType $scope.Type -ScopeKey $scope.Key
+        Assert-WinSecAssessmentIntegration ($script:profileRequest.EvaluationProfile.Profile -ceq 'TEST' -and
+            $script:profileRequest.EvaluationProfile.Policies[0].CatalogSha256 -ceq ('B'*64) -and $script:catalogReads -eq 2 -and
+            $p.Findings[0].Guidance.Profile -ceq 'TEST' -and $p.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and
+            $p.OverallStatus -ceq 'NOT_SCORED' -and $script:store.Count -eq 1)
+        $loaded=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $script:store[$p.ScanId])
+        Assert-WinSecAssessmentIntegration ($loaded.PublicResult.Findings[0].Guidance.Profile -ceq 'TEST')
+    }
+}
+Test-WinSecAssessmentIntegration 'Explicit profile binds the automatically collected OS context without guessing a policy' {
+    function Get-CimInstance {
+        [CmdletBinding()]param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
+        if($ClassName -ceq 'Win32_ComputerSystemProduct'){return [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}}
+        if($ClassName -ceq 'Win32_OperatingSystem'){return [pscustomobject]@{Caption='Microsoft Windows 11 Pro';Version='10.0.26100';
+            BuildNumber='26100';OperatingSystemSKU=[uint32]48;ProductType=[uint32]1}}
+        throw 'Unexpected synthetic CIM class.'
+    }
+    $script:policy.Catalog.Criteria[0].Applicability.OSRelease='Windows 11 10.0.26100'
+    $script:policy.Catalog.Criteria[0].Applicability.Edition='SKU:48'
+    $p=Invoke-WinSecCoordinatedScan $script:context.ScanCoordinator -ScanId 'profile-native-context' `
+        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile TEST -ConfirmAction {$true}
+    Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and
+        $p.Findings[0].Guidance.OSRelease -ceq 'Windows 11 10.0.26100' -and $p.Findings[0].Guidance.Profile -ceq 'TEST')
+}
+Test-WinSecAssessmentIntegration 'Cancelling a profile-bound rescan preserves the earlier history and reads no new telemetry' {
+    $first=Invoke-WinSecAssessmentProfileIntegrationScan
+    $second=Invoke-WinSecAssessmentProfileIntegrationScan -ScanId 'cancelled-profile' -ConfirmAction {$false}
+    Assert-WinSecAssessmentIntegration ($null -eq $second -and $script:reads -eq 1 -and $script:store.Count -eq 1 -and
+        $script:context.ScanCoordinator.Sessions.Count -eq 1 -and $null -ne $first)
+}
+Test-WinSecAssessmentIntegration 'The production draft cannot be selected as an approved profile' {
+    $script:policy=Copy-WinSecResultData $script:draft;$caught=$false;$script:profileConfirmCalls=0
+    try{$null=Invoke-WinSecAssessmentProfileIntegrationScan -ConfirmAction {$script:profileConfirmCalls++;$true}}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:profileConfirmCalls -eq 0 -and $script:reads -eq 0 -and $script:store.Count -eq 0)
+}
+foreach($change in @(
+    {$script:policy.Catalog.CatalogVersion='changed-at-confirmation';$script:policy.Sha256=('C'*64)},
+    {$script:policy.Catalog.Criteria[0].Approved=$false},
+    {$script:policy.Catalog.Criteria[0].Applicability.Profile='OTHER'}
+)){
+    Test-WinSecAssessmentIntegration 'Policy changes while confirming invalidate the requested evaluation before collection' {
+        $caught=$false
+        try{$null=Invoke-WinSecAssessmentProfileIntegrationScan -ConfirmAction {$null=& $change;$true}}catch{$caught=$true}
+        Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:store.Count -eq 0 -and
+            $script:context.ScanCoordinator.Sessions.Count -eq 0)
+    }
+}
+Test-WinSecAssessmentIntegration 'A modified profile preview cannot authorize collection' {
+    $caught=$false
+    try{$null=Invoke-WinSecAssessmentProfileIntegrationScan -ConfirmAction {param($r);$r.EvaluationProfile.Profile='OTHER';$true}}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:store.Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'The profile policy is frozen before telemetry collection' {
+    $script:changePolicyDuringRead=$true
+    $p=Invoke-WinSecAssessmentProfileIntegrationScan
+    Assert-WinSecAssessmentIntegration ($p.Findings[0].Guidance.CatalogVersion -ceq 'test-1' -and
+        $p.Findings[0].Guidance.Recommendation -notmatch 'CHANGED DURING COLLECTION' -and $script:catalogReads -eq 2)
+}
+Test-WinSecAssessmentIntegration 'An explicit profile never overrides a conflicting supplied context' {
+    $caught=$false;$id=$script:context.Devices[0].DeviceId
+    try{$null=Invoke-WinSecCoordinatedScan $script:context.ScanCoordinator -ScanId 'profile-conflict' `
+        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile TEST -ConfirmAction {$true} `
+        -TargetContext ([pscustomobject]@{DeviceId=$id;ScanId='profile-conflict';Profile='OTHER'})}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:catalogReads -eq 0)
+}
+Test-WinSecAssessmentIntegration 'Selecting a profile does not bypass runtime OS applicability' {
+    $script:policy.Catalog.Criteria[0].Applicability.OSRelease='Windows 11 OTHER'
+    $p=Invoke-WinSecAssessmentProfileIntegrationScan
+    Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and
+        @($p.Findings|Where-Object Kind -EQ CONFIGURATION_DEVIATION).Count -eq 0 -and $p.OverallStatus -ceq 'NOT_SCORED')
+}
+Test-WinSecAssessmentIntegration 'A selected profile is not remembered or inferred for the next operation' {
+    $first=Invoke-WinSecAssessmentProfileIntegrationScan
+    $id=$script:context.Devices[0].DeviceId
+    $os=[pscustomobject]@{DeviceId=$id;ScanId='without-profile';OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='UNRESOLVED'}
+    $second=Invoke-WinSecCoordinatedScan $script:context.ScanCoordinator -ScanId 'without-profile' `
+        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -TargetContext $os -ConfirmAction {$true}
+    Assert-WinSecAssessmentIntegration ($first.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and
+        $second.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and $script:store.Count -eq 2)
+}
+foreach($field in @('DeviceId','ScanId')){
+    Test-WinSecAssessmentIntegration 'Profile context identity requires scalar device and scan identifiers before collection' {
+        $id=$script:context.Devices[0].DeviceId
+        $os=[pscustomobject]@{DeviceId=$id;ScanId='profile-array-identity';OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='UNRESOLVED'}
+        $os.$field=@();$caught=$false
+        try{$null=Invoke-WinSecCoordinatedScan $script:context.ScanCoordinator -ScanId 'profile-array-identity' `
+            -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile TEST -TargetContext $os -ConfirmAction {$true}}catch{$caught=$true}
+        Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:catalogReads -eq 0 -and $script:store.Count -eq 0)
+    }
 }
 [Console]::WriteLine(('Assessment integration: {0} passed, {1} failed.' -f $script:passed,$script:failed))
 if($script:failed){throw 'Assessment integration failed.'}

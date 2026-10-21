@@ -22,6 +22,72 @@ function Get-WinSecAssessmentCatalog {
     [pscustomobject]@{Catalog=$catalog;Sha256=$before}
 }
 
+function Assert-WinSecAssessmentProfilePreview {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Preview)
+    $copy = Copy-WinSecResultData $Preview
+    if ($copy -isnot [pscustomobject] -or @($copy.PSObject.Properties).Count -ne 2 -or
+        @($copy.PSObject.Properties|Where-Object {$_.Name -cnotin @('Profile','Policies')}).Count -gt 0 -or
+        -not (Test-WinSecTargetIdentifier $copy.Profile) -or $copy.Profile -in @('UNRESOLVED','PENDING_SELECTION') -or
+        $copy.Policies -isnot [array] -or $copy.Policies.Count -eq 0 -or $copy.Policies.Count -gt 128) {
+        throw 'Invalid assessment profile preview.'
+    }
+    $fields = @('CheckId','CatalogId','CatalogVersion','CatalogSha256','OSFamily','OSRelease','Edition')
+    $seen = @{}
+    foreach ($policy in $copy.Policies) {
+        if ($policy -isnot [pscustomobject] -or @($policy.PSObject.Properties).Count -ne $fields.Count -or
+            @($policy.PSObject.Properties|Where-Object {$_.Name -cnotin $fields}).Count -gt 0) {
+            throw 'Invalid assessment profile policy.'
+        }
+        foreach ($field in $fields) {
+            $value = $policy.$field
+            if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 256 -or
+                $value -match '[\p{C}]') { throw 'Invalid assessment profile policy metadata.' }
+        }
+        if (-not (Test-WinSecTargetIdentifier $policy.CheckId) -or $seen.ContainsKey($policy.CheckId) -or
+            $policy.CatalogSha256 -cnotmatch '\A[A-F0-9]{64}\z' -or $policy.OSFamily -cne 'Windows' -or
+            $policy.OSRelease -in @('*','UNRESOLVED','PENDING_SELECTION') -or
+            $policy.Edition -in @('*','UNRESOLVED','PENDING_SELECTION')) { throw 'Unresolved assessment profile policy.' }
+        $seen[$policy.CheckId] = $true
+    }
+    return $copy
+}
+
+function Get-WinSecAssessmentProfilePlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$CheckIds,
+        [Parameter(Mandatory)][object]$Profile
+    )
+    if (-not (Test-WinSecTargetIdentifier $Profile) -or $Profile -in @('UNRESOLVED','PENDING_SELECTION')) {
+        throw 'A concrete assessment profile identifier is required.'
+    }
+    $snapshots = @{}
+    $policies = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($checkId in $CheckIds) {
+        if (-not (Test-WinSecTargetIdentifier $checkId) -or $snapshots.ContainsKey($checkId)) {
+            throw 'Invalid assessment profile control selection.'
+        }
+        $snapshot = Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId)
+        $snapshots[$checkId] = $snapshot
+        if ($null -eq $snapshot -or -not (Test-WinSecCriteriaCatalog $snapshot.Catalog).ReadyForEvaluation) { continue }
+        $rules = @($snapshot.Catalog.Criteria)
+        $scope = $rules[0].Applicability
+        # A profile never releases a subset of a catalog or chooses an OS scope.
+        if (@($rules|Where-Object {
+            $_.Applicability.Profile -cne $Profile -or $_.Applicability.OSFamily -cne $scope.OSFamily -or
+            $_.Applicability.OSRelease -cne $scope.OSRelease -or $_.Applicability.Edition -cne $scope.Edition
+        }).Count -gt 0) { continue }
+        $policies.Add([pscustomobject]@{CheckId=$checkId;CatalogId=$snapshot.Catalog.CatalogId;
+            CatalogVersion=$snapshot.Catalog.CatalogVersion;CatalogSha256=$snapshot.Sha256;
+            OSFamily=$scope.OSFamily;OSRelease=$scope.OSRelease;Edition=$scope.Edition})
+    }
+    if ($policies.Count -eq 0) { throw 'The requested profile has no approved evaluation catalog in this selection.' }
+    $preview = Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$Profile;Policies=@($policies.ToArray())})
+    [pscustomobject]@{Preview=$preview;Catalogs=$snapshots}
+}
+
 function Resolve-WinSecAssessmentDependencies {
     [CmdletBinding()]
     param(

@@ -73,6 +73,42 @@ function Show-WinSecScanConfirmation {
         }
     }
 
+    $profileLines = @()
+    $profileValue = $null
+    $profileCount = 0
+    if ($Request -is [System.Collections.IDictionary]) {
+        foreach ($name in $Request.psbase.Keys) {
+            if ($name -is [string] -and [string]::Equals($name, 'EvaluationProfile', [StringComparison]::OrdinalIgnoreCase)) {
+                $profileCount++
+                $profileValue = $Request[$name]
+            }
+        }
+    }
+    else {
+        $property = $Request.PSObject.Properties['EvaluationProfile']
+        if ($null -ne $property) {
+            if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                throw 'Profile confirmation requires plain data.'
+            }
+            $profileCount = 1
+            $profileValue = $property.Value
+        }
+    }
+    if ($profileCount -gt 1) { throw 'Ambiguous assessment profile confirmation.' }
+    if ($profileCount -eq 1) {
+        $profile = Assert-WinSecAssessmentProfilePreview $profileValue
+        $profileLines += 'Evaluation profile: ' + $profile.Profile
+        foreach ($policy in $profile.Policies) {
+            if (@($Request.Checks|Where-Object {$_.CheckId -ceq $policy.CheckId}).Count -ne 1) {
+                throw 'Profile policy lies outside the confirmed control selection.'
+            }
+            $profileLines += 'Criteria: {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion
+            $profileLines += 'Criteria SHA256: ' + $policy.CatalogSha256
+            $profileLines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
+        }
+        $profileLines += 'Applicability checked during scan. Score: NOT_SCORED.'
+    }
+
     $display = [pscustomobject]@{ CanConfirm = $false }
     $render = {
         param($UnusedState)
@@ -89,6 +125,7 @@ function Show-WinSecScanConfirmation {
             'Raw evidence storage: NOT REQUESTED'
             ('Executable controls: {0}' -f @($Request.Checks).Count)
         )
+        $lines += $profileLines
         foreach ($check in $Request.Checks) {
             $lines += '{0} | {1} | {2}' -f $check.CheckId, $check.SectionKey, $check.Name
         }
