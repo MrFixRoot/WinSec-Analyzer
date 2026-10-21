@@ -739,7 +739,10 @@ function Invoke-WinSecCoordinatedScan {
         [scriptblock]$ConfirmEvidenceAction,
 
         [AllowNull()][object]$ScopeType = $null,
-        [AllowNull()][object]$ScopeKey = $null
+        [AllowNull()][object]$ScopeKey = $null,
+
+        [scriptblock]$ProgressCallback,
+        [scriptblock]$CancellationAction
     )
 
     Assert-WinSecScanCoordinator `
@@ -874,12 +877,30 @@ function Invoke-WinSecCoordinatedScan {
 
     if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history became unavailable before collection.' }
     if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during confirmation.'}
-    $audit = Invoke-WinSecAudit `
-        -DeviceId $target.DeviceId `
-        -ScanId $ScanId `
-        -CheckIds $approvedPlan.CheckIds `
-        -Registry $approvedPlan.Registry `
-        -SkipScoring
+    $executionCallbacks = @{}
+    if ($null -ne $ProgressCallback) { $executionCallbacks.ProgressCallback = $ProgressCallback }
+    if ($null -ne $CancellationAction) { $executionCallbacks.CancellationAction = $CancellationAction }
+    try {
+        $audit = Invoke-WinSecAudit @executionCallbacks `
+            -DeviceId $target.DeviceId `
+            -ScanId $ScanId `
+            -CheckIds $approvedPlan.CheckIds `
+            -Registry $approvedPlan.Registry `
+            -SkipScoring
+    }
+    catch [OperationCanceledException] {
+        # Discard partial records; no public session or persistence on cancellation.
+        return $null
+    }
+    if (Test-WinSecScanCancellation -CancellationAction $CancellationAction) {
+        Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $target.DeviceId -ScanId $ScanId `
+            -Phase CANCELLED -CompletedChecks $approvedPlan.CheckIds.Count -TotalChecks $approvedPlan.CheckIds.Count
+        return $null
+    }
+    # Cancellation closes before validation/persistence starts. No claims of
+    # completion are emitted until the public session has actually been published.
+    Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $target.DeviceId -ScanId $ScanId `
+        -Phase FINALIZING -CompletedChecks $approvedPlan.CheckIds.Count -TotalChecks $approvedPlan.CheckIds.Count
 
     # --------------------------------------------------------
     # VALIDATE AUDIT RESULT
@@ -987,6 +1008,8 @@ function Invoke-WinSecCoordinatedScan {
         -NotePropertyName FailedEvidenceCount `
         -NotePropertyValue $storage.FailedCount
 
+    Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $target.DeviceId -ScanId $ScanId `
+        -Phase $session.ExecutionStatus -CompletedChecks $approvedPlan.CheckIds.Count -TotalChecks $approvedPlan.CheckIds.Count
     return $public
 }
 

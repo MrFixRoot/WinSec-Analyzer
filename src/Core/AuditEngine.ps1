@@ -677,6 +677,41 @@ function Invoke-WinSecAuditCheck {
 # Main audit coordinator
 # ------------------------------------------------------------
 
+function Send-WinSecScanProgress {
+    [CmdletBinding()]
+    param(
+        [scriptblock]$ProgressCallback,
+        [string]$DeviceId,
+        [string]$ScanId,
+        [ValidateSet('READING','CHECK_COMPLETED','FINALIZING','COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED')]
+        [string]$Phase,
+        [int]$CompletedChecks,
+        [int]$TotalChecks,
+        [string]$CheckId = ''
+    )
+    if ($null -eq $ProgressCallback -or $TotalChecks -le 0) { return }
+    # New scalar-only object on every notification: never expose records,
+    # evidence, registry references or collector exception messages.
+    $event = [pscustomobject]@{
+        SchemaVersion = '1.0.0'; DeviceId = $DeviceId; ScanId = $ScanId
+        Phase = $Phase; CompletedChecks = $CompletedChecks; TotalChecks = $TotalChecks; CheckId = $CheckId
+    }
+    try { $null = & $ProgressCallback $event }
+    catch { } # Display failure must not change execution/publication semantics.
+}
+
+function Test-WinSecScanCancellation {
+    [CmdletBinding()]
+    param([scriptblock]$CancellationAction)
+    if ($null -eq $CancellationAction) { return $false }
+    try { $decision = @(& $CancellationAction) }
+    catch { throw 'Unable to obtain scan cancellation state.' }
+    if ($decision.Count -ne 1 -or $decision[0] -isnot [bool]) {
+        throw 'Scan cancellation must return exactly one Boolean decision.'
+    }
+    return $decision[0]
+}
+
 function Invoke-WinSecAudit {
     [CmdletBinding()]
     param(
@@ -690,7 +725,10 @@ function Invoke-WinSecAudit {
         [AllowNull()]
         [object]$Registry = $null,
 
-        [switch]$SkipScoring
+        [switch]$SkipScoring,
+
+        [scriptblock]$ProgressCallback,
+        [scriptblock]$CancellationAction
     )
 
     # --------------------------------------------------------
@@ -844,6 +882,14 @@ function Invoke-WinSecAudit {
             continue
         }
 
+        if (Test-WinSecScanCancellation -CancellationAction $CancellationAction) {
+            Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `
+                -Phase CANCELLED -CompletedChecks $executedCount -TotalChecks $selectedIds.Count
+            throw [OperationCanceledException]::new('Scan cancelled before publication.')
+        }
+        Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `
+            -Phase READING -CompletedChecks $executedCount -TotalChecks $selectedIds.Count -CheckId $check.CheckId
+
         $record = Invoke-WinSecAuditCheck `
             -Check $check `
             -DeviceId $DeviceId `
@@ -855,6 +901,13 @@ function Invoke-WinSecAudit {
 
         if ($record.ObservedStatus -eq 'ERROR') {
             $executionErrorCount++
+        }
+        Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `
+            -Phase CHECK_COMPLETED -CompletedChecks $executedCount -TotalChecks $selectedIds.Count -CheckId $check.CheckId
+        if (Test-WinSecScanCancellation -CancellationAction $CancellationAction) {
+            Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `
+                -Phase CANCELLED -CompletedChecks $executedCount -TotalChecks $selectedIds.Count
+            throw [OperationCanceledException]::new('Scan cancelled before publication.')
         }
     }
 

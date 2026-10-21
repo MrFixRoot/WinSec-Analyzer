@@ -5,7 +5,7 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Core/LayoutManager.ps1','src/UI/Core/KeyboardController.ps1','src/UI/Core/NavigationController.ps1',
     'src/UI/Core/ResizeHandler.ps1','src/UI/Components/Banner.ps1','src/UI/Components/Table.ps1','src/UI/Components/KeyboardHelp.ps1',
     'src/UI/Screens/Devices.ps1','src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1',
-    'src/UI/Screens/ScanConfirmation.ps1','src/UI/Screens/DeviceName.ps1')){. (Join-Path $root $file)}
+    'src/UI/Screens/ScanConfirmation.ps1','src/UI/Screens/ScanProgress.ps1','src/UI/Screens/DeviceName.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 if(@($script:catalog.Checks|Where-Object{$_.ExecutionEnabled}).Count){throw 'Production checks must remain disabled.'}
 . (Join-Path $PSScriptRoot '../Fixtures/DeviceInventoryMemoryStore.ps1')
@@ -52,6 +52,7 @@ function Add-WinSecHistoryKey {
     $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=$Code;Character=$Character;ControlKeyState=0;KeyDown=$true})
 }
 function Read-WinSecResizeAwareKey {param($ResizeState,$RenderAction);if(-not $script:keys.Count){throw 'Synthetic keyboard exhausted.'};$script:keys.Dequeue()}
+function Read-WinSecPendingKey { return $null }
 function New-WinSecHistoryIntegrationContext {
     $devices=@(foreach($device in (Import-WinSecDeviceInventory $root).targets){ConvertTo-WinSecRegisteredTarget $device})
     $coordinator=New-WinSecScanCoordinator

@@ -1264,7 +1264,9 @@ function Invoke-WinSecCLILocalRescan {
         [psobject]$State,
 
         [Parameter(Mandatory)]
-        [psobject]$Context
+        [psobject]$Context,
+
+        [switch]$ShowProgress
     )
 
     # --------------------------------------------------------
@@ -1331,6 +1333,14 @@ function Invoke-WinSecCLILocalRescan {
     if ($scope.ScopeType -cne 'DEVICE') {
         $scopeArguments = @{ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
     }
+    if ($ShowProgress) {
+        $scanDisplay = New-WinSecScanProgressState -DeviceId $deviceId -ScopeLabel $scope.Label
+        $scopeArguments.ProgressCallback = {
+            param($event)
+            Show-WinSecScanProgress -State $scanDisplay -Progress $event
+        }
+        $scopeArguments.CancellationAction = { Test-WinSecScanProgressCancellation -State $scanDisplay }
+    }
     $publicResult = Invoke-WinSecCoordinatedScan @scopeArguments `
         -Coordinator $coordinator `
         -DeviceId $deviceId `
@@ -1340,6 +1350,7 @@ function Invoke-WinSecCLILocalRescan {
             if ((Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)) -cne $deviceId -or $before.ScopeType -cne $scope.ScopeType -or
                 $before.ScopeKey -cne $scope.ScopeKey) { throw 'Scan navigation changed before confirmation.' }
             $answer = Show-WinSecScanConfirmation -Request $Request
+            if ($ShowProgress -and $answer) { $scanDisplay.ScanAction = $Request.ScanAction }
             $after = Get-WinSecCLIScanScope -State $State
             if ((Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)) -cne $deviceId -or $after.ScopeType -cne $scope.ScopeType -or
                 $after.ScopeKey -cne $scope.ScopeKey) { throw 'Scan navigation changed during confirmation.' }
@@ -1353,6 +1364,12 @@ function Invoke-WinSecCLILocalRescan {
 
     if ($null -eq $publicResult) {
         # Cancellation is not a completed scan and must not replace history.
+        if ($ShowProgress -and $scanDisplay.CancelRequested) {
+            $Context.LastScanMessage = 'Scan cancelled. Previous results were preserved.'
+            if ($State.Screen -ceq 'Devices') {
+                $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
+            }
+        }
         return $null
     }
 
@@ -1618,6 +1635,7 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Devices.ps1'
         'src/UI/Screens/Findings.ps1'
         'src/UI/Screens/ScanConfirmation.ps1'
+        'src/UI/Screens/ScanProgress.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
         'src/UI/Screens/DeviceName.ps1'
         'src/Services/DeviceManagementService.ps1'
@@ -1657,6 +1675,10 @@ function Invoke-WinSecCLI {
         'Show-WinSecResults'
         'Show-WinSecFindings'
         'Show-WinSecScanConfirmation'
+        'New-WinSecScanProgressState'
+        'Show-WinSecScanProgress'
+        'Test-WinSecScanProgressCancellation'
+        'Read-WinSecPendingKey'
         'Show-WinSecDeviceRemovalConfirmation'
         'Remove-WinSecManagedDevice'
     )
@@ -2119,6 +2141,7 @@ function Invoke-WinSecCLI {
                 $null = Invoke-WinSecCLILocalRescan `
                     -State $navigationState `
                     -Context $context `
+                    -ShowProgress `
                     -ErrorAction Stop
 
                 # --------------------------------------------
@@ -2146,6 +2169,9 @@ function Invoke-WinSecCLI {
                     'Local scan failed or was rejected. ' +
                     'No new result was published to the CLI.'
                 )
+                if ($navigationState.Screen -ceq 'Devices') {
+                    $context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $context.LastScanMessage -Force
+                }
             }
             finally {
                 # --------------------------------------------

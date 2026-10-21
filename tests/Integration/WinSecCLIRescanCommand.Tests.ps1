@@ -292,6 +292,12 @@ if (
 
 . $cliPath
 . $coordinatorPath
+. (Join-Path $projectRoot 'src/UI/Screens/ScanProgress.ps1')
+# This contract suite exercises the real command branch without a physical terminal.
+function Read-WinSecPendingKey { return $null }
+function Get-WinSecTerminalSize { [pscustomobject]@{Width=80;ContentWidth=79;Height=25} }
+function Clear-WinSecScreen { }
+function Write-WinSecText { param($Text,$Color) }
 . (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
 try {
 

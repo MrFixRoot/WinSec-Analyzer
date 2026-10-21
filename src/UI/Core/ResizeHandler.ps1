@@ -241,6 +241,19 @@ function Invoke-WinSecResizeHandler {
 # Read keyboard input while monitoring terminal resizing
 # ------------------------------------------------------------
 
+function Read-WinSecPendingKey {
+    [CmdletBinding()]
+    param()
+    # A single non-blocking poll, used only during a confirmed scan.
+    try {
+        $rawUI = $Host.UI.RawUI
+        if ($null -eq $rawUI) { throw 'No interactive keyboard.' }
+        if (-not $rawUI.KeyAvailable) { return $null }
+        return $rawUI.ReadKey('NoEcho,IncludeKeyDown')
+    }
+    catch { throw 'Unable to read scan keyboard input.' }
+}
+
 function Read-WinSecResizeAwareKey {
     [CmdletBinding()]
     param(
