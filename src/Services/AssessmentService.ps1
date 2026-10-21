@@ -22,6 +22,50 @@ function Get-WinSecAssessmentCatalog {
     [pscustomobject]@{Catalog=$catalog;Sha256=$before}
 }
 
+function Resolve-WinSecAssessmentDependencies {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$ControlResult,
+        [AllowNull()][System.Collections.IDictionary]$DeclaredDependencies = $null
+    )
+    $dependencies = if ($null -eq $DeclaredDependencies) { @{} } else { Copy-WinSecResultData $DeclaredDependencies }
+    $control = Copy-WinSecResultData $ControlResult
+    if ((Get-WinSecResultField $control 'CheckId') -cne 'WSA-SYS-001') { return ,$dependencies }
+
+    # Explicit false or a malformed declaration cannot be upgraded by telemetry.
+    # Conversely, a caller's true never substitutes for this scan's observation.
+    $key = 'active-antivirus-mode'
+    $declaredAllows = (-not $dependencies.Contains($key) -or
+        ($dependencies[$key] -is [bool] -and $dependencies[$key] -ceq $true))
+    $dependencies[$key] = $false
+    $evidence = Get-WinSecResultField $control 'Evidence'
+    $completeIdentity = $true
+    foreach ($field in @('CheckId','DeviceId','ScanId')) {
+        $expected = Get-WinSecResultField $control $field
+        $observed = Get-WinSecResultField $evidence $field
+        if (-not (Test-WinSecTargetIdentifier $expected)) { throw 'Invalid assessment prerequisite identity.' }
+        if ($null -ne $observed -and ($observed -isnot [string] -or $observed -cne $expected)) {
+            throw 'Foreign or invalid evidence in assessment prerequisites.'
+        }
+        if ($null -eq $observed) { $completeIdentity = $false }
+    }
+    $successful = Get-WinSecResultField $evidence 'CollectionSuccessful'
+    $status = Get-WinSecResultField $control 'Status'
+    $observedStatus = Get-WinSecResultField $control 'ObservedStatus'
+    if (-not $completeIdentity -or -not $declaredAllows -or
+        $status -isnot [string] -or $status -cne 'INFORMATIONAL' -or
+        ($null -ne $observedStatus -and ($observedStatus -isnot [string] -or $observedStatus -cne 'INFORMATIONAL')) -or
+        $successful -isnot [bool] -or $successful -cne $true) { return ,$dependencies }
+
+    $mode = Get-WinSecResultField (Get-WinSecResultField $evidence 'DefenderStatus') 'AMRunningMode'
+    # Runtime mode only; this does not select or approve a policy profile, prove
+    # third-party AV absence, or claim that each protection is enabled/effective.
+    if ($mode -is [string] -and [string]::Equals($mode, 'Normal', [StringComparison]::OrdinalIgnoreCase)) {
+        $dependencies[$key] = $true
+    }
+    return ,$dependencies
+}
+
 function Invoke-WinSecScanAssessment {
     [CmdletBinding()]
     param(
@@ -63,6 +107,7 @@ function Invoke-WinSecScanAssessment {
                 $dependencies = $DependencyEvidence[$control.CheckId]
                 if ($dependencies -isnot [System.Collections.IDictionary]) { throw 'Invalid assessment prerequisites.' }
             }
+            $dependencies = Resolve-WinSecAssessmentDependencies -ControlResult $control -DeclaredDependencies $dependencies
             $selection = Get-WinSecApplicableCriteria -Catalog $snapshot.Catalog -TargetContext $context `
                 -ControlResult $control -ProjectRoot $ProjectRoot -DependencyEvidence $dependencies -ForEvaluation
             $selection|Add-Member -NotePropertyName CatalogVersion -NotePropertyValue $snapshot.Catalog.CatalogVersion

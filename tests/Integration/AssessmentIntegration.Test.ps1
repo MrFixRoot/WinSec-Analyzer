@@ -30,7 +30,7 @@ function Get-MpComputerStatus {
         $script:policy.Catalog.Criteria[0].Recommendation='CHANGED DURING COLLECTION'
     }
     if($script:collectionError){throw 'PRIVATE-ASSESSMENT-COLLECTION-ERROR'}
-    [pscustomobject]@{AMRunningMode='Normal';AMServiceEnabled=$true;AntivirusEnabled=$true;RealTimeProtectionEnabled=$script:realTime}
+    [pscustomobject]@{AMRunningMode=$script:runningMode;AMServiceEnabled=$true;AntivirusEnabled=$true;RealTimeProtectionEnabled=$script:realTime}
 }
 function Get-MpPreference {
     [CmdletBinding()]param()
@@ -80,16 +80,19 @@ function New-WinSecAssessmentIntegrationContext {
         PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastScanMessage=''}
 }
 function Invoke-WinSecAssessmentIntegrationScan {
-    param([string]$ScanId='assessment-integration-1')
+    param([string]$ScanId='assessment-integration-1',
+        [string]$ScopeType='CONTROL',[string]$ScopeKey='WSA-SYS-001',[switch]$UseCollectedDependencies)
     $id=$script:context.Devices[0].DeviceId
     $os=[pscustomobject]@{DeviceId=$id;ScanId=$ScanId;OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='TEST'}
-    Invoke-WinSecCoordinatedScan -Coordinator $script:context.ScanCoordinator -DeviceId $id -ScanId $ScanId `
-        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -TargetContext $os `
-        -DependencyEvidence @{'WSA-SYS-001'=@{'active-antivirus-mode'=$true}} -ConfirmAction {$true}
+    $arguments=@{}
+    if (-not $UseCollectedDependencies) { $arguments.DependencyEvidence=@{'WSA-SYS-001'=@{'active-antivirus-mode'=$true}} }
+    Invoke-WinSecCoordinatedScan @arguments -Coordinator $script:context.ScanCoordinator -DeviceId $id -ScanId $ScanId `
+        -ScopeType $ScopeType -ScopeKey $ScopeKey -TargetContext $os -ConfirmAction {$true}
 }
 function Test-WinSecAssessmentIntegration {
     param([string]$Name,[scriptblock]$Action)
     $script:reads=0;$script:catalogReads=0;$script:realTime=$false;$script:collectionError=$false
+    $script:runningMode='Normal'
     $script:changePolicyDuringRead=$false
     $script:store=@{};$script:exports=New-Object 'System.Collections.Generic.List[object]'
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
@@ -192,6 +195,42 @@ Test-WinSecAssessmentIntegration 'Foreign target context is rejected before Defe
         -TargetContext ([pscustomobject]@{DeviceId='local:FOREIGN';ScanId='scan-foreign'})}
     catch{$caught=$true}
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:store.Count -eq 0)
+}
+foreach ($scope in @(@{Type='DEVICE';Key='ALL'},@{Type='SECTION';Key='SystemSecurity'},@{Type='CONTROL';Key='WSA-SYS-001'})) {
+    Test-WinSecAssessmentIntegration ('Actual collected mode supports approved synthetic evaluation without external flags: '+$scope.Type) {
+        $p=Invoke-WinSecAssessmentIntegrationScan -ScopeType $scope.Type -ScopeKey $scope.Key -UseCollectedDependencies
+        Assert-WinSecAssessmentIntegration ($script:reads -eq 1 -and $p.ScopeType -ceq $scope.Type -and
+            $p.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and $null -ne $p.Findings[0].Guidance -and
+            $p.OverallStatus -ceq 'NOT_SCORED' -and $script:store.Count -eq 1)
+        Assert-WinSecAssessmentIntegration (($script:store.Values -join '|') -notmatch
+            'AMRunningMode|active-antivirus-mode|PRIVATE-ASSESSMENT-RAW-PATH')
+    }
+}
+foreach ($mode in @('Passive','EDR Block Mode','Disabled',$null)) {
+    Test-WinSecAssessmentIntegration 'An external true cannot turn nonactive or unknown Defender telemetry into a deviation' {
+        $script:runningMode=$mode
+        $p=Invoke-WinSecAssessmentIntegrationScan
+        Assert-WinSecAssessmentIntegration ($script:reads -eq 1 -and $script:store.Count -eq 1 -and
+            $p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and $p.Findings[0].EvaluationStatus -ceq 'NOT_EVALUATED' -and
+            @($p.Findings|Where-Object Kind -EQ CONFIGURATION_DEVIATION).Count -eq 0 -and
+            @($p.Findings|Where-Object {$null -ne $_.Guidance}).Count -eq 0)
+    }
+}
+Test-WinSecAssessmentIntegration 'A later passive scan cannot rewrite an earlier finding or its export recommendation' {
+    $first=Invoke-WinSecAssessmentIntegrationScan -ScanId 'normal-first' -UseCollectedDependencies
+    $originalJson=$script:store['normal-first']
+    $script:runningMode='Passive'
+    $second=Invoke-WinSecAssessmentIntegrationScan -ScanId 'passive-later' -UseCollectedDependencies
+    Assert-WinSecAssessmentIntegration ($script:store.Count -eq 2 -and $script:store['normal-first'] -ceq $originalJson -and
+        $first.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and $second.Findings[0].Kind -ceq 'CATALOG_NOT_READY')
+    $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $originalJson)
+    $selection=[pscustomobject]@{DeviceId=$first.DeviceId;ScanId=$first.ScanId;SourceScopeType='CONTROL';
+        SourceScopeKey='WSA-SYS-001';ScopeType='CONTROL';ScopeKey='WSA-SYS-001';CatalogVersion=$first.CatalogVersion;
+        Findings=@([pscustomobject]@{FindingId=$first.Findings[0].FindingId;CheckId='WSA-SYS-001';DeviceId=$first.DeviceId;
+            ScanId=$first.ScanId;Kind='CONFIGURATION_DEVIATION';EvaluationStatus='FAIL';Guidance=$restored.PublicResult.Findings[0].Guidance})}
+    $null=Export-WinSecFindingsMarkdown $root $selection
+    Assert-WinSecAssessmentIntegration ($script:exports[0].Markdown.Contains((ConvertTo-WinSecMarkdownText 'SYNTHETIC: Review real-time protection manually.')) -and
+        $script:reads -eq 2 -and $script:store['normal-first'] -ceq $originalJson)
 }
 [Console]::WriteLine(('Assessment integration: {0} passed, {1} failed.' -f $script:passed,$script:failed))
 if($script:failed){throw 'Assessment integration failed.'}

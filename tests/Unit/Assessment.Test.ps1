@@ -26,7 +26,7 @@ function Test-WinSecAssessment {
     $script:audit=[pscustomobject]@{DeviceId=$device;ScanId=$scan;ControlResults=@([pscustomobject]@{
         DeviceId=$device;ScanId=$scan;CheckId='WSA-SYS-001';SectionKey='SystemSecurity';Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL';
         Evidence=[pscustomobject]@{DeviceId=$device;ScanId=$scan;CheckId='WSA-SYS-001';CollectionSuccessful=$true;
-            DefenderStatus=@{RealTimeProtectionEnabled=$false};Secret='PRIVATE-ASSESSMENT-EVIDENCE'}})}
+            DefenderStatus=@{AMRunningMode='Normal';RealTimeProtectionEnabled=$false};Secret='PRIVATE-ASSESSMENT-EVIDENCE'}})}
     $script:context=[pscustomobject]@{DeviceId=$device;ScanId=$scan;OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='TEST'}
     $catalog=Copy-WinSecResultData $script:productionCatalog.Catalog
     $catalog.CatalogId='SYNTHETIC-LOCAL-POLICY';$catalog.CatalogVersion='test-1';$catalog.Status='APPROVED';$catalog.ScoringEnabled=$false
@@ -93,7 +93,7 @@ foreach($mutation in @(
     { $script:snapshot.Catalog.EvaluationEnabled=$false },
     { $script:snapshot.Catalog.Status='DRAFT_UNAPPROVED' },
     { $script:context.Edition='OTHER' },
-    { $script:dependencies=@{} },
+    { $script:dependencies=@{}; $script:audit.ControlResults[0].Evidence.DefenderStatus.AMRunningMode=$null },
     { $script:dependencies['WSA-SYS-001']['active-antivirus-mode']='true' }
 )) {
     Test-WinSecAssessment 'Unapproved, inapplicable or unproven criteria never become deviations' {
@@ -159,6 +159,130 @@ foreach($change in @(
         try{$null=ConvertTo-WinSecPublicScanResult $session}catch{$caught=$true}
         Assert-WinSecAssessment $caught
     }
+}
+Test-WinSecAssessment 'Runtime Normal confirms its own prerequisite without an external assertion' {
+    $script:dependencies=@{}
+    $r=Invoke-WinSecAssessmentFixture
+    Assert-WinSecAssessment ($r.CriteriaSelections[0].EvaluationEligible -ceq $true -and
+        $r.Findings[0].Kind -ceq 'CONFIGURATION_DEVIATION' -and $r.Findings[0].Guidance.CriterionId -ceq $script:snapshot.Catalog.Criteria[0].CriterionId)
+    Assert-WinSecAssessment ((Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult (New-WinSecAssessmentTestSession $r))) -notmatch
+        'AMRunningMode|active-antivirus-mode|PRIVATE-ASSESSMENT-EVIDENCE')
+}
+foreach ($mode in @('Passive','EDR Block Mode','SxS Passive Mode','Hybrid','Disabled','UNKNOWN','Normal ',
+    "Normal`n",$null,$true,1,@('Normal'),@{Mode='Normal'})) {
+    Test-WinSecAssessment 'Nonactive, missing or malformed runtime mode cannot be overridden by an external true' {
+        $script:audit.ControlResults[0].Evidence.DefenderStatus.AMRunningMode=$mode
+        $r=Invoke-WinSecAssessmentFixture
+        Assert-WinSecAssessment ($r.CriteriaSelections[0].Status -cne 'READY' -and
+            $r.EvaluationResults[0].Status -ceq 'NOT_EVALUATED' -and
+            @($r.Findings|Where-Object Kind -EQ CONFIGURATION_DEVIATION).Count -eq 0)
+    }
+}
+Test-WinSecAssessment 'Case differences in a recognized runtime mode do not change its meaning' {
+    $script:audit.ControlResults[0].Evidence.DefenderStatus.AMRunningMode='normal'
+    $script:dependencies=@{}
+    Assert-WinSecAssessment ((Invoke-WinSecAssessmentFixture).CriteriaSelections[0].Status -ceq 'READY')
+}
+foreach ($declaration in @($false,'true',$null,1)) {
+    Test-WinSecAssessment 'Explicit false or malformed prerequisite declarations are never upgraded' {
+        $script:dependencies['WSA-SYS-001']['active-antivirus-mode']=$declaration
+        $r=Invoke-WinSecAssessmentFixture
+        Assert-WinSecAssessment ($r.CriteriaSelections[0].Status -cne 'READY' -and
+            @($r.Findings|Where-Object Kind -EQ CONFIGURATION_DEVIATION).Count -eq 0)
+    }
+}
+Test-WinSecAssessment 'Other prerequisites still require independent confirmation' {
+    $script:snapshot.Catalog.Criteria[0].ActivationDependencies=@('active-antivirus-mode','privacy-review','network-connectivity')
+    $script:dependencies=@{}
+    Assert-WinSecAssessment ((Invoke-WinSecAssessmentFixture).CriteriaSelections[0].Status -cne 'READY')
+    $script:dependencies=@{'WSA-SYS-001'=@{'privacy-review'=$true;'network-connectivity'=$false}}
+    Assert-WinSecAssessment ((Invoke-WinSecAssessmentFixture).CriteriaSelections[0].Status -cne 'READY')
+    $script:dependencies['WSA-SYS-001']['network-connectivity']=$true
+    Assert-WinSecAssessment ((Invoke-WinSecAssessmentFixture).CriteriaSelections[0].Status -ceq 'READY')
+}
+Test-WinSecAssessment 'Resolving dependencies isolates caller data and returns no telemetry' {
+    $declared=@{'privacy-review'=$false}
+    $before=Get-WinSecPublicHistoryJson $script:audit
+    $r=Resolve-WinSecAssessmentDependencies $script:audit.ControlResults[0] $declared
+    Assert-WinSecAssessment ($r['active-antivirus-mode'] -is [bool] -and $r['active-antivirus-mode'] -ceq $true -and
+        $r['privacy-review'] -ceq $false -and $r.Count -eq 2 -and $declared.Count -eq 1 -and
+        (Get-WinSecPublicHistoryJson $script:audit) -ceq $before)
+    $r['privacy-review']=$true
+    Assert-WinSecAssessment ($declared['privacy-review'] -ceq $false)
+}
+foreach ($successful in @($false,'true',$null,1,@($true))) {
+    Test-WinSecAssessment 'Unconfirmed collection cannot prove the runtime prerequisite' {
+        $script:audit.ControlResults[0].Evidence.CollectionSuccessful=$successful
+        $r=Resolve-WinSecAssessmentDependencies $script:audit.ControlResults[0]
+        Assert-WinSecAssessment ($r['active-antivirus-mode'] -ceq $false)
+    }
+}
+foreach ($field in @('CheckId','DeviceId','ScanId')) {
+    Test-WinSecAssessment 'Foreign evidence identity aborts prerequisite resolution and assessment' {
+        $script:audit.ControlResults[0].Evidence.$field='foreign-identity'
+        $caught=$false
+        try { $null=Invoke-WinSecAssessmentFixture } catch { $caught=$true }
+        Assert-WinSecAssessment $caught
+    }
+    Test-WinSecAssessment 'Missing evidence identity never proves the prerequisite' {
+        $script:audit.ControlResults[0].Evidence.PSObject.Properties.Remove($field)
+        $r=Resolve-WinSecAssessmentDependencies $script:audit.ControlResults[0]
+        Assert-WinSecAssessment ($r['active-antivirus-mode'] -ceq $false)
+    }
+}
+Test-WinSecAssessment 'Technical and unselected collection states cannot prove an active mode' {
+    foreach ($status in @('ERROR','UNKNOWN','NOT_APPLICABLE','NOT_SELECTED')) {
+        $control=Copy-WinSecResultData $script:audit.ControlResults[0];$control.ObservedStatus=$status
+        Assert-WinSecAssessment ((Resolve-WinSecAssessmentDependencies $control)['active-antivirus-mode'] -ceq $false)
+        $control.Status=$status;$control.ObservedStatus=$null
+        Assert-WinSecAssessment ((Resolve-WinSecAssessmentDependencies $control)['active-antivirus-mode'] -ceq $false)
+    }
+}
+Test-WinSecAssessment 'Enabled service or real-time telemetry cannot substitute for the actual running mode' {
+    $control=$script:audit.ControlResults[0]
+    $control.Evidence.DefenderStatus=@{RealTimeProtectionEnabled=$true;AMServiceEnabled=$true;AntivirusEnabled=$true}
+    Assert-WinSecAssessment ((Resolve-WinSecAssessmentDependencies $control)['active-antivirus-mode'] -ceq $false)
+}
+Test-WinSecAssessment 'The runtime prerequisite does not assume every protection is enabled' {
+    $script:audit.ControlResults[0].Evidence.DefenderStatus.AntivirusEnabled=$false
+    $r=Resolve-WinSecAssessmentDependencies $script:audit.ControlResults[0]
+    Assert-WinSecAssessment ($r['active-antivirus-mode'] -ceq $true -and $r.Count -eq 1)
+}
+Test-WinSecAssessment 'Other controls do not inherit Defender runtime eligibility' {
+    $control=$script:audit.ControlResults[0];$control.CheckId='WSA-SYS-002'
+    $r=Resolve-WinSecAssessmentDependencies $control @{'other-required-review'=$false}
+    Assert-WinSecAssessment ($r.Count -eq 1 -and -not $r.Contains('active-antivirus-mode') -and $r['other-required-review'] -ceq $false)
+}
+Test-WinSecAssessment 'Array identities cannot exploit collection comparison semantics' {
+    foreach ($field in @('CheckId','DeviceId','ScanId')) {
+        foreach ($value in @(@(),@($script:audit.ControlResults[0].Evidence.$field),$true,1,'')) {
+            $control=Copy-WinSecResultData $script:audit.ControlResults[0];$control.Evidence.$field=$value
+            $caught=$false
+            try { $null=Resolve-WinSecAssessmentDependencies $control } catch { $caught=$true }
+            Assert-WinSecAssessment $caught
+        }
+    }
+}
+Test-WinSecAssessment 'Only scalar informational collection states can prove the prerequisite' {
+    foreach ($field in @('Status','ObservedStatus')) {
+        foreach ($value in @(@(),@('INFORMATIONAL'),$true,1)) {
+            $control=Copy-WinSecResultData $script:audit.ControlResults[0];$control.$field=$value
+            Assert-WinSecAssessment ((Resolve-WinSecAssessmentDependencies $control)['active-antivirus-mode'] -ceq $false)
+        }
+    }
+}
+Test-WinSecAssessment 'Missing evidence leaves the prerequisite unconfirmed' {
+    $control=$script:audit.ControlResults[0];$control.Evidence=$null
+    Assert-WinSecAssessment ((Resolve-WinSecAssessmentDependencies $control)['active-antivirus-mode'] -ceq $false)
+}
+Test-WinSecAssessment 'Calculated telemetry is rejected without executing its getter' {
+    $script:getterCalls=0
+    $control=$script:audit.ControlResults[0]
+    $control.Evidence.DefenderStatus=[pscustomobject]@{}
+    $control.Evidence.DefenderStatus|Add-Member -MemberType ScriptProperty -Name AMRunningMode -Value {$script:getterCalls++;'Normal'}
+    $caught=$false
+    try { $null=Resolve-WinSecAssessmentDependencies $control } catch { $caught=$true }
+    Assert-WinSecAssessment ($caught -and $script:getterCalls -eq 0)
 }
 Write-Host ('Assessment: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if($script:failed){throw 'Assessment unit tests failed.'}
