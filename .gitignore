@@ -33,9 +33,10 @@ logs/*
 # Local Device Inventory and Scan History
 # ------------------------------------------------------------
 
-# Exclude the entire directory, including nested session data.
+# Exclude local data, including nested session data; keep the empty folder.
 # Already tracked inventory files must also be removed from the Git index.
-/data/
+/data/*
+!/data/.gitkeep
 
 # ------------------------------------------------------------
 # Temporary files

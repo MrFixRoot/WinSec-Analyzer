@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.1.0",
+  "schemaVersion": "1.2.0",
   "targets": [
     {
       "DeviceId": "local:hw1-eaf141f01f07f994ec4c77af5b83c9a301e80d67eaf39ef0002fca9eefcc8859",
@@ -7,7 +7,8 @@
       "Mode": "LOCAL",
       "Enabled": true,
       "Description": "Local Windows device",
-      "RegisteredAtUtc": "2026-10-21T00:38:45.6441301Z"
+      "RegisteredAtUtc": "2026-10-21T00:38:45.6441301Z",
+      "DisplayName": "Servidor"
     }
   ],
   "removedDeviceHashes": [
