@@ -37,7 +37,9 @@
 # ============================================================
 
 [CmdletBinding()]
-param()
+param(
+    [switch]$SkipLive
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -57,9 +59,7 @@ $script:DefenderPath = Join-Path `
     $script:ProjectRoot `
     'src/Checks/Defender/Test-Defender.ps1'
 
-$script:DeviceId = (
-    'local:{0}' -f $env:COMPUTERNAME
-)
+$script:DeviceId = $null
 
 $script:ScanId = (
     'DEFENDER-INTEGRATION-{0}' -f
@@ -471,11 +471,11 @@ Write-Host ''
 Write-Host '[2] OPERATING SYSTEM' -ForegroundColor Cyan
 Write-Host ''
 
-if ($env:OS -ne 'Windows_NT') {
+if ($SkipLive -or $env:OS -ne 'Windows_NT') {
 
     Skip-WinSecIntegrationTest `
         -Name 'Windows Defender availability' `
-        -Reason 'Integration requires Windows.'
+        -Reason 'Live collection was skipped or Windows is unavailable.'
 
     Complete-WinSecIntegrationTests
     return
@@ -501,7 +501,9 @@ Write-Host '[3] COLLECTOR IMPORT' -ForegroundColor Cyan
 Write-Host ''
 
 try {
+    . (Join-Path $script:ProjectRoot 'src/Core/TargetRegistry.ps1')
     . $script:DefenderPath
+    $script:DeviceId = Get-WinSecLocalHardwareDeviceId
 }
 catch {
     $script:TestsFailed++

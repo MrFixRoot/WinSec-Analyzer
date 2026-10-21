@@ -28,7 +28,9 @@
 # ============================================================
 
 [CmdletBinding()]
-param()
+param(
+    [switch]$SkipLive
+)
 
 $ErrorActionPreference = 'Stop'
 $script:Passed = 0
@@ -282,6 +284,7 @@ if ($script:Failed -gt 0) {
 }
 
 try {
+    . (Join-Path $script:ProjectRoot 'src/Core/TargetRegistry.ps1')
     . $script:EnginePath
     . $script:CriteriaPath
     . $script:DefenderPath
@@ -496,13 +499,13 @@ Write-Host ''
 
 $script:LiveResult = $null
 
-if ($env:OS -ne 'Windows_NT') {
-    Skip-WinSecCase 'Live Defender collection' 'Windows is required.'
-    Skip-WinSecCase 'Live catalog selection remains blocked' 'Windows is required.'
-    Skip-WinSecCase 'Live evidence without criteria is ungraded' 'Windows is required.'
+if ($SkipLive -or $env:OS -ne 'Windows_NT') {
+    Skip-WinSecCase 'Live Defender collection' 'Live collection was skipped or Windows is unavailable.'
+    Skip-WinSecCase 'Live catalog selection remains blocked' 'Live collection was skipped or Windows is unavailable.'
+    Skip-WinSecCase 'Live evidence without criteria is ungraded' 'Live collection was skipped or Windows is unavailable.'
 }
 else {
-    $liveDeviceId = 'local:{0}' -f $env:COMPUTERNAME
+    $liveDeviceId = Get-WinSecLocalHardwareDeviceId
     $liveScanId = 'CRITERIA-INTEGRATION-{0}' -f ([guid]::NewGuid().ToString('N'))
 
     Test-WinSecCase 'Live Defender collector returns exactly one result' {

@@ -415,17 +415,10 @@ function Get-WinSecDefenderASRSummary {
         }
     }
 
-    $idList = @(
-        $ids | Where-Object {
-            $null -ne $_
-        }
-    )
-
-    $actionList = @(
-        $actions | Where-Object {
-            $null -ne $_
-        }
-    )
+    # Preserve positions: filtering nulls independently can attach an action
+    # to another rule and falsely report a complete inventory.
+    $idList = @($ids)
+    $actionList = @($actions)
 
     if ($idList.Count -ne $actionList.Count) {
         $issues.Add(
@@ -433,7 +426,7 @@ function Get-WinSecDefenderASRSummary {
         )
     }
 
-    if ($idList.Count -gt 128) {
+    if ($idList.Count -gt 128 -or $actionList.Count -gt 128) {
         $issues.Add(
             'ASR evidence exceeds the collection safety limit (128 entries).'
         )
@@ -447,7 +440,12 @@ function Get-WinSecDefenderASRSummary {
     $seen = @{}
 
     for ($i = 0; $i -lt $limit; $i++) {
-        $id = [string]$idList[$i]
+        if ($idList[$i] -isnot [string]) {
+            $issues.Add('An ASR rule identifier was missing or was not text.')
+            continue
+        }
+
+        $id = $idList[$i]
         $guid = [guid]::Empty
 
         if (-not [guid]::TryParse($id, [ref]$guid)) {
@@ -596,13 +594,26 @@ function Test-WinSecDefender {
         throw 'Invalid CheckId for Microsoft Defender.'
     }
 
-    if (
-        $DeviceId -cnotin @(
-            $env:COMPUTERNAME,
-            ('local:{0}' -f $env:COMPUTERNAME)
-        )
-    ) {
-        throw 'Defender collector is local-only; remote DeviceId is not supported.'
+    # TargetRegistry owns hardware identity. Hostnames and local: prefixes
+    # alone never authorize a query, including for legacy inventory entries.
+    if ($DeviceId -cnotmatch '^local:hw1-[a-f0-9]{64}$') {
+        throw 'Defender requires the current local hardware DeviceId.'
+    }
+
+    try {
+        $localIds = @(Get-WinSecLocalHardwareDeviceId -ErrorAction Stop)
+    }
+    catch {
+        throw 'Unable to validate local hardware identity for Microsoft Defender.'
+    }
+
+    if ($localIds.Count -ne 1 -or $localIds[0] -isnot [string] -or
+        $localIds[0] -cnotmatch '^local:hw1-[a-f0-9]{64}$') {
+        throw 'Unable to validate local hardware identity for Microsoft Defender.'
+    }
+
+    if ($DeviceId -cne $localIds[0]) {
+        throw 'Defender collector is local-only; DeviceId differs from the current hardware.'
     }
 
     # ========================================================
