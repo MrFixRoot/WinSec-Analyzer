@@ -931,64 +931,16 @@ function Get-WinSecCLINavigationCounts {
     # --------------------------------------------------------
 
     $findingCount = 0
-
-    if ($null -ne $section) {
-        $selectedControl = $null
-
-        if (
-            $State.FindingsScope -eq 'Control' -and
-            $controls.Count -gt 0
-        ) {
-            $controlIndex = [Math]::Max(
-                0,
-                [Math]::Min(
-                    [int]$State.ControlIndex,
-                    $controls.Count - 1
-                )
-            )
-
-            $selectedControl = $controls[$controlIndex]
-        }
-
-        foreach ($finding in $assessment.Findings) {
-            $findingSection = [string](
-                Get-WinSecCLIValue `
-                    -InputObject $finding `
-                    -Name 'SectionKey'
-            )
-
-            if ($findingSection -ne $section.Key) {
-                continue
-            }
-
-            if ($null -ne $selectedControl) {
-                $findingControl = [string](
-                    Get-WinSecCLIValue `
-                        -InputObject $finding `
-                        -Name 'ControlKey'
-                )
-
-                $findingCheck = [string](
-                    Get-WinSecCLIValue `
-                        -InputObject $finding `
-                        -Name 'CheckId'
-                )
-
-                $controlMatch = (
-                    $findingControl -eq $selectedControl.Key -or
-                    (
-                        $selectedControl.CheckId -and
-                        $findingCheck -eq $selectedControl.CheckId
-                    )
-                )
-
-                if (-not $controlMatch) {
-                    continue
-                }
-            }
-
-            $findingCount++
-        }
+    if ($null -ne $section -and @($assessment.Findings).Count -gt 0) {
+        # Use the same catalog/identity/scope resolution and ordering as the
+        # screen. Public findings have CheckId, not necessarily SectionKey.
+        $findingView = Get-WinSecSelectedFindings `
+            -NavigationState $State `
+            -SectionResults $assessment.SectionResults `
+            -ControlResults $assessment.ControlResults `
+            -Findings $assessment.Findings `
+            -ScanId $assessment.ScanId
+        $findingCount = @($findingView.Findings).Count
     }
 
     return [PSCustomObject]@{
