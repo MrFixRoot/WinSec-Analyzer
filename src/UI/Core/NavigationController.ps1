@@ -396,9 +396,11 @@ function Invoke-WinSecNavigationAction {
                         break
                     }
 
-                    $hostname = Get-WinSecNavigationDeviceValue `
+                    $hostname = Get-WinSecNavigationDeviceValue -Device $device -Property 'DisplayName'
+                    if (-not $hostname) { $hostname = Get-WinSecNavigationDeviceValue `
                         -Device $device `
                         -Property 'Hostname'
+                    }
 
                     if (-not $hostname) {
                         $hostname = Get-WinSecNavigationDeviceValue `
@@ -575,6 +577,12 @@ function Invoke-WinSecNavigationAction {
         # Request security rescan
         # ----------------------------------------------------
 
+        'RenameDevice' {
+            if ($State.Screen -ceq 'Devices' -and $State.DeviceIndex -is [int] -and
+                $State.DeviceIndex -ge 0 -and $State.DeviceIndex -lt $deviceCount) {
+                $State.PendingCommand='RenameDevice';$State.PendingScope='Device'
+            }
+        }
         'DeleteDevice' {
             if ($State.Screen -ceq 'Devices' -and $deviceCount -gt 0 -and
                 $State.DeviceIndex -ge 0 -and $State.DeviceIndex -lt $deviceCount) {

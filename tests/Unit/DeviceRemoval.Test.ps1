@@ -132,7 +132,7 @@ Test-WinSecRemovalCase 'Confirmed deletion preserves other device metadata and s
     $before=ConvertTo-Json -InputObject $script:devices[1] -Depth 8 -Compress
     $result=Invoke-WinSecRemovalFixture
     $saved=Import-WinSecDeviceInventory -ProjectRoot $root
-    Assert-WinSecRemoval ($result.Status -ceq 'REMOVED' -and $saved.schemaVersion -ceq '1.1.0' -and $saved.targets.Count -eq 1 -and
+    Assert-WinSecRemoval ($result.Status -ceq 'REMOVED' -and $saved.schemaVersion -ceq '1.2.0' -and $saved.targets.Count -eq 1 -and
         (ConvertTo-Json -InputObject $saved.targets[0] -Depth 8 -Compress) -ceq $before -and $script:coordinator.Sessions.Count -eq 1)
     Assert-WinSecRemoval (Test-WinSecDeviceInventoryRemoval $saved 'local:old-fixture')
 }

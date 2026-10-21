@@ -94,7 +94,7 @@ Test-WinSecDevices 'Detached scalar rows never expose private metadata or mutate
         Status='FAIL';Evidence=@{Secret='SYNTHETIC-DEVICES-PRIVATE'}}
     $before=ConvertTo-Json -InputObject $device -Depth 5 -Compress
     $row=@(Get-WinSecDeviceRows -Devices @($device))[0]
-    Assert-WinSecDevices (@($row.PSObject.Properties).Count -eq 7 -and
+    Assert-WinSecDevices (@($row.PSObject.Properties).Count -eq 9 -and $row.Device -ceq 'FIXTURE' -and $row.HardwareId -ceq 'Not recorded' -and
         (ConvertTo-Json -InputObject $row -Compress) -notlike '*SYNTHETIC-DEVICES-PRIVATE*')
     $row.Hostname='changed'
     Assert-WinSecDevices ($before -ceq (ConvertTo-Json -InputObject $device -Depth 5 -Compress))

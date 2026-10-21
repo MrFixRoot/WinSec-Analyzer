@@ -109,6 +109,13 @@ function Test-WinSecTargetIdentifier {
 # NORMALIZE ONE TARGET
 # ============================================================
 
+function Test-WinSecDeviceDisplayName {
+    [CmdletBinding()]
+    param([AllowNull()][object]$Value)
+    return ($Value -is [string] -and $Value.Length -gt 0 -and $Value.Length -le 253 -and
+        $Value -ceq $Value.Trim() -and $Value -notmatch '[\p{C}\p{Zl}\p{Zp}]')
+}
+
 function ConvertTo-WinSecRegisteredTarget {
     [CmdletBinding()]
     param(
@@ -280,12 +287,16 @@ function ConvertTo-WinSecRegisteredTarget {
     # Real values must come from scan results associated
     # with the same DeviceId and ScanId.
 
+    $displayName = Get-WinSecTargetField -InputObject $Target -Name 'DisplayName'
+    if ($null -ne $displayName -and -not (Test-WinSecDeviceDisplayName $displayName)) { throw 'Invalid device display name.' }
+
     return [pscustomobject]@{
         DeviceId = [string]$deviceId
         Id = [string]$deviceId
 
         Hostname = [string]$hostname
         Name = [string]$hostname
+        DisplayName = if ($null -ne $displayName) { $displayName } else { [string]$hostname }
 
         Mode = $mode
         Enabled = [bool]$enabled

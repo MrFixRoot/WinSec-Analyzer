@@ -57,6 +57,7 @@ function Get-WinSecKeyboardShortcuts {
                     Key    = 'ENTER'
                     Action = 'Select Device'
                 }
+                @{ Key = 'F2'; Action = 'Rename Device' }
                 @{
                     Key    = 'DEL/SUPR'
                     Action = 'Delete Device'

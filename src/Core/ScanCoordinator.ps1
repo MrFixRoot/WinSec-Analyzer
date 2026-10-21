@@ -52,6 +52,8 @@ $script:WinSecCoordinatorDependencies = @(
     'src/Core/ResultModel.ps1'
     'src/Services/EvidenceService.ps1'
     'src/Core/AuditEngine.ps1'
+    'src/Services/DeviceManagementService.ps1'
+    'src/Services/PublicHistoryService.ps1'
 )
 
 # Load functions in the current scope so they remain available
@@ -156,6 +158,10 @@ function Assert-WinSecScanCoordinator {
     if ($null -ne $inventoryRequirement -and $inventoryRequirement -isnot [bool]) {
         throw 'Invalid inventory authorization requirement.'
     }
+    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed')){
+        $value=Get-WinSecTargetField $Coordinator $field
+        if($null -ne $value -and $value -isnot [bool]){throw 'Invalid public history coordination flag.'}
+    }
 }
 
 # ============================================================
@@ -207,6 +213,8 @@ function New-WinSecScanCoordinator {
 
         Registry = $registry
         RequireDeviceInventory = $false
+        PublicHistoryEnabled = $false
+        HistoryLoadFailed = $false
 
         CreatedAtUTC = [DateTime]::UtcNow.ToString('o')
 
@@ -740,6 +748,8 @@ function Invoke-WinSecCoordinatedScan {
     if ($null -eq $ConfirmAction) {
         throw 'Explicit confirmation is required for every scan operation.'
     }
+    if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history must be recovered before scanning.' }
+    $publicHistoryEnabled=(Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true
     if ($PersistEvidence -and $null -eq $ConfirmEvidenceAction) {
         throw 'Raw evidence storage requires separate explicit confirmation.'
     }
@@ -801,6 +811,11 @@ function Invoke-WinSecCoordinatedScan {
     foreach ($name in @('ScopeType','ScopeKey')) {
         if ($PSBoundParameters.ContainsKey($name)) { $planArguments[$name] = $PSBoundParameters[$name] }
     }
+    if ($publicHistoryEnabled -and
+        -not $planArguments.ContainsKey('ScopeType') -and -not $planArguments.ContainsKey('ScopeKey')) {
+        if($explicitSelection){throw 'Persistent explicit selections require a declared scope.'}
+        $planArguments.ScopeType='DEVICE';$planArguments.ScopeKey='ALL'
+    }
     $plan = Get-WinSecScanConfirmationPlan @planArguments
     $preview = ConvertFrom-Json -InputObject $plan.RequestJson -ErrorAction Stop
     try { $decision = @(& $ConfirmAction $preview) }
@@ -857,6 +872,8 @@ function Invoke-WinSecCoordinatedScan {
     # Production scoring requires a separate, authorized
     # CriteriaService -> EvaluationEngine -> ScoreEngine path.
 
+    if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history became unavailable before collection.' }
+    if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during confirmation.'}
     $audit = Invoke-WinSecAudit `
         -DeviceId $target.DeviceId `
         -ScanId $ScanId `
@@ -931,6 +948,12 @@ function Invoke-WinSecCoordinatedScan {
         RegisteredAtUTC = [DateTime]::UtcNow.ToString('o')
     }
 
+    if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history is unavailable.' }
+    if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during collection.'}
+    if ($publicHistoryEnabled -and
+        $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')) {
+        $null=Save-WinSecPublicHistory -ProjectRoot $Coordinator.ProjectRoot -Session $session
+    }
     $Coordinator.Sessions[$key] = $entry
 
     # --------------------------------------------------------
@@ -1127,7 +1150,7 @@ function Get-WinSecCoordinatorHistory {
             $storage.DeviceId -isnot [string] -or $storage.ScanId -isnot [string] -or
             $storage.DeviceId -cne $public.DeviceId -or $storage.ScanId -cne $public.ScanId -or
             $storage.Status -isnot [string] -or
-            $storage.Status -cnotin @('NOT_REQUESTED','STORED','PARTIAL','FAILED','NO_EVIDENCE')) {
+            $storage.Status -cnotin @('NOT_REQUESTED','NOT_RECORDED','STORED','PARTIAL','FAILED','NO_EVIDENCE')) {
             throw 'Stored evidence metadata failed validation.'
         }
         foreach ($name in @('StoredCount','FailedCount','SkippedCount')) {
@@ -1140,7 +1163,10 @@ function Get-WinSecCoordinatorHistory {
         $stored = [int]$storage.StoredCount
         $failed = [int]$storage.FailedCount
         $total = [long]$stored + [long]$failed + [long]$storage.SkippedCount
-        if ($storage.Status -ceq 'NOT_REQUESTED') {
+        if ($storage.Status -ceq 'NOT_RECORDED' -and (Get-WinSecTargetField $entry 'HistoryOrigin') -cne 'PUBLIC_STORE') {
+            throw 'Unrecorded evidence metadata is restricted to restored public history.'
+        }
+        if ($storage.Status -cin @('NOT_REQUESTED','NOT_RECORDED')) {
             if ($total -ne 0) { throw 'Stored evidence metadata failed validation.' }
         }
         else {

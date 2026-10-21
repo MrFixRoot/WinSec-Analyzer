@@ -196,7 +196,7 @@ function ConvertFrom-WinSecDeviceInventoryJson {
     $rootNames = @($registry.PSObject.Properties.Name)
     if ($registry -isnot [pscustomobject] -or
         $rootNames -cnotcontains 'schemaVersion' -or $rootNames -cnotcontains 'targets' -or
-        $registry.schemaVersion -isnot [string] -or $registry.schemaVersion -cnotin @('1.0.0','1.1.0') -or
+        $registry.schemaVersion -isnot [string] -or $registry.schemaVersion -cnotin @('1.0.0','1.1.0','1.2.0') -or
         $registry.targets -isnot [array]) {
         throw 'Invalid device inventory schema.'
     }
@@ -217,13 +217,15 @@ function ConvertFrom-WinSecDeviceInventoryJson {
         if ($target -isnot [pscustomobject]) { throw 'Invalid inventory device record.' }
         $names = @($target.PSObject.Properties.Name)
         foreach ($name in $names) {
-            if ($name -cnotin @('DeviceId', 'Hostname', 'Mode', 'Enabled', 'Description', 'RegisteredAtUtc')) {
+            if ($name -cnotin @('DeviceId', 'Hostname', 'Mode', 'Enabled', 'Description', 'RegisteredAtUtc','DisplayName') -or
+                ($name -ceq 'DisplayName' -and $registry.schemaVersion -cne '1.2.0')) {
                 throw 'Unexpected inventory device field.'
             }
         }
         foreach ($required in @('DeviceId', 'Hostname', 'Mode', 'Enabled')) {
             if ($names -cnotcontains $required) { throw 'Missing inventory device field.' }
         }
+        if ($names -ccontains 'DisplayName' -and -not (Test-WinSecDeviceDisplayName $target.DisplayName)) { throw 'Invalid inventory display name.' }
         if ($target.DeviceId -isnot [string] -or $target.Hostname -isnot [string] -or
             $target.Mode -isnot [string] -or $target.Mode -cnotin @('LOCAL', 'REMOTE', 'IMPORTED', 'UNKNOWN') -or
             $target.Enabled -isnot [bool] -or
@@ -252,7 +254,7 @@ function ConvertFrom-WinSecDeviceInventoryJson {
         # Do not include values embedded in TargetRegistry diagnostics.
         throw 'Invalid device inventory identities or metadata.'
     }
-    if ($registry.schemaVersion -ceq '1.1.0') {
+    if ($registry.schemaVersion -cne '1.0.0') {
         foreach ($target in $registry.targets) {
             if ($registry.removedDeviceHashes -ccontains (Get-WinSecDeviceInventoryIdentityHash $target.DeviceId)) {
                 throw 'Device is both registered and removed.'
@@ -276,7 +278,7 @@ function Get-WinSecDeviceInventoryIdentityHash {
 function Test-WinSecDeviceInventoryRemoval {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Inventory, [Parameter(Mandatory)][string]$DeviceId)
-    if ($Inventory.schemaVersion -ceq '1.1.0') {
+    if ($Inventory.schemaVersion -cne '1.0.0') {
         return ($Inventory.removedDeviceHashes -ccontains (Get-WinSecDeviceInventoryIdentityHash $DeviceId))
     }
     return $false
@@ -580,6 +582,7 @@ function Register-WinSecLocalDevice {
         $newTarget = [pscustomobject]@{
             DeviceId = [string]$localDevice.DeviceId
             Hostname = [string]$localDevice.Hostname
+            DisplayName = [string]$localDevice.Hostname
             Mode = 'LOCAL'
             Enabled = $true
             Description = 'Local Windows device'
@@ -604,19 +607,23 @@ function Register-WinSecLocalDevice {
             $targets = @(@($inventory.targets) + @($newTarget))
         }
         else {
-            # Only the display name changes; identity, flags and original metadata survive.
+            # Observe the OS hostname without replacing the saved label or identity.
+            if ($null -eq $previous[0].PSObject.Properties['DisplayName']) {
+                $previous[0] | Add-Member -NotePropertyName DisplayName -NotePropertyValue ([string]$previous[0].Hostname)
+            }
             $previous[0].Hostname = [string]$localDevice.Hostname
             $newTarget = $previous[0]
             $targets = @($inventory.targets)
         }
 
         $updatedInventory = [pscustomobject]@{
-            schemaVersion = $inventory.schemaVersion
+            schemaVersion = '1.2.0'
             targets = $targets
+            removedDeviceHashes = @()
         }
-        if ($inventory.schemaVersion -ceq '1.1.0') {
+        if ($inventory.schemaVersion -cne '1.0.0') {
             $currentHash = Get-WinSecDeviceInventoryIdentityHash $localDevice.DeviceId
-            $updatedInventory | Add-Member -NotePropertyName removedDeviceHashes -NotePropertyValue @(
+            $updatedInventory.removedDeviceHashes = @(
                 $inventory.removedDeviceHashes | Where-Object { $_ -cne $currentHash }
             )
         }
@@ -685,4 +692,27 @@ function Register-WinSecLocalDevice {
         }
     }
     finally { $store.Lock.Dispose() }
+}
+
+function Set-WinSecDeviceDisplayName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$DeviceId,
+        [Parameter(Mandatory)][object]$DisplayName,[Parameter(Mandatory)][string]$ExpectedFingerprint)
+    if (-not (Test-WinSecTargetIdentifier $DeviceId) -or -not (Test-WinSecDeviceDisplayName $DisplayName)) { throw 'Invalid device name request.' }
+    $store=Open-WinSecDeviceInventoryStore -ProjectRoot $ProjectRoot
+    try {
+        if ((Get-WinSecDeviceInventoryFingerprint $ProjectRoot) -cne $ExpectedFingerprint) { throw 'Inventory changed; edit the device again.' }
+        $inventory=Import-WinSecDeviceInventory $ProjectRoot
+        $matches=@($inventory.targets|Where-Object{[string]::Equals($_.DeviceId,$DeviceId,[StringComparison]::OrdinalIgnoreCase)})
+        if ($matches.Count -ne 1) { throw 'Device must exist in the persistent inventory.' }
+        $matches[0] | Add-Member -NotePropertyName DisplayName -NotePropertyValue $DisplayName -Force
+        $updated=[pscustomobject]@{schemaVersion='1.2.0';targets=@($inventory.targets);removedDeviceHashes=@()}
+        if ($inventory.schemaVersion -cne '1.0.0') { $updated.removedDeviceHashes=@($inventory.removedDeviceHashes) }
+        $json=ConvertTo-Json $updated -Depth 8
+        $expected=ConvertFrom-WinSecDeviceInventoryJson $json
+        $null=Save-WinSecDeviceInventory -Store $store -Json $json -ExpectedFingerprint $ExpectedFingerprint
+        $saved=Import-WinSecDeviceInventory $ProjectRoot
+        if ((ConvertTo-Json $saved -Depth 8 -Compress) -cne (ConvertTo-Json $expected -Depth 8 -Compress)) { throw 'Device name save verification failed.' }
+        return [pscustomobject]@{DeviceId=$matches[0].DeviceId;DisplayName=$DisplayName}
+    } finally { $store.Lock.Dispose() }
 }

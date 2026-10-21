@@ -743,11 +743,14 @@ function Show-WinSecCLICurrentScreen {
 
     if ($State.Screen -eq 'Devices') {
         $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
+        $history=@();$historyReady=(Get-WinSecCLIValue $Context 'HistoryReady') -ceq $true
+        if($historyReady){$history=@(Get-WinSecCoordinatorHistory -Coordinator $Context.ScanCoordinator)}
         Show-WinSecDevices `
             -NavigationState $State `
             -Devices $Context.Devices `
             -Version $Context.Version `
-            -Message ([string](Get-WinSecCLIValue -InputObject $Context -Name 'LastDeviceMessage')) @scanPresentation
+            -Message ([string](Get-WinSecCLIValue -InputObject $Context -Name 'LastDeviceMessage')) `
+            -History $history -HistoryLoaded:$historyReady @scanPresentation
 
         return
     }
@@ -986,6 +989,33 @@ function Get-WinSecCLINavigationCounts {
 # No audit execution
 # ============================================================
 
+function Invoke-WinSecCLIDeviceRename {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+    if($State.Screen -cne 'Devices'){throw 'Device names can be edited only in Manage devices.'}
+    $deviceId=Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)
+    $null=Get-WinSecDeviceRows -Devices @($Context.Devices)
+    $fingerprint=Get-WinSecDeviceInventoryFingerprint $Context.ProjectRoot
+    $inventory=Import-WinSecDeviceInventory $Context.ProjectRoot
+    if((Get-WinSecDeviceInventoryFingerprint $Context.ProjectRoot) -cne $fingerprint){throw 'Inventory changed before editing the name.'}
+    $stored=@($inventory.targets|Where-Object{[string]::Equals($_.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)})
+    if($stored.Count -ne 1){throw 'Device must be registered before editing its name.'}
+    $currentName=Get-WinSecCLIValue $stored[0] 'DisplayName'
+    if($null -eq $currentName){$currentName=$stored[0].Hostname}
+    $answer=@(Show-WinSecDeviceNameEditor -Request ([pscustomobject]@{DeviceId=$deviceId;DisplayName=$currentName}))
+    if($answer.Count -eq 0 -or ($answer.Count -eq 1 -and $null -eq $answer[0])){return $null}
+    if($answer.Count -ne 1 -or $answer[0] -isnot [pscustomobject] -or $answer[0].DeviceId -cne $deviceId -or
+        -not (Test-WinSecDeviceDisplayName $answer[0].DisplayName) -or $State.Screen -cne 'Devices' -or
+        (Get-WinSecCLIScanDeviceId $State @($Context.Devices)) -cne $deviceId){throw 'Device name selection changed.'}
+    $saved=Set-WinSecDeviceDisplayName -ProjectRoot $Context.ProjectRoot -DeviceId $deviceId `
+        -DisplayName $answer[0].DisplayName -ExpectedFingerprint $fingerprint
+    foreach($device in $Context.Devices){if($device.DeviceId -ceq $deviceId){$device | Add-Member -NotePropertyName DisplayName -NotePropertyValue $saved.DisplayName -Force}}
+    if($State.SelectedDeviceId -ceq $deviceId){$State.SelectedDeviceName=$saved.DisplayName}
+    foreach($snapshot in $State.History){if($snapshot.SelectedDeviceId -ceq $deviceId){$snapshot.SelectedDeviceName=$saved.DisplayName}}
+    $Context.LastDeviceMessage='Device name saved. Hardware identity and scan history were preserved.'
+    return $saved
+}
+
 function Get-WinSecCLIFindingsExportSelection {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
@@ -1121,6 +1151,7 @@ function Test-WinSecCLIRescanEligibility {
         return $false
     }
 
+    if((Get-WinSecCLIValue $Coordinator 'HistoryLoadFailed') -ceq $true){return $false}
     try { $selectedId = Get-WinSecCLIScanDeviceId -State $State -Devices $Devices }
     catch { return $false }
 
@@ -1588,6 +1619,7 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Findings.ps1'
         'src/UI/Screens/ScanConfirmation.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
+        'src/UI/Screens/DeviceName.ps1'
         'src/Services/DeviceManagementService.ps1'
         'src/Services/ReportService.ps1'
         'src/Services/ExportService.ps1'
@@ -1834,6 +1866,8 @@ function Invoke-WinSecCLI {
                     )
                 ) {
                     $alreadyPresent = $true
+                    $savedName=Get-WinSecCLIValue $savedDevice 'DisplayName'
+                    if($null -ne $savedName){$existingDevice | Add-Member -NotePropertyName DisplayName -NotePropertyValue $savedName -Force}
                     break
                 }
             }
@@ -1917,6 +1951,14 @@ function Invoke-WinSecCLI {
         PublicScans = @{}
         LastScanMessage = ''
         LastDeviceMessage = ''
+    }
+
+    # Recuperar resultados públicos antes del primer dibujo; nunca auditar al iniciar.
+    $scanCoordinator.PublicHistoryEnabled=$true
+    try { Restore-WinSecPublicHistory -Context $context }
+    catch {
+        $scanCoordinator.HistoryLoadFailed=$true
+        $context.LastDeviceMessage='Public history could not be loaded. Scanning is disabled until the storage conflict is resolved.'
     }
 
     # --------------------------------------------------------
@@ -2040,6 +2082,14 @@ function Invoke-WinSecCLI {
             }
             catch { $context.LastDeviceMessage = 'Device deletion failed or was rejected. No successful deletion was confirmed.' }
             finally { $navigationState.PendingCommand = $null; $navigationState.PendingScope = $null }
+        }
+
+        if ($navigationState.PendingCommand -eq 'RenameDevice') {
+            try {
+                $null=Invoke-WinSecCLIDeviceRename -State $navigationState -Context $context
+                $registeredDevices=@($context.Devices)
+            } catch { $context.LastDeviceMessage='Device name was not saved or could not be verified. Reload the inventory before retrying.' }
+            finally { $navigationState.PendingCommand=$null;$navigationState.PendingScope=$null }
         }
 
         # ====================================================

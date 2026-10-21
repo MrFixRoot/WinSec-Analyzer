@@ -55,6 +55,7 @@ function Test-WinSecKeyboardActionAllowed {
             'ExportTXT',
             'ExportMD',
             'DeleteDevice',
+            'RenameDevice',
             'Rescan'
         )]
         [string]$Action,
@@ -68,6 +69,7 @@ function Test-WinSecKeyboardActionAllowed {
 
     switch ($Action) {
         'DeleteDevice' { return ($Screen -ceq 'Devices') }
+        'RenameDevice' { return ($Screen -ceq 'Devices') }
 
         # ----------------------------------------------------
         # List navigation
@@ -352,6 +354,7 @@ function ConvertTo-WinSecKeyboardAction {
         }
 
         # Delete / Supr (VK_DELETE)
+        113 { $action = 'RenameDevice' }
         46 {
             $action = 'DeleteDevice'
         }
@@ -486,6 +489,7 @@ function Get-WinSecKeyboardAction {
             'ExportTXT',
             'ExportMD',
             'DeleteDevice',
+            'RenameDevice',
             'Rescan'
         )
     )

@@ -26,14 +26,16 @@ function Get-WinSecDeviceRows {
     [CmdletBinding()]
     param(
         [AllowEmptyCollection()]
-        [object[]]$Devices = @()
+        [object[]]$Devices = @(),
+        [object[]]$History = @(),
+        [switch]$HistoryLoaded
     )
 
     # Inventory is not a public scan result. Read only plain identification
     # fields, never assessment metadata or evidence (including their getters).
     # Validate the entire collection before publishing any display rows.
     if ($Devices.Count -gt 10000) { throw 'Too many registered devices.' }
-    $displayFields = @('DeviceId','Hostname','Name','Mode')
+    $displayFields = @('DeviceId','Hostname','Name','DisplayName','Mode')
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $rows = New-Object 'System.Collections.Generic.List[object]'
 
@@ -80,6 +82,10 @@ function Get-WinSecDeviceRows {
         $hostname = $fields.Hostname
         if ([string]::IsNullOrEmpty($hostname)) { $hostname = $fields.Name }
         if ([string]::IsNullOrEmpty($hostname)) { $hostname = $deviceId }
+        $displayName=$fields.DisplayName
+        if($null -ne $displayName -and ($displayName -isnot [string] -or $displayName.Length -gt 253 -or
+            [string]::IsNullOrWhiteSpace($displayName) -or $displayName -cne $displayName.Trim() -or $displayName -match '[\p{C}\p{Zl}\p{Zp}]')){throw 'Invalid device display name.'}
+        if($null -eq $displayName){$displayName=$hostname}
 
         $inferredMode = 'UNKNOWN'
         foreach ($prefix in @('LOCAL','REMOTE','IMPORTED')) {
@@ -104,11 +110,39 @@ function Get-WinSecDeviceRows {
             Id       = '{0:D2}' -f ($rows.Count + 1)
             DeviceId = $deviceId
             Hostname = $hostname
+            Device   = $displayName
+            HardwareId = if($deviceId -cmatch '^local:(hw1-[a-f0-9]{64})$'){$Matches[1]}else{'Not recorded'}
             Mode     = $mode
             Score    = 'NOT_SCORED'
             Status   = 'PENDING'
             LastScan = 'Not loaded'
         })
+    }
+    if($HistoryLoaded){
+        if($History.Count -gt 10000){throw 'Excessive device history.'}
+        $safeHistory=@(foreach($entry in $History){Copy-WinSecResultData -Value $entry})
+        $scanKeys=@{};$byDevice=@{}
+        $exactIds=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        foreach($row in $rows){$null=$exactIds.Add($row.DeviceId)}
+        foreach($scan in $safeHistory){
+            if($scan -isnot [pscustomobject] -or $scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string] -or
+                -not $exactIds.Contains($scan.DeviceId) -or -not (Test-WinSecTargetIdentifier $scan.ScanId) -or
+                $scan.ExecutionStatus -isnot [string] -or $scan.ExecutionStatus -cnotin @('COMPLETED','COMPLETED_WITH_ERRORS') -or $null -ne $scan.OverallScore -or
+                $scan.OverallStatus -isnot [string] -or $scan.OverallStatus -cne 'NOT_SCORED'){throw 'Invalid device public history.'}
+            Assert-WinSecResultScope $scan.ScopeType $scan.ScopeKey
+            $key=Get-WinSecScanSessionKey $scan.DeviceId $scan.ScanId
+            if($scanKeys.ContainsKey($key)){throw 'Duplicate device scan.'};$scanKeys[$key]=$true
+            $null=ConvertTo-WinSecResultUtc -Value $scan.CompletedAtUTC -FieldName CompletedAtUTC
+            if(-not $byDevice.ContainsKey($scan.DeviceId)){$byDevice[$scan.DeviceId]=New-Object 'System.Collections.Generic.List[object]'}
+            $byDevice[$scan.DeviceId].Add($scan)
+        }
+        foreach($row in $rows){
+            $matching=@($byDevice[$row.DeviceId]|Sort-Object CompletedAtUTC,ScanId)
+            $row.LastScan='No saved scan'
+            if($matching.Count){$last=$matching[-1];$date=ConvertTo-WinSecResultUtc -Value $last.CompletedAtUTC -FieldName CompletedAtUTC;
+                $row.LastScan=($date.UtcDateTime.ToString('yyyy-MM-dd HH:mm')+'Z '+$last.ScopeType)}
+            if(@($matching|Where-Object{$_.ScopeType -ceq 'DEVICE'}).Count){$row.Status='NOT_SCORED'}
+        }
     }
     return $rows.ToArray()
 }
@@ -179,6 +213,8 @@ function Show-WinSecDevices {
         [string]$Version = '0.9.0',
 
         [string]$Message = '',
+        [object[]]$History = @(),
+        [switch]$HistoryLoaded,
         [switch]$EnableRescan,
         [ValidateSet('Scan','Rescan')][string]$ScanAction='Scan'
     )
@@ -188,7 +224,7 @@ function Show-WinSecDevices {
     # --------------------------------------------------------
 
     $rows = @(
-        Get-WinSecDeviceRows -Devices $Devices
+        Get-WinSecDeviceRows -Devices $Devices -History $History -HistoryLoaded:$HistoryLoaded
     )
 
     $deviceCount = $rows.Count
@@ -220,6 +256,7 @@ function Show-WinSecDevices {
             'UP/DOWN'
             'ENTER'
             'DEL/SUPR'
+            'F2'
         )
     }
 
@@ -303,7 +340,7 @@ function Show-WinSecDevices {
     if ($null -ne $selectedDevice) {
 
         $selectedText = 'SELECTED: {0} | MODE: {1}' -f `
-            $selectedDevice.Hostname,
+            $selectedDevice.Device,
             $selectedDevice.Mode
 
         Write-WinSecText `
@@ -335,7 +372,7 @@ function Show-WinSecDevices {
         }
 
         @{
-            Key      = 'Hostname'
+            Key      = 'Device'
             Header   = 'Device'
             Width    = 27
             MinWidth = 12
@@ -344,6 +381,8 @@ function Show-WinSecDevices {
             Align    = 'Left'
             Expand   = $true
         }
+
+        @{ Key='HardwareId';Header='Hardware ID';Width=22;MinWidth=11;MaxWidth=68;Priority=3;Align='Left' }
 
         @{
             Key      = 'Score'
