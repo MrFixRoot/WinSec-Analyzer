@@ -179,10 +179,13 @@ function Invoke-WinSecCoordinatedScan {
     param(
         [object]$Coordinator,
         [string]$DeviceId,
-        [switch]$PersistEvidence
+        [switch]$PersistEvidence,
+        [scriptblock]$ConfirmAction
     )
 
     $script:scanCalls++
+
+    if ($null -eq $ConfirmAction) { throw 'Missing confirmation callback.' }
 
     if ($PersistEvidence.IsPresent) {
         $script:persistEvidenceRequested = $true

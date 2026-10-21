@@ -17,7 +17,7 @@
 # No Pester required
 #
 # Safety:
-# - Local execution only
+# - Synthetic collector only; no Windows audit
 # - All executable checks must be disabled
 # - No security scoring
 # - No remote sessions
@@ -268,6 +268,8 @@ if (
 
 . $cliPath
 . $coordinatorPath
+. (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+try {
 
 $coordinator = New-WinSecScanCoordinator `
     -ProjectRoot $projectRoot
@@ -427,7 +429,7 @@ Assert-WinSecIntegration `
         $null -ne $publicResult -and
         $publicResult.PublicProjection -ceq $true
     ) `
-    -Description 'Real scan returns a public projection'
+    -Description 'Synthetic scan returns a public projection'
 
 # ------------------------------------------------------------
 # TEST 14 - DEVICE AND SCAN ID VALID
@@ -536,18 +538,18 @@ Assert-WinSecIntegration `
         $history.Count -eq 1 -and
         $matchingHistory.Count -eq 1
     ) `
-    -Description 'Coordinator records the real scan session'
+    -Description 'Coordinator records the synthetic scan session'
 
 # ------------------------------------------------------------
-# TEST 21 - NO VERIFIED CHECKS WERE EXECUTED
+# TEST 21 - SYNTHETIC CONTROL COMPLETES
 # ------------------------------------------------------------
 
 Assert-WinSecIntegration `
     -Condition (
         $publicResult.ExecutionStatus -ceq
-        'NO_EXECUTABLE_CHECKS'
+        'COMPLETED'
     ) `
-    -Description 'Execution reports no executable checks'
+    -Description 'Execution completes the synthetic control'
 
 # ------------------------------------------------------------
 # TEST 22 - NO COLLECTOR RESULTS
@@ -562,10 +564,10 @@ Assert-WinSecIntegration `
 # for traceability.
 #
 # Expected behavior:
-# - ExecutionStatus = NO_EXECUTABLE_CHECKS
+# - ExecutionStatus = COMPLETED (synthetic data only)
 # - Control records may exist
-# - Every control must remain NOT_SELECTED
-# - No control may report an executed state
+# - Only the synthetic control is INFORMATIONAL; all others are NOT_SELECTED
+# - No production collector is invoked
 #
 # This test does not require ControlResults to be empty.
 
@@ -591,7 +593,8 @@ $unexpectedControls = @(
 
         if (
             [string]::IsNullOrWhiteSpace($checkId) -or
-            $status -cne 'NOT_SELECTED'
+            ($checkId -ceq 'WSA-SYS-001' -and $status -cne 'INFORMATIONAL') -or
+            ($checkId -cne 'WSA-SYS-001' -and $status -cne 'NOT_SELECTED')
         ) {
             [pscustomobject]@{
                 CheckId = $checkId
@@ -633,9 +636,14 @@ foreach ($control in $unexpectedControls) {
 
 $noChecksExecuted = (
     $publicResult.ExecutionStatus -ceq
-        'NO_EXECUTABLE_CHECKS' -and
+        'COMPLETED' -and
     $unexpectedControls.Count -eq 0
 )
+
+}
+finally {
+    Restore-WinSecConfirmedScanFixture
+}
 
 Assert-WinSecIntegration `
     -Condition $noChecksExecuted `

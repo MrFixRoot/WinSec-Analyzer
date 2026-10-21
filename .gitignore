@@ -1,4 +1,49 @@
+
+# ============================================================
+# WinSec Analyzer - Git Ignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Generated reports and logs
+# ------------------------------------------------------------
+
 reports/*
 !reports/.gitkeep
+
 logs/*
 !logs/.gitkeep
+
+# ------------------------------------------------------------
+# Codex - Private Development Instructions
+# ------------------------------------------------------------
+
+/AGENTS.md
+/agents.md
+
+# Internal project documentation
+/docs/DECISIONS.md
+/docs/decisions.md
+/docs/STATUS.md
+/docs/status.md
+
+# Private architecture documentation
+/docs/.codex/
+
+# ------------------------------------------------------------
+# Local Device Inventory and Scan History
+# ------------------------------------------------------------
+
+# Exclude the entire directory, including nested session data.
+# Already tracked inventory files must also be removed from the Git index.
+/data/
+
+# ------------------------------------------------------------
+# Temporary files
+# ------------------------------------------------------------
+
+*.tmp
+*.bak
+*.log
+
+# Local development notes
+/README.local.md

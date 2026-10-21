@@ -12,7 +12,7 @@
 #
 # Safety:
 # - Local target only
-# - No enabled security checks
+# - Production checks remain disabled; the collector is simulated
 # - No scoring
 # - No remote execution
 # - No automatic evidence persistence
@@ -292,6 +292,8 @@ if (
 
 . $cliPath
 . $coordinatorPath
+. (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+try {
 
 $coordinator = New-WinSecScanCoordinator `
     -ProjectRoot $projectRoot
@@ -387,11 +389,11 @@ Assert-WinSecIntegration `
     -Description 'Coordinator starts with empty history'
 
 # ------------------------------------------------------------
-# EXECUTE ONE REAL RESCAN COMMAND
+# EXECUTE ONE SYNTHETIC RESCAN COMMAND
 # ------------------------------------------------------------
 
 Write-Host ''
-Write-Host '[INFO] Executing one real CLI Rescan command...' `
+Write-Host '[INFO] Executing one synthetic CLI Rescan command...' `
     -ForegroundColor Cyan
 
 Invoke-TestRescanCommand `
@@ -463,15 +465,15 @@ Assert-WinSecIntegration `
     -Description 'Published result remains NOT_SCORED'
 
 # ------------------------------------------------------------
-# TEST 14 - NO EXECUTABLE CHECKS
+# TEST 14 - SYNTHETIC CONTROL COMPLETES
 # ------------------------------------------------------------
 
 Assert-WinSecIntegration `
     -Condition (
         $publicResult.ExecutionStatus -ceq
-            'NO_EXECUTABLE_CHECKS'
+            'COMPLETED'
     ) `
-    -Description 'Scan reports no executable checks'
+    -Description 'Scan completes the synthetic control'
 
 # ------------------------------------------------------------
 # TEST 15 - CATALOG RECORDS ARE NOT EXECUTED
@@ -484,7 +486,8 @@ $controls = @(
 
 $unexpectedControls = @(
     $controls | Where-Object {
-        $_.Status -cne 'NOT_SELECTED' -or
+        ($_.CheckId -ceq 'WSA-SYS-001' -and $_.Status -cne 'INFORMATIONAL') -or
+        ($_.CheckId -cne 'WSA-SYS-001' -and $_.Status -cne 'NOT_SELECTED') -or
         [string]::IsNullOrWhiteSpace(
             [string]$_.CheckId
         )
@@ -495,11 +498,16 @@ Assert-WinSecIntegration `
     -Condition (
         $unexpectedControls.Count -eq 0
     ) `
-    -Description 'All returned controls remain NOT_SELECTED'
+    -Description 'Only the synthetic control is selected'
 
 # ------------------------------------------------------------
 # TEST 16 - SCAN ASSOCIATED WITH DEVICE
 # ------------------------------------------------------------
+
+}
+finally {
+    Restore-WinSecConfirmedScanFixture
+}
 
 $sessionKey = '{0}:{1}{2}:{3}' -f `
     $localId.Length,

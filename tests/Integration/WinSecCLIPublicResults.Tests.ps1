@@ -18,7 +18,7 @@
 #
 # Safety:
 # - Local target only
-# - No enabled checks
+# - Production checks remain disabled; only in-memory test metadata is simulated
 # - No scoring
 # - No remote sessions
 # - No evidence persistence
@@ -296,6 +296,8 @@ if (
 
 . $cliPath
 . $coordinatorPath
+. (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+try {
 
 $coordinator = New-WinSecScanCoordinator `
     -ProjectRoot $projectRoot
@@ -393,15 +395,15 @@ Assert-WinSecIntegration `
     -Description 'New coordinator has no scan sessions'
 
 # ------------------------------------------------------------
-# EXECUTE ONE REAL LOCAL SCAN
+# EXECUTE ONE SYNTHETIC LOCAL SCAN
 # ------------------------------------------------------------
 
 # The production catalog was verified above.
-# No security checks are enabled.
+# Production checks remain disabled; the collector is replaced by a synthetic fixture.
 # No evidence persistence parameter is supplied.
 
 Write-Host ''
-Write-Host '[INFO] Requesting one safe local scan...' `
+Write-Host '[INFO] Requesting one synthetic local scan...' `
     -ForegroundColor Cyan
 
 $publicResult = Invoke-WinSecCLILocalRescan `
@@ -421,15 +423,15 @@ Assert-WinSecIntegration `
     -Description 'Coordinator returns a public result'
 
 # ------------------------------------------------------------
-# TEST 11 - NO EXECUTABLE CHECKS
+# TEST 11 - SYNTHETIC CONTROL COMPLETES
 # ------------------------------------------------------------
 
 Assert-WinSecIntegration `
     -Condition (
         $publicResult.ExecutionStatus -ceq
-        'NO_EXECUTABLE_CHECKS'
+        'COMPLETED'
     ) `
-    -Description 'Execution reports no executable checks'
+    -Description 'Execution completes the synthetic control'
 
 # ------------------------------------------------------------
 # TEST 12 - PUBLIC RESULT SAFETY
@@ -519,7 +521,8 @@ Assert-WinSecIntegration `
 
 $unexpectedControls = @(
     $displayControls | Where-Object {
-        $_.Status -cne 'NOT_SELECTED' -or
+        ($_.CheckId -ceq 'WSA-SYS-001' -and $_.Status -cne 'INFORMATIONAL') -or
+        ($_.CheckId -cne 'WSA-SYS-001' -and $_.Status -cne 'NOT_SELECTED') -or
         [string]::IsNullOrWhiteSpace(
             [string]$_.CheckId
         )
@@ -530,11 +533,16 @@ Assert-WinSecIntegration `
     -Condition (
         $unexpectedControls.Count -eq 0
     ) `
-    -Description 'All disabled controls remain NOT_SELECTED'
+    -Description 'All other controls remain NOT_SELECTED'
 
 # ------------------------------------------------------------
 # TEST 18 - OTHER DEVICE CANNOT ACCESS LOCAL SCAN
 # ------------------------------------------------------------
+
+}
+finally {
+    Restore-WinSecConfirmedScanFixture
+}
 
 $otherState = [pscustomobject]@{
     Screen = 'MainMenu'
@@ -691,7 +699,7 @@ Assert-WinSecIntegration `
         $history.Count -eq 1 -and
         $matchingHistory.Count -eq 1
     ) `
-    -Description 'Coordinator history preserves the real scan'
+    -Description 'Coordinator history preserves the confirmed synthetic scan'
 
 # ------------------------------------------------------------
 # TEST 24 - PRODUCTION CONFIGURATION UNCHANGED

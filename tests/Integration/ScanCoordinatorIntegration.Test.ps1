@@ -40,7 +40,10 @@
 # ============================================================
 
 [CmdletBinding()]
-param()
+param(
+    # Skip the direct AuditEngine call and all disk-writing evidence tests.
+    [switch]$InMemoryOnly
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -392,6 +395,20 @@ function New-WinSecIntAuditResult {
 # TEMPORARY EVIDENCE SANDBOX
 # ============================================================
 
+function New-WinSecIntConfirmationRegistry {
+    param([string]$ProjectRoot)
+    return [pscustomobject]@{
+        CatalogVersion = 'SYNTHETIC-TEST-ONLY'
+        Sections = @([pscustomobject]@{ key = 'SystemSecurity' })
+        Checks = @([pscustomobject]@{
+            CheckId = 'WSA-SYS-001'; Name = 'Synthetic integration control'; SectionKey = 'SystemSecurity'
+            ExecutionEnabled = $true; ExecutionReady = $true
+            ImplementationStatus = 'VALIDATED'; RegistryStatus = 'READY'
+            ScriptPath = Join-Path $ProjectRoot 'src/Checks/Defender/Test-Defender.ps1'
+        })
+    }
+}
+
 function Invoke-WinSecIntSandbox {
     param(
         [Parameter(Mandatory)]
@@ -533,11 +550,12 @@ Test-WinSecIntCase 'Production scoring remains disabled' {
 }
 
 # ============================================================
-# GROUP 2: REAL AUDITENGINE WITH SAFE CATALOG
+# GROUP 2: EMPTY CATALOG AND CONFIRMED SYNTHETIC SESSIONS
 # ============================================================
 
 # Preserve the real registry function and AuditEngine.
-# Only Get-WinSecCheckRegistry is replaced in this group.
+# The optional direct AuditEngine test uses an empty catalog. Subsequent
+# session tests replace both the registry and collector in memory.
 #
 # The synthetic catalog contains zero checks, ensuring
 # AuditEngine cannot execute any collector implementation.
@@ -561,7 +579,7 @@ try {
         -Path Function:\Get-WinSecCheckRegistry `
         -Value {
             [CmdletBinding()]
-            param()
+            param($ProjectRoot)
 
             $script:SafeRegistryCalls++
 
@@ -573,6 +591,7 @@ try {
         } `
         -Force
 
+    if (-not $InMemoryOnly) {
     Test-WinSecIntCase 'Real AuditEngine executes zero checks' {
         $local = New-WinSecLocalTarget
 
@@ -597,16 +616,34 @@ try {
         ) 'AuditEngine did not use the safe catalog.'
     }
 
-    Test-WinSecIntCase 'Real pipeline creates NOT_SCORED result' {
+    }
+    else {
+        Write-Host '[SKIP] Direct AuditEngine invocation (-InMemoryOnly).'
+    }
+
+    # An empty catalog no longer creates a session. Keep the existing history,
+    # duplicate and public-result checks using an explicitly confirmed synthetic
+    # execution; the real collector is never invoked here.
+    Set-Item -Path Function:\Get-WinSecCheckRegistry -Value {
+        param($ProjectRoot)
+        New-WinSecIntConfirmationRegistry -ProjectRoot $ProjectRoot
+    }
+    Set-Item -Path Function:\Invoke-WinSecAudit -Value {
+        param($DeviceId, $ScanId, $CheckIds, $Registry, [switch]$SkipScoring)
+        if (-not $SkipScoring) { throw 'Scoring must remain disabled.' }
+        New-WinSecIntAuditResult -DeviceId $DeviceId -ScanId $ScanId -Mode 'COMPLETED'
+    }
+
+    Test-WinSecIntCase 'Confirmed synthetic pipeline creates NOT_SCORED result' {
         $coordinator = New-WinSecIntCoordinator
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-002'
+            -ScanId 'INT-REAL-002' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual (
             $result.ExecutionStatus
-        ) 'NO_EXECUTABLE_CHECKS'
+        ) 'COMPLETED'
 
         Assert-WinSecIntEqual (
             $result.OverallStatus
@@ -619,12 +656,12 @@ try {
         Assert-WinSecIntEqual $coordinator.Sessions.Count 1
     }
 
-    Test-WinSecIntCase 'Real pipeline stores valid internal session' {
+    Test-WinSecIntCase 'Confirmed synthetic pipeline stores valid internal session' {
         $coordinator = New-WinSecIntCoordinator
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-003'
+            -ScanId 'INT-REAL-003' -ConfirmAction { param($request) $true }
 
         $session = Get-WinSecCoordinatorSession `
             -Coordinator $coordinator `
@@ -639,12 +676,12 @@ try {
         Assert-WinSecIntEqual $session.ScanId 'INT-REAL-003'
     }
 
-    Test-WinSecIntCase 'Real pipeline does not persist evidence' {
+    Test-WinSecIntCase 'Confirmed synthetic pipeline does not persist evidence' {
         $coordinator = New-WinSecIntCoordinator
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-004'
+            -ScanId 'INT-REAL-004' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual (
             $result.EvidenceStorageStatus
@@ -654,32 +691,32 @@ try {
         Assert-WinSecIntEqual $result.FailedEvidenceCount 0
     }
 
-    Test-WinSecIntCase 'Real pipeline rejects duplicate ScanId' {
+    Test-WinSecIntCase 'Confirmed synthetic pipeline rejects duplicate ScanId' {
         $coordinator = New-WinSecIntCoordinator
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-005'
+            -ScanId 'INT-REAL-005' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntThrows {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'INT-REAL-005'
+                -ScanId 'INT-REAL-005' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $coordinator.Sessions.Count 1
     }
 
-    Test-WinSecIntCase 'Real pipeline maintains independent history' {
+    Test-WinSecIntCase 'Confirmed synthetic pipeline maintains independent history' {
         $coordinator = New-WinSecIntCoordinator
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-006'
+            -ScanId 'INT-REAL-006' -ConfirmAction { param($request) $true }
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-REAL-007'
+            -ScanId 'INT-REAL-007' -ConfirmAction { param($request) $true }
 
         $history = @(
             Get-WinSecCoordinatorHistory `
@@ -699,7 +736,8 @@ try {
     }
 }
 finally {
-    # Always restore the actual CheckRegistry function.
+    # Always restore both actual boundaries.
+    Set-Item -Path Function:\Invoke-WinSecAudit -Value $script:OriginalAuditFunction
     Set-Item `
         -Path Function:\Get-WinSecCheckRegistry `
         -Value $script:OriginalRegistryFunction `
@@ -711,7 +749,7 @@ finally {
 # ============================================================
 
 # These scenarios must not execute registered checks.
-# Only the AuditEngine execution boundary is mocked.
+# Registry eligibility and the AuditEngine execution boundary are mocked.
 #
 # Real coordinator, target and result-model functions remain
 # loaded and are executed normally.
@@ -722,6 +760,10 @@ $script:MockCheckIds = @()
 $script:MockAuditMode = 'EMPTY'
 
 try {
+    Set-Item -Path Function:\Get-WinSecCheckRegistry -Value {
+        param($ProjectRoot)
+        New-WinSecIntConfirmationRegistry -ProjectRoot $ProjectRoot
+    }
     Set-Item `
         -Path Function:\Invoke-WinSecAudit `
         -Value {
@@ -758,7 +800,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-001'
+            -ScanId 'INT-MOCK-001' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual $script:MockAuditCalls 1
         Assert-WinSecIntEqual $script:MockSkipScoring $true
@@ -776,7 +818,7 @@ try {
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
             -ScanId 'INT-MOCK-002' `
-            -CheckIds @('WSA-SYS-001')
+            -CheckIds @('WSA-SYS-001') -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual $script:MockCheckIds.Count 1
 
@@ -794,7 +836,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-003'
+            -ScanId 'INT-MOCK-003' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual (
             $result.ExecutionStatus
@@ -811,7 +853,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-004'
+            -ScanId 'INT-MOCK-004' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual (
             $result.ExecutionStatus
@@ -829,7 +871,7 @@ try {
 
         $public = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-005'
+            -ScanId 'INT-MOCK-005' -ConfirmAction { param($request) $true }
 
         $json = ConvertTo-Json `
             -InputObject $public `
@@ -851,7 +893,7 @@ try {
 
         $public = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-006'
+            -ScanId 'INT-MOCK-006' -ConfirmAction { param($request) $true }
 
         $session = Get-WinSecCoordinatorSession `
             -Coordinator $coordinator `
@@ -870,7 +912,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-007'
+            -ScanId 'INT-MOCK-007' -ConfirmAction { param($request) $true }
 
         $public = Get-WinSecCoordinatorPublicResult `
             -Coordinator $coordinator `
@@ -895,7 +937,7 @@ try {
 
         $null = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-008'
+            -ScanId 'INT-MOCK-008' -ConfirmAction { param($request) $true }
 
         $history = @(
             Get-WinSecCoordinatorHistory `
@@ -924,7 +966,7 @@ try {
 
         $result = Invoke-WinSecCoordinatedScan `
             -Coordinator $coordinator `
-            -ScanId 'INT-MOCK-009'
+            -ScanId 'INT-MOCK-009' -ConfirmAction { param($request) $true }
 
         Assert-WinSecIntEqual (
             $result.ExpectedCheckCount
@@ -945,7 +987,7 @@ try {
         Assert-WinSecIntThrows {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'INT-MOCK-010'
+                -ScanId 'INT-MOCK-010' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $coordinator.Sessions.Count 0
@@ -959,7 +1001,7 @@ try {
         Assert-WinSecIntThrows {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'INT-MOCK-011'
+                -ScanId 'INT-MOCK-011' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $coordinator.Sessions.Count 0
@@ -973,7 +1015,7 @@ try {
         Assert-WinSecIntThrows {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
-                -ScanId 'INT-MOCK-012'
+                -ScanId 'INT-MOCK-012' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $coordinator.Sessions.Count 0
@@ -996,7 +1038,7 @@ try {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
                 -DeviceId 'remote:SERVER-01' `
-                -ScanId 'INT-MOCK-013'
+                -ScanId 'INT-MOCK-013' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $script:MockAuditCalls 0
@@ -1019,7 +1061,7 @@ try {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
                 -DeviceId 'imported:PC-02' `
-                -ScanId 'INT-MOCK-014'
+                -ScanId 'INT-MOCK-014' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $script:MockAuditCalls 0
@@ -1045,7 +1087,7 @@ try {
             Invoke-WinSecCoordinatedScan `
                 -Coordinator $coordinator `
                 -DeviceId $local.DeviceId `
-                -ScanId 'INT-MOCK-015'
+                -ScanId 'INT-MOCK-015' -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $script:MockAuditCalls 0
@@ -1064,7 +1106,7 @@ try {
                 -CheckIds @(
                     'WSA-SYS-001',
                     'WSA-SYS-001'
-                )
+                ) -ConfirmAction { param($request) $true }
         }
 
         Assert-WinSecIntEqual $script:MockAuditCalls 0
@@ -1084,6 +1126,7 @@ try {
 }
 finally {
     # Restore the real AuditEngine after all simulated tests.
+    Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $script:OriginalRegistryFunction
     Set-Item `
         -Path Function:\Invoke-WinSecAudit `
         -Value $script:OriginalAuditFunction `
@@ -1098,6 +1141,7 @@ finally {
 # The input is synthetic and produced in memory.
 # Persistence is explicitly requested inside a temp sandbox.
 
+if (-not $InMemoryOnly) {
 Test-WinSecIntCase 'DPAPI protection is available' {
     Assert-WinSecIntEqual (
         Assert-WinSecEvidenceProtection
@@ -1408,6 +1452,11 @@ Test-WinSecIntCase 'Different devices use isolated storage paths' {
 }
 
 # ============================================================
+}
+else {
+    Write-Host '[SKIP] Evidence persistence and DPAPI tests (-InMemoryOnly).'
+}
+
 # GROUP 5: PRODUCTION CONFIGURATION INTEGRITY
 # ============================================================
 

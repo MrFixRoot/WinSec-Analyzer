@@ -531,6 +531,29 @@ function Import-WinSecTargetRegistry {
 # BUILD LOCAL DEVICE FALLBACK
 # ============================================================
 
+function Get-WinSecLocalHardwareDeviceId {
+    [CmdletBinding()]
+    param()
+
+    # Local identity only; no remote session, raw identifier persistence or log.
+    try {
+        $products = @(Get-CimInstance -Namespace 'root/cimv2' -ClassName 'Win32_ComputerSystemProduct' `
+            -Property UUID -OperationTimeoutSec 5 -ErrorAction Stop)
+        if ($products.Count -ne 1 -or $products[0].UUID -isnot [string]) { throw 'Invalid hardware identity.' }
+        $uuid = $products[0].UUID
+        if ($uuid -cnotmatch '^[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$' -or
+            $uuid -match '^(00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$') {
+            throw 'Invalid hardware identity.'
+        }
+        $bytes = [Text.Encoding]::UTF8.GetBytes('WinSecAnalyzer:SMBIOS-UUID:v1:' + $uuid.ToLowerInvariant())
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+        return ('local:hw1-' + $hash)
+    }
+    catch { throw 'Unable to establish a valid local hardware identity.' }
+}
+
 function New-WinSecLocalTarget {
     [CmdletBinding()]
     param()
@@ -549,9 +572,11 @@ function New-WinSecLocalTarget {
         throw 'Unable to determine a valid local hostname.'
     }
 
+    $deviceId = Get-WinSecLocalHardwareDeviceId
+
     return [pscustomobject]@{
-        DeviceId = "local:$hostname"
-        Id = "local:$hostname"
+        DeviceId = $deviceId
+        Id = $deviceId
 
         Hostname = $hostname
         Name = $hostname

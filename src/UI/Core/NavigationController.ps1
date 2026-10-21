@@ -569,6 +569,14 @@ function Invoke-WinSecNavigationAction {
         # Request security rescan
         # ----------------------------------------------------
 
+        'DeleteDevice' {
+            if ($State.Screen -ceq 'Devices' -and $deviceCount -gt 0 -and
+                $State.DeviceIndex -ge 0 -and $State.DeviceIndex -lt $deviceCount) {
+                $State.PendingCommand = 'DeleteDevice'
+                $State.PendingScope = 'Device'
+            }
+        }
+
         'Rescan' {
 
             if (

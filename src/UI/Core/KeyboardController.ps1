@@ -53,6 +53,7 @@ function Test-WinSecKeyboardActionAllowed {
             'Exit',
             'ShowFindings',
             'ExportTXT',
+            'DeleteDevice',
             'Rescan'
         )]
         [string]$Action,
@@ -65,6 +66,7 @@ function Test-WinSecKeyboardActionAllowed {
     )
 
     switch ($Action) {
+        'DeleteDevice' { return ($Screen -ceq 'Devices') }
 
         # ----------------------------------------------------
         # List navigation
@@ -344,6 +346,11 @@ function ConvertTo-WinSecKeyboardAction {
         27 {
             $action = 'Back'
         }
+
+        # Delete / Supr (VK_DELETE)
+        46 {
+            $action = 'DeleteDevice'
+        }
     }
 
     # --------------------------------------------------------
@@ -473,6 +480,7 @@ function Get-WinSecKeyboardAction {
         $action -in @(
             'Exit',
             'ExportTXT',
+            'DeleteDevice',
             'Rescan'
         )
     )
