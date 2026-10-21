@@ -917,16 +917,29 @@ function Get-WinSecCoordinatorSession {
 
     $entry = $Coordinator.Sessions[$key]
 
-    if (-not (
-        Test-WinSecResultSession -Session $entry.Session
-    )) {
+    # Own the response before validation; never return a reference into the store.
+    $snapshot = Copy-WinSecResultData -Value ([pscustomobject]@{
+        DeviceId = $entry.DeviceId
+        ScanId = $entry.ScanId
+        Session = $entry.Session
+    })
+    if ($snapshot.DeviceId -isnot [string] -or $snapshot.ScanId -isnot [string] -or
+        -not [string]::Equals($snapshot.DeviceId,$DeviceId,[StringComparison]::OrdinalIgnoreCase) -or
+        $snapshot.ScanId -cne $ScanId -or $null -eq $snapshot.Session) {
         throw 'Stored internal scan session failed validation.'
     }
 
-    # INTERNAL ONLY: includes original collector evidence.
+    if (-not (
+        Test-WinSecResultSession -Session $snapshot.Session
+    ) -or $snapshot.Session.DeviceId -cne $snapshot.DeviceId -or
+        $snapshot.Session.ScanId -cne $snapshot.ScanId) {
+        throw 'Stored internal scan session failed validation.'
+    }
+
+    # INTERNAL ONLY: the isolated copy includes collector evidence.
     # Never export this object directly to public reports.
 
-    return $entry.Session
+    return $snapshot.Session
 }
 
 # ============================================================

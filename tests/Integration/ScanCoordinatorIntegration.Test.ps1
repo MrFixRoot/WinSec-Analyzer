@@ -905,6 +905,52 @@ try {
         ) $script:SecretMarker
     }
 
+    Test-WinSecIntCase 'Changing a retrieved session cannot rewrite a completed coordinated scan' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-SNAPSHOT-001' -ConfirmAction { $true }
+        $before = ConvertTo-Json -InputObject $coordinator.Sessions -Depth 40 -Compress
+        $session = Get-WinSecCoordinatorSession $coordinator $public.DeviceId $public.ScanId
+        $session.ControlResults[0].Evidence.Secret = 'CHANGED-OUTSIDE-STORE'
+        $session.ControlResults[0].Status = 'ERROR'
+        $session.ExecutionStatus = 'FAILED'
+        $session.ScanId = 'different-returned-copy'
+        Assert-WinSecIntEqual (ConvertTo-Json -InputObject $coordinator.Sessions -Depth 40 -Compress) $before
+        $again = Get-WinSecCoordinatorSession $coordinator $public.DeviceId $public.ScanId
+        Assert-WinSecIntEqual $again.ExecutionStatus 'COMPLETED'
+        Assert-WinSecIntEqual $again.ControlResults[0].Evidence.Secret $script:SecretMarker
+        Assert-WinSecIntTrue (-not [object]::ReferenceEquals($again,$session))
+    }
+
+    Test-WinSecIntCase 'Public results and history remain stable after internal and public response mutations' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-SNAPSHOT-002' -ConfirmAction { $true }
+        $before = ConvertTo-Json -InputObject @(Get-WinSecCoordinatorHistory $coordinator) -Depth 20 -Compress
+        $session = Get-WinSecCoordinatorSession $coordinator $public.DeviceId $public.ScanId
+        $session.CompletedAtUTC = '2026-02-01T00:00:00Z'
+        $public.ControlResults[0].Status = 'UNKNOWN'
+        $rows = @(Get-WinSecCoordinatorHistory $coordinator)
+        $rows[0].ExecutionStatus = 'CANCELLED'
+        Assert-WinSecIntEqual (ConvertTo-Json -InputObject @(Get-WinSecCoordinatorHistory $coordinator) -Depth 20 -Compress) $before
+        $fresh = Get-WinSecCoordinatorPublicResult $coordinator $public.DeviceId $public.ScanId
+        Assert-WinSecIntEqual $fresh.ControlResults[0].Status 'INFORMATIONAL'
+        Assert-WinSecIntTrue ((ConvertTo-Json $fresh -Depth 30) -notmatch $script:SecretMarker)
+        Assert-WinSecIntEqual $fresh.OverallStatus 'NOT_SCORED'
+    }
+
+    Test-WinSecIntCase 'A foreign valid model substituted under a real scan key cannot be retrieved or published' {
+        $script:MockAuditMode = 'COMPLETED'
+        $coordinator = New-WinSecIntCoordinator
+        $public = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId 'INT-SNAPSHOT-003' -ConfirmAction { $true }
+        $key = Get-WinSecScanSessionKey $public.DeviceId $public.ScanId
+        $coordinator.Sessions[$key].Session = New-WinSecResultSession -DeviceId 'local:FOREIGN-FIXTURE' -ScanId 'foreign-scan'
+        $before = ConvertTo-Json -InputObject $coordinator.Sessions -Depth 30 -Compress
+        Assert-WinSecIntThrows { Get-WinSecCoordinatorSession $coordinator $public.DeviceId $public.ScanId }
+        Assert-WinSecIntThrows { Get-WinSecCoordinatorPublicResult $coordinator $public.DeviceId $public.ScanId }
+        Assert-WinSecIntEqual (ConvertTo-Json -InputObject $coordinator.Sessions -Depth 30 -Compress) $before
+    }
+
     Test-WinSecIntCase 'Public retrieval remains evidence-free' {
         $script:MockAuditMode = 'COMPLETED'
 
