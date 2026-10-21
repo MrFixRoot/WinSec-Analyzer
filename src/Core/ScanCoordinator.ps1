@@ -55,6 +55,7 @@ $script:WinSecCoordinatorDependencies = @(
     'src/Services/DeviceManagementService.ps1'
     'src/Services/PublicHistoryService.ps1'
     'src/Services/CriteriaService.ps1'
+    'src/Services/SystemInfoService.ps1'
     'src/Core/EvaluationEngine.ps1'
     'src/Core/FindingsEngine.ps1'
     'src/Services/AssessmentService.ps1'
@@ -964,6 +965,12 @@ function Invoke-WinSecCoordinatedScan {
         throw 'Assessment mode changed during collection.'
     }
     if ($assessmentEnabled) {
+        if ($null -eq $assessmentInputs.TargetContext) {
+            # Collect applicability metadata only for this completed, confirmed
+            # local scan. Policy profile remains unresolved until selected.
+            $assessmentInputs.TargetContext = Get-WinSecLocalAssessmentContext `
+                -DeviceId $target.DeviceId -ScanId $ScanId
+        }
         $scopeArguments.Assessment = Invoke-WinSecScanAssessment -AuditResult $audit -ProjectRoot $Coordinator.ProjectRoot `
             -TargetContext $assessmentInputs.TargetContext -DependencyEvidence $assessmentInputs.DependencyEvidence `
             -CatalogSnapshots $assessmentCatalogs
