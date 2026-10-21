@@ -253,9 +253,10 @@ function Get-WinSecCLIActiveAssessment {
         $activeScanMap -is [System.Collections.IDictionary] -and
         $activeScanMap.Contains($deviceId)
     ) {
-        $activeScanId = [string]$activeScanMap[$deviceId]
+        $activeScanId = $activeScanMap[$deviceId]
 
-        if ([string]::IsNullOrWhiteSpace($activeScanId)) {
+        if ($activeScanId -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($activeScanId)) {
             throw 'Active scan identifier is missing.'
         }
 
@@ -286,11 +287,25 @@ function Get-WinSecCLIActiveAssessment {
             throw 'Selected public scan result is null.'
         }
 
+        # Own a bounded data snapshot before reading flags or display fields.
+        # Standalone CLI consumers may not have initialized the coordinator.
+        # Loading ResultModel defines functions only; no collection/storage.
+        if ($null -eq (Get-Command 'Copy-WinSecResultData' `
+            -CommandType Function -ErrorAction SilentlyContinue)) {
+            . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
+        }
+        $publicResult = Copy-WinSecResultData -Value $publicResult
+
         # ----------------------------------------------------
         # Validate the public result before rendering
         # ----------------------------------------------------
 
         if (
+            $publicResult.PublicProjection -isnot [bool] -or
+            $publicResult.ContainsRawEvidence -isnot [bool] -or
+            $publicResult.ScoringEligible -isnot [bool] -or
+            $publicResult.DeviceId -isnot [string] -or
+            $publicResult.ScanId -isnot [string] -or
             $publicResult.PublicProjection -cne $true -or
             $publicResult.ContainsRawEvidence -cne $false -or
             $publicResult.DeviceId -cne $deviceId -or
@@ -302,13 +317,40 @@ function Get-WinSecCLIActiveAssessment {
             throw 'Invalid public assessment projection.'
         }
 
-        if (
-            $null -ne
-                $publicResult.PSObject.Properties['Evidence'] -or
-            $null -ne
-                $publicResult.PSObject.Properties['RawEvidence']
-        ) {
-            throw 'Raw evidence is not allowed in CLI results.'
+        # PublicProjection is a marker, not proof that every nested field is
+        # safe. Inspect the whole snapshot, including aliases and collections
+        # not currently rendered. The copier already enforces depth/node
+        # limits, data-only properties and absence of cycles.
+        $publicValues = New-Object 'System.Collections.Generic.Stack[object]'
+        $publicValues.Push($publicResult)
+        while ($publicValues.Count -gt 0) {
+            $value = $publicValues.Pop()
+            if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) {
+                continue
+            }
+            if ($value -is [System.Collections.IList]) {
+                foreach ($item in $value) { $publicValues.Push($item) }
+                continue
+            }
+            $isDictionary = $value -is [System.Collections.IDictionary]
+            $names = if ($isDictionary) { @($value.psbase.Keys) }
+                else { @($value.PSObject.Properties.Name) }
+            foreach ($name in $names) {
+                if ($name -in @('Evidence','RawEvidence','OriginalResult','ObservedValue','ExpectedValue')) {
+                    throw 'Raw data is not allowed in public CLI results.'
+                }
+                if ($isDictionary) { $childValue = $value[$name] }
+                else { $childValue = $value.PSObject.Properties[$name].Value }
+                if ($name -in @('Score','OverallScore','ScoreValue','ScoreResult','ScoringPolicy') -and
+                    $null -ne $childValue) {
+                    throw 'Unapproved scoring data is not allowed in public CLI results.'
+                }
+                if ($name -in @('ScoringEnabled','ScoringEligible') -and
+                    ($childValue -isnot [bool] -or $childValue -ne $false)) {
+                    throw 'Scoring authorization is not allowed in public CLI results.'
+                }
+                $publicValues.Push($childValue)
+            }
         }
 
         # ----------------------------------------------------
