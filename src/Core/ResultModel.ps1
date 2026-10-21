@@ -62,6 +62,18 @@ function Test-WinSecResultText {
     return (-not [regex]::IsMatch($Value, '[\x00-\x1F\x7F]'))
 }
 
+function Test-WinSecResultPercentage {
+    [CmdletBinding()]
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) { return $true }
+    if ($Value.GetType() -notin @([byte],[sbyte],[int16],[uint16],[int32],
+        [uint32],[int64],[uint64],[single],[double],[decimal])) { return $false }
+    $number = [double]$Value
+    return (-not [double]::IsNaN($number) -and -not [double]::IsInfinity($number) -and
+        $number -ge 0 -and $number -le 100)
+}
+
 function ConvertTo-WinSecResultUtc {
     [CmdletBinding()]
     param(
@@ -136,6 +148,65 @@ function Assert-WinSecResultItems {
     }
 }
 
+function Assert-WinSecResultScope {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object]$ScopeType,
+        [AllowNull()][object]$ScopeKey,
+        [AllowEmptyCollection()][string[]]$ExpectedCheckIds = @(),
+        [AllowEmptyCollection()][object[]]$ControlResults = @(),
+        [AllowEmptyCollection()][object[]]$DerivedResults = @(),
+        [string]$ExecutionStatus = 'PENDING'
+    )
+
+    $sections = @('SystemSecurity','NetworkSecurity','IdentityAccess',
+        'LoggingAuditing','ServicesHardening')
+    if ($ScopeType -isnot [string] -or $ScopeKey -isnot [string] -or
+        $ScopeType -cnotin @('DEVICE','SECTION','CONTROL')) {
+        throw 'Invalid result scope identity.'
+    }
+    switch -CaseSensitive ($ScopeType) {
+        'DEVICE' {
+            if ($ScopeKey -cne 'ALL') { throw 'Invalid device scope key.' }
+        }
+        'SECTION' {
+            if ($ScopeKey -cnotin $sections) { throw 'Invalid section scope key.' }
+        }
+        'CONTROL' {
+            if ($ScopeKey -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$' -or
+                @($ExpectedCheckIds | Where-Object { $_ -cne $ScopeKey }).Count -gt 0) {
+                throw 'Invalid control scope selection.'
+            }
+        }
+    }
+
+    $collected = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+    foreach ($record in $ControlResults) {
+        $id = Get-WinSecResultField $record 'CheckId'
+        $status = Get-WinSecResultField $record 'Status'
+        if ($id -cnotin $ExpectedCheckIds) {
+            if ($status -cne 'NOT_SELECTED') { throw 'Collector lies outside the declared scope selection.' }
+            continue
+        }
+        $section = Get-WinSecResultField $record 'SectionKey'
+        if ($section -cnotin $sections -or
+            ($ScopeType -ceq 'SECTION' -and $section -cne $ScopeKey) -or
+            $status -ceq 'NOT_SELECTED') {
+            throw 'Collector does not match the declared result scope.'
+        }
+        $null = $collected.Add($id)
+    }
+    if ($ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS') -and
+        ($ExpectedCheckIds.Count -eq 0 -or $collected.Count -ne $ExpectedCheckIds.Count)) {
+        throw 'Completed scope is missing its selected collector results.'
+    }
+    foreach ($record in $DerivedResults) {
+        if ((Get-WinSecResultField $record 'CheckId') -cnotin $ExpectedCheckIds) {
+            throw 'Derived result lies outside the declared scope selection.'
+        }
+    }
+}
+
 function New-WinSecResultSession {
     [CmdletBinding()]
     param(
@@ -156,7 +227,9 @@ function New-WinSecResultSession {
         [AllowEmptyCollection()][object[]]$ReviewItems = @(),
         [AllowNull()][object]$ScoreResult = $null,
         [AllowNull()][object]$ScoringPolicy = $null,
-        [string]$CatalogVersion = ''
+        [string]$CatalogVersion = '',
+        [AllowNull()][object]$ScopeType = $null,
+        [AllowNull()][object]$ScopeKey = $null
     )
 
     if (-not (Test-WinSecResultText $DeviceId) -or
@@ -186,6 +259,14 @@ function New-WinSecResultSession {
         if (-not (Test-WinSecResultText $id) -or -not $expectedSet.Add($id)) {
             throw 'ExpectedCheckIds must contain unique, nonempty identifiers.'
         }
+    }
+
+    $hasScope = $PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')
+    if ($hasScope) {
+        Assert-WinSecResultScope -ScopeType $ScopeType -ScopeKey $ScopeKey `
+            -ExpectedCheckIds $ExpectedCheckIds -ControlResults $ControlResults `
+            -DerivedResults @($EvaluationResults + $CriteriaSelections + $Findings + $ReviewItems) `
+            -ExecutionStatus $ExecutionStatus
     }
 
     Assert-WinSecResultItems -Items $ControlResults -Kind 'ControlResults' `
@@ -288,7 +369,7 @@ function New-WinSecResultSession {
         $duration = [Math]::Round(($end - $start).TotalSeconds, 3)
     }
 
-    return [pscustomobject]@{
+    $session = [pscustomobject]@{
         SchemaVersion = '1.0.0'
         AuditId = $ScanId
         ScanId = $ScanId
@@ -326,6 +407,11 @@ function New-WinSecResultSession {
         ContainsRawEvidence = ($ControlResults.Count -gt 0)
         InternalOnly = $true
     }
+    if ($hasScope) {
+        $session | Add-Member -NotePropertyName ScopeType -NotePropertyValue $ScopeType
+        $session | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $ScopeKey
+    }
+    return $session
 }
 
 function Test-WinSecResultSession {
@@ -333,6 +419,21 @@ function Test-WinSecResultSession {
     param([Parameter(Mandatory)][object]$Session)
 
     try {
+        # Public metadata must remain scalar data of its declared type.
+        foreach ($name in @('SchemaVersion','AuditId','CollectionMode','ExecutionStatus',
+            'StartedAtUTC','OverallStatus','AssessmentStatus')) {
+            if ((Get-WinSecResultField $Session $name) -isnot [string]) { return $false }
+        }
+        if ((Get-WinSecResultField $Session 'InternalOnly') -isnot [bool] -or
+            (Get-WinSecResultField $Session 'ScoringEligible') -isnot [bool] -or
+            (Get-WinSecResultField $Session 'ScoringEnabled') -isnot [bool] -or
+            $Session.ScoringEnabled -cne $Session.ScoringEligible -or
+            $Session.CollectionMode -cnotin @('LOCAL','REMOTE','IMPORTED') -or
+            $Session.AssessmentStatus -cnotin @('PENDING','INCOMPLETE','COMPLETE') -or
+            -not (Test-WinSecResultPercentage (Get-WinSecResultField $Session 'OverallScore')) -or
+            -not (Test-WinSecResultPercentage (Get-WinSecResultField $Session 'OverallCoverage'))) {
+            return $false
+        }
         if ((Get-WinSecResultField $Session 'InternalOnly') -cne $true -or
             (Get-WinSecResultField $Session 'SchemaVersion') -cne '1.0.0') {
             return $false
@@ -368,9 +469,11 @@ function Test-WinSecResultSession {
         if ($null -eq $scorePolicy -and $eligible -ceq $true) {
             return $false
         }
-        $null = ConvertTo-WinSecResultUtc -Value $Session.StartedAtUTC -FieldName 'StartedAtUTC'
+        $start = ConvertTo-WinSecResultUtc -Value $Session.StartedAtUTC -FieldName 'StartedAtUTC'
         if ($null -ne $Session.CompletedAtUTC) {
-            $null = ConvertTo-WinSecResultUtc -Value $Session.CompletedAtUTC -FieldName 'CompletedAtUTC'
+            if ($Session.CompletedAtUTC -isnot [string]) { return $false }
+            $end = ConvertTo-WinSecResultUtc -Value $Session.CompletedAtUTC -FieldName 'CompletedAtUTC'
+            if ($end -lt $start) { return $false }
         }
         foreach ($spec in @(
             @{ Name='ControlResults'; Unique='CheckId' },
@@ -397,6 +500,11 @@ function Test-WinSecResultSession {
         }
         # Independently verify authorization; flags on the model alone
         # cannot establish a valid numeric security score.
+        $sections = Get-WinSecResultField $Session 'SectionResults'
+        if ($sections -isnot [array]) { return $false }
+        if ($null -eq $scorePolicy -and
+            ($sections.Count -ne 0 -or $null -ne $Session.OverallCoverage -or
+                $Session.AssessmentStatus -cne 'PENDING')) { return $false }
         if ($null -ne $scorePolicy) {
             if ($null -eq (Get-Command 'Get-WinSecSecurityScore' `
                 -CommandType Function -ErrorAction SilentlyContinue)) { return $false }
@@ -412,6 +520,25 @@ function Test-WinSecResultSession {
                 $recomputed.ScoringEligible -cne $eligible -or
                 $recomputed.AssessmentStatus -cne $Session.AssessmentStatus -or
                 $recomputed.Coverage -ne $Session.OverallCoverage) { return $false }
+            if ($sections.Count -ne @($recomputed.SectionResults).Count) { return $false }
+            $seenSections = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+            foreach ($section in $sections) {
+                $key = Get-WinSecResultField $section 'Key'
+                if ($key -isnot [string] -or -not $seenSections.Add($key) -or
+                    (Get-WinSecResultField $section 'DeviceId') -isnot [string] -or
+                    (Get-WinSecResultField $section 'ScanId') -isnot [string] -or
+                    $section.DeviceId -cne $deviceId -or $section.ScanId -cne $scanId -or
+                    (Get-WinSecResultField $section 'Status') -isnot [string] -or
+                    -not (Test-WinSecResultPercentage (Get-WinSecResultField $section 'Score')) -or
+                    -not (Test-WinSecResultPercentage (Get-WinSecResultField $section 'Coverage'))) {
+                    return $false
+                }
+                $verified = @($recomputed.SectionResults | Where-Object { $_.Key -ceq $key })
+                if ($verified.Count -ne 1 -or $section.Status -cne $verified[0].Status -or
+                    $section.Score -ne $verified[0].Score -or $section.Coverage -ne $verified[0].Coverage) {
+                    return $false
+                }
+            }
         }
         $expected = Get-WinSecResultField $Session 'ExpectedCheckIds'
         if ($expected -isnot [array]) { return $false }
@@ -419,6 +546,16 @@ function Test-WinSecResultSession {
         foreach ($id in $expected) {
             if (-not (Test-WinSecResultText $id) -or
                 -not $uniqueExpected.Add($id)) { return $false }
+        }
+        $fieldNames = if ($Session -is [System.Collections.IDictionary]) {
+            @($Session.GetEnumerator() | ForEach-Object { $_.Key })
+        } else { @($Session.PSObject.Properties.Name) }
+        if ('ScopeType' -in $fieldNames -or 'ScopeKey' -in $fieldNames) {
+            Assert-WinSecResultScope -ScopeType (Get-WinSecResultField $Session 'ScopeType') `
+                -ScopeKey (Get-WinSecResultField $Session 'ScopeKey') `
+                -ExpectedCheckIds $expected -ControlResults $controls `
+                -DerivedResults @($Session.EvaluationResults + $Session.CriteriaSelections + $Session.Findings + $Session.ReviewItems) `
+                -ExecutionStatus $execution
         }
         return $true
     }
@@ -498,7 +635,7 @@ function ConvertTo-WinSecPublicScanResult {
                     Get-WinSecResultField $item 'Score'
                 } else { $null }
                 Coverage = Get-WinSecResultField $item 'Coverage'
-                Status = if ($Session.ScoringEligible -ceq $true) {
+                Status = if ($Session.ScoringEligible -ceq $true -and $item.Status -ceq 'COMPLETE') {
                     'COMPLETE'
                 } else { 'NOT_SCORED' }
             }
@@ -518,7 +655,7 @@ function ConvertTo-WinSecPublicScanResult {
             }
         }
     )
-    return [pscustomobject]@{
+    $public = [pscustomobject]@{
         SchemaVersion = $Session.SchemaVersion
         AuditId = $Session.AuditId
         ScanId = $Session.ScanId
@@ -543,4 +680,11 @@ function ConvertTo-WinSecPublicScanResult {
         ContainsRawEvidence = $false
         PublicProjection = $true
     }
+    # Legacy sessions have no recorded scope; never infer one from their controls.
+    $scopeType = Get-WinSecResultField $Session 'ScopeType'
+    if ($null -ne $scopeType) {
+        $public | Add-Member -NotePropertyName ScopeType -NotePropertyValue $scopeType
+        $public | Add-Member -NotePropertyName ScopeKey -NotePropertyValue (Get-WinSecResultField $Session 'ScopeKey')
+    }
+    return $public
 }

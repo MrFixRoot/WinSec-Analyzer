@@ -108,5 +108,39 @@ Test-WinSecScope 'Nonselected controls cannot acquire findings under a partial s
     $session.Findings=@([pscustomobject]@{DeviceId=$session.DeviceId;ScanId=$session.ScanId;CheckId=$extra.CheckId;FindingId='foreign-scope'})
     Assert-WinSecScope (-not (Test-WinSecResultSession $session))
 }
+Test-WinSecScope 'Stored scope cannot lose either field or replace both with null' {
+    foreach($field in @('ScopeType','ScopeKey','BOTH_NULL')) {
+        $session=New-WinSecScopeFixture
+        if($field -ceq 'BOTH_NULL'){ $session.ScopeType=$null; $session.ScopeKey=$null }
+        else { $session.PSObject.Properties.Remove($field) }
+        Assert-WinSecScope (-not (Test-WinSecResultSession $session))
+    }
+}
+Test-WinSecScope 'Unknown collector sections reject even under DEVICE scope' {
+    $session=New-WinSecScopeFixture DEVICE ALL
+    $session.ControlResults[0].SectionKey='UnknownSection'
+    Assert-WinSecScope (-not (Test-WinSecResultSession $session))
+}
+Test-WinSecScope 'Technical collection errors remain errors and NOT_SCORED under scope' {
+    $session=New-WinSecScopeFixture
+    $session.ControlResults[0].Status='ERROR'; $session.ExecutionStatus='COMPLETED_WITH_ERRORS'
+    Assert-WinSecScope (Test-WinSecResultSession $session)
+    $public=ConvertTo-WinSecPublicScanResult $session
+    Assert-WinSecScope ($public.ControlResults[0].Status -ceq 'ERROR' -and $public.Findings.Count -eq 0 -and
+        $public.OverallStatus -ceq 'NOT_SCORED' -and $null -eq $public.OverallScore)
+}
+Test-WinSecScope 'Projection preserves source session and scope fields unchanged' {
+    $session=New-WinSecScopeFixture
+    $before=ConvertTo-Json -InputObject $session -Depth 15 -Compress
+    $public=ConvertTo-WinSecPublicScanResult $session
+    $public.ScopeKey='NetworkSecurity'
+    Assert-WinSecScope ($before -ceq (ConvertTo-Json -InputObject $session -Depth 15 -Compress))
+}
+Test-WinSecScope 'Control scope cannot declare several selected checks' {
+    Assert-WinSecScopeThrows {
+        New-WinSecResultSession -DeviceId 'local:SCOPE-FIXTURE' -ScanId 'multiple' `
+            -ScopeType CONTROL -ScopeKey WSA-SYS-001 -ExpectedCheckIds @('WSA-SYS-001','WSA-SYS-002')
+    }
+}
 Write-Host "Passed: $script:passed; Failed: $script:failed"
 if($script:failed -gt 0){ throw 'Result scope unit tests failed.' }

@@ -299,7 +299,9 @@ function New-IntegratedSession {
         [string[]]$ExpectedCheckIds = @('WSA-SYS-001'),
 
         [AllowNull()]
-        [object]$ScoreResult = $null
+        [object]$ScoreResult = $null,
+
+        [hashtable]$Scope = @{}
     )
 
     $findingResult = ConvertTo-WinSecFindings `
@@ -322,7 +324,7 @@ function New-IntegratedSession {
         -Findings @($findingResult.Findings) `
         -ReviewItems @($findingResult.ReviewItems) `
         -ScoringPolicy $Policy `
-        -ScoreResult $ScoreResult
+        -ScoreResult $ScoreResult @Scope
 }
 
 # ============================================================
@@ -642,6 +644,36 @@ Test-Case 'Public PASS score requires authorization' {
     Assert-Equal $public.ScoringEligible $true
 }
 
+Test-Case 'Sections without evaluated controls never inherit overall COMPLETE' {
+    $bundle = New-IntegrationBundle
+    $session = New-IntegratedSession -Bundle $bundle -Policy $script:TestPolicy
+    $public = ConvertTo-WinSecPublicScanResult $session
+    Assert-Equal $public.OverallStatus 'COMPLETE'
+    Assert-Equal @($public.SectionResults | Where-Object { $_.Key -ceq 'SystemSecurity' })[0].Status 'COMPLETE'
+    foreach ($section in @($public.SectionResults | Where-Object { $_.Key -cne 'SystemSecurity' })) {
+        Assert-Equal $section.Status 'NOT_SCORED'
+        Assert-Equal $section.Score $null
+    }
+}
+
+foreach ($mutation in @('SCORE','COVERAGE','STATUS','DEVICE','SCAN','DUPLICATE','MISSING')) {
+    Test-Case ('Section summary mutation rejects before public export: '+$mutation) {
+        $bundle = New-IntegrationBundle
+        $session = New-IntegratedSession -Bundle $bundle -Policy $script:TestPolicy
+        switch ($mutation) {
+            'SCORE' { $session.SectionResults[0].Score=73 }
+            'COVERAGE' { $session.SectionResults[0].Coverage=[pscustomobject]@{Evidence='PRIVATE-SECTION-MARKER'} }
+            'STATUS' { $session.SectionResults[0].Status='NOT_SCORED' }
+            'DEVICE' { $session.SectionResults[0].DeviceId='local:FOREIGN' }
+            'SCAN' { $session.SectionResults[0].ScanId='foreign-scan' }
+            'DUPLICATE' { $session.SectionResults+= $session.SectionResults[0] }
+            'MISSING' { $session.SectionResults=@($session.SectionResults | Select-Object -Skip 1) }
+        }
+        Assert-Equal (Test-WinSecResultSession $session) $false
+        Assert-Throws { ConvertTo-WinSecPublicScanResult $session }
+    }
+}
+
 Test-Case 'Public FAIL finding has no invented severity' {
     $bundle = New-IntegrationBundle -PUA 0
 
@@ -687,7 +719,41 @@ Test-Case 'Real draft catalog blocks synthetic evidence' {
 }
 
 # ============================================================
-# GROUP 7: CONFIGURATION INTEGRITY
+# GROUP 7: EXPLICIT RESULT SCOPES
+# ============================================================
+
+foreach ($scope in @(
+    @{ScopeType='DEVICE';ScopeKey='ALL'},
+    @{ScopeType='SECTION';ScopeKey='SystemSecurity'},
+    @{ScopeType='CONTROL';ScopeKey='WSA-SYS-001'}
+)) {
+    Test-Case ('Evaluation and findings retain public scope without production scoring: '+$scope.ScopeType) {
+        $bundle = New-IntegrationBundle -PUA 0
+        $session = New-IntegratedSession -Bundle $bundle -Policy $script:RealPolicy -Scope $scope
+        $public = ConvertTo-WinSecPublicScanResult -Session $session
+        Assert-True (Test-WinSecResultSession $session)
+        Assert-Equal $public.ScopeType $scope.ScopeType
+        Assert-Equal $public.ScopeKey $scope.ScopeKey
+        Assert-Equal $public.OverallStatus 'NOT_SCORED'
+        Assert-Equal $public.OverallScore $null
+        Assert-Equal $public.Findings.Count 1
+        Assert-Equal $public.Findings[0].CheckId 'WSA-SYS-001'
+        Assert-True ((ConvertTo-Json -InputObject $public -Depth 30) -notmatch 'INTEGRATION_SECRET_DO_NOT_EXPORT|"Evidence"')
+    }
+}
+
+Test-Case 'Evaluation pipeline cannot relabel a result as another section or control' {
+    $bundle = New-IntegrationBundle
+    foreach ($scope in @(
+        @{ScopeType='SECTION';ScopeKey='NetworkSecurity'},
+        @{ScopeType='CONTROL';ScopeKey='WSA-SYS-002'}
+    )) {
+        Assert-Throws { New-IntegratedSession -Bundle $bundle -Policy $script:RealPolicy -Scope $scope }
+    }
+}
+
+# ============================================================
+# GROUP 8: CONFIGURATION INTEGRITY
 # ============================================================
 
 Test-Case 'Scoring config remains unchanged' {
