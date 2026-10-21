@@ -105,12 +105,14 @@ Test-WinSecConfirmationCase 'A direct call without confirmation cannot audit' {
 }
 Test-WinSecConfirmationCase 'Cancellation preserves a prior session and performs no audit' {
     $coordinator = New-WinSecScanCoordinator
-    $old = [pscustomobject]@{ Marker = 'PREVIOUS-SESSION' }
-    $coordinator.Sessions['previous'] = $old
+    $previous = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ConfirmAction { $true }
+    $oldKey = Get-WinSecScanSessionKey $previous.DeviceId $previous.ScanId
+    $old = $coordinator.Sessions[$oldKey]
+    $script:auditCalls = 0
     $result = Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ConfirmAction { param($request) $false }
     Assert-WinSecConfirmationTest ($null -eq $result -and $script:auditCalls -eq 0)
     Assert-WinSecConfirmationTest ($coordinator.Sessions.Count -eq 1 -and
-        [object]::ReferenceEquals($coordinator.Sessions['previous'], $old))
+        [object]::ReferenceEquals($coordinator.Sessions[$oldKey], $old))
 }
 foreach ($invalidDecision in @('Y', 1, @($true, $true), $null)) {
     Test-WinSecConfirmationCase 'Only exactly one Boolean can approve' {
@@ -303,13 +305,25 @@ Test-WinSecConfirmationCase 'UI explicitly confirms Y after showing identity sco
         Assert-WinSecConfirmationTest ($text.Contains($expected))
     }
 }
-foreach ($code in @(27, 13, 78)) {
-    Test-WinSecConfirmationCase 'Escape Enter and N cancel instead of approving' {
+foreach ($code in @(27, 78)) {
+    Test-WinSecConfirmationCase 'Escape and N cancel instead of approving' {
         $request = New-WinSecConfirmationUIFixture
         $character = if ($code -eq 78) { 'n' } else { '' }
         $script:keys.Enqueue((New-WinSecConfirmationKey -Character $character -Code $code))
         Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
     }
+}
+Test-WinSecConfirmationCase 'Enter explicitly approves a fully visible request' {
+    $request = New-WinSecConfirmationUIFixture
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
+    Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $request)
+}
+Test-WinSecConfirmationCase 'Enter cannot approve while the request is truncated' {
+    $request = New-WinSecConfirmationUIFixture
+    $script:terminal.Height = 4
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
+    Assert-WinSecConfirmationTest (-not (Show-WinSecScanConfirmation -Request $request))
 }
 Test-WinSecConfirmationCase 'Small terminals cannot approve a truncated request' {
     $request = New-WinSecConfirmationUIFixture
@@ -343,6 +357,7 @@ Test-WinSecConfirmationCase 'No executable checks shows the real limitation and 
     $request = New-WinSecConfirmationUIFixture
     $request.Checks = @()
     $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'Y' -Code 89))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
     $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
     Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains('NO_EXECUTABLE_CHECKS'))
@@ -352,6 +367,15 @@ Test-WinSecConfirmationCase 'Ctrl Y is ignored' {
     $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'Y' -Code 89 -Modifiers 8))
     $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
+}
+Test-WinSecConfirmationCase 'Modified and release Enter events cannot approve a scan' {
+    $request = New-WinSecConfirmationUIFixture
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13 -Modifiers 8))
+    $released = New-WinSecConfirmationKey -Code 13
+    $released.KeyDown = $false
+    $script:keys.Enqueue($released)
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Character N))
+    Assert-WinSecConfirmationTest (-not (Show-WinSecScanConfirmation -Request $request))
 }
 Test-WinSecConfirmationCase 'The scan dialog cannot authorize raw evidence storage' {
     $request = New-WinSecConfirmationUIFixture
@@ -387,7 +411,14 @@ foreach ($invalidScope in @(
         Assert-WinSecConfirmationTest (($script:lines -join '|') -ceq 'unchanged')
     }
 }
-foreach ($field in @('ScopeType','ScopeKey')) {
+foreach ($invalidAction in @('rescan',@('Scan'),100)) {
+    Test-WinSecConfirmationCase 'An invalid action label cannot be confirmed' {
+        $request = New-WinSecConfirmationUIFixture
+        $request | Add-Member -NotePropertyName ScanAction -NotePropertyValue $invalidAction
+        Assert-WinSecConfirmationRejected { Show-WinSecScanConfirmation -Request $request }
+    }
+}
+foreach ($field in @('ScopeType','ScopeKey','ScanAction')) {
     Test-WinSecConfirmationCase ('Calculated scope cannot execute during validation: ' + $field) {
         $request = New-WinSecConfirmationUIFixture
         $script:getterCalls = 0

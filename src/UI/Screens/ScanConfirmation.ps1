@@ -19,13 +19,13 @@ function Show-WinSecScanConfirmation {
     $scopeFields = @{}
     if ($Request -is [System.Collections.IDictionary]) {
         foreach ($name in $Request.psbase.Keys) {
-            if ($name -isnot [string] -or $name -notin @('ScopeType','ScopeKey')) { continue }
+            if ($name -isnot [string] -or $name -notin @('ScopeType','ScopeKey','ScanAction')) { continue }
             if ($scopeFields.ContainsKey($name)) { throw 'Ambiguous scan confirmation scope.' }
             $scopeFields[$name] = $Request[$name]
         }
     }
     else {
-        foreach ($name in @('ScopeType','ScopeKey')) {
+        foreach ($name in @('ScopeType','ScopeKey','ScanAction')) {
             $property = $Request.PSObject.Properties[$name]
             if ($null -ne $property) {
                 if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
@@ -34,6 +34,14 @@ function Show-WinSecScanConfirmation {
                 $scopeFields[$name] = $property.Value
             }
         }
+    }
+    $scanAction = 'Scan'
+    if ($scopeFields.ContainsKey('ScanAction')) {
+        if ($scopeFields.ScanAction -isnot [string] -or $scopeFields.ScanAction -cnotin @('Scan','Rescan')) {
+            throw 'Invalid scan confirmation action.'
+        }
+        $scanAction = $scopeFields.ScanAction
+        $scopeFields.Remove('ScanAction')
     }
     if ($scopeFields.Count -gt 0) {
         $type = $scopeFields.ScopeType
@@ -73,7 +81,7 @@ function Show-WinSecScanConfirmation {
         Clear-WinSecScreen
         $width = [Math]::Max(1, [int]$terminal.ContentWidth)
         $lines = @(
-            'WINSEC ANALYZER - CONFIRM SCAN / RESCAN'
+            ('WINSEC ANALYZER - CONFIRM ' + $scanAction.ToUpperInvariant())
             ('Device: {0}' -f $Request.Hostname)
             ('DeviceId: {0}' -f $Request.DeviceId)
             ('Scope: {0}' -f $scope)
@@ -89,10 +97,10 @@ function Show-WinSecScanConfirmation {
             $lines += 'NO_EXECUTABLE_CHECKS - no audit will be started. NOT_SCORED.'
         }
         $lines += if ($hasChecks) {
-            '[Y] Confirm this operation | [Esc / N / Enter] Cancel'
+            '[Y / Enter] Confirm this operation | [N / Esc] Cancel'
         }
         else {
-            '[Esc / N / Enter] Back'
+            '[N / Esc] Back'
         }
 
         # Wrap every field completely; do not approve truncated requests.
@@ -106,7 +114,7 @@ function Show-WinSecScanConfirmation {
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count + 1)) {
             Write-WinSecText -Text 'Resize to view the complete scan request.' -Color Yellow
             Write-WinSecText -Text ('Required height at this width: {0}' -f ($wrapped.Count + 1))
-            Write-WinSecText -Text '[Esc / N / Enter] Cancel'
+            Write-WinSecText -Text '[N / Esc] Cancel'
             return
         }
         foreach ($line in $wrapped) { Write-WinSecText -Text $line }
@@ -120,10 +128,10 @@ function Show-WinSecScanConfirmation {
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or
             ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -in @(27, 13) -or [string]$key.Character -ieq 'N') {
+        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
             return $false
         }
-        if ($display.CanConfirm -and [string]$key.Character -ieq 'Y') {
+        if ($display.CanConfirm -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
             return $true
         }
     }

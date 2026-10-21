@@ -84,11 +84,12 @@ foreach($spec in $specs){
     }
     Test-WinSecCoordinatorScope ('Cancellation preserves prior sessions for scope '+$spec.T) {
         $coordinator=New-WinSecScanCoordinator
-        $coordinator.Sessions['sentinel']=[pscustomobject]@{Marker='previous'}
-        $before=ConvertTo-Json -InputObject $coordinator.Sessions -Compress
+        $null=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ConfirmAction {$true}
+        $script:auditCalls=0
+        $before=ConvertTo-Json -InputObject $coordinator.Sessions -Depth 25 -Compress
         $result=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType $spec.T -ScopeKey $spec.K -ConfirmAction {$false}
         Assert-WinSecCoordinatorScope ($null -eq $result -and $script:auditCalls -eq 0 -and
-            $before -ceq (ConvertTo-Json -InputObject $coordinator.Sessions -Compress))
+            $before -ceq (ConvertTo-Json -InputObject $coordinator.Sessions -Depth 25 -Compress))
     }
     Test-WinSecCoordinatorScope ('Mutated scope preview cannot authorize '+$spec.T) {
         $coordinator=New-WinSecScanCoordinator
@@ -183,6 +184,19 @@ Test-WinSecCoordinatorScope 'Partial scope appends an independent session withou
     $partial.ScopeKey='changed'
     $stored=Get-WinSecCoordinatorPublicResult -Coordinator $coordinator -DeviceId $partial.DeviceId -ScanId $partial.ScanId
     Assert-WinSecCoordinatorScope ($stored.ScopeKey -ceq 'SystemSecurity')
+}
+Test-WinSecCoordinatorScope 'A history change from Scan to Rescan during confirmation requires new consent' {
+    $coordinator=New-WinSecScanCoordinator
+    Assert-WinSecCoordinatorScopeRejected {
+        Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId outer -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($request)
+            Assert-WinSecCoordinatorScope ($request.ScanAction -ceq 'Scan')
+            $null=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScanId concurrent -ConfirmAction {$true}
+            $true
+        }
+    } -AuditCalls 1
+    Assert-WinSecCoordinatorScope ($coordinator.Sessions.Count -eq 1 -and
+        (Get-WinSecScanAction $coordinator (New-WinSecLocalTarget).DeviceId DEVICE ALL) -ceq 'Rescan')
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

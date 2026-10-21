@@ -789,6 +789,15 @@ function Show-WinSecCLICurrentScreen {
                 -Devices $registeredDevices `
                 -Coordinator $coordinator
 
+            $scanAction = 'Scan'
+            if ($enableRescan) {
+                try {
+                    $scanAction = Get-WinSecScanAction -Coordinator $coordinator -DeviceId $State.SelectedDeviceId `
+                        -ScopeType 'DEVICE' -ScopeKey 'ALL'
+                }
+                catch { $enableRescan = $false }
+            }
+
             # -----------------------------------------------
             # Render existing main menu
             # -----------------------------------------------
@@ -799,6 +808,7 @@ function Show-WinSecCLICurrentScreen {
                 -OverallScore $assessment.OverallScore `
                 -OverallStatus $assessment.OverallStatus `
                 -Version $Context.Version `
+                -ScanAction $scanAction `
                 -EnableRescan:$enableRescan
 
             # -----------------------------------------------

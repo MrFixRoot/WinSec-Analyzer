@@ -85,8 +85,14 @@ foreach($spec in @(@{T='DEVICE';K='ALL';Count=3;Label='Local device'},
             ($script:lines -join ' ').Contains($spec.Label) -and $script:confirmCalls -eq 1 -and $script:storageCalls -eq 0 -and
             (ConvertTo-Json -InputObject @($result,$history) -Depth 20) -notmatch 'SYNTHETIC-SCOPE-PRIVATE|"Evidence"')
     }
-    foreach($code in @(27,13,78)){
-        Test-WinSecScopeIntegration ('Esc/Enter/N cancels before any collector for '+$spec.T+' key '+$code) {
+    Test-WinSecScopeIntegration ('Enter confirms the fully visible '+$spec.T+' request') {
+        $coordinator=New-WinSecScanCoordinator
+        Add-WinSecScopeKey -Code 13
+        $result=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType $spec.T -ScopeKey $spec.K -ConfirmAction $confirm
+        Assert-WinSecScopeIntegration ($null -ne $result -and $script:collected.Count -eq $spec.Count)
+    }
+    foreach($code in @(27,78)){
+        Test-WinSecScopeIntegration ('Esc/N cancels before any collector for '+$spec.T+' key '+$code) {
             $coordinator=New-WinSecScanCoordinator
             Add-WinSecScopeKey -Character $(if($code -eq 78){'N'}else{''}) -Code $code
             $result=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType $spec.T -ScopeKey $spec.K -ConfirmAction $confirm
@@ -127,7 +133,7 @@ Test-WinSecScopeIntegration 'Resize alone never confirms; a fresh Y approves the
 }
 Test-WinSecScopeIntegration 'Actual disabled catalog cannot create a scoped session even when Y is pressed' {
     $coordinator=New-WinSecScanCoordinator;$script:readyIds=@()
-    Add-WinSecScopeKey Y;Add-WinSecScopeKey -Code 27
+    Add-WinSecScopeKey Y;Add-WinSecScopeKey -Code 13;Add-WinSecScopeKey -Code 27
     $result=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType SECTION -ScopeKey SystemSecurity -ConfirmAction $confirm
     Assert-WinSecScopeIntegration ($null -eq $result -and $script:collected.Count -eq 0 -and
         $coordinator.Sessions.Count -eq 0 -and ($script:lines -join ' ') -match 'NO_EXECUTABLE_CHECKS')
@@ -140,6 +146,25 @@ Test-WinSecScopeIntegration 'Technical errors stay errors without scoring or man
     Assert-WinSecScopeIntegration ($result.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS' -and
         $record.ObservedStatus -ceq 'ERROR' -and $result.OverallStatus -ceq 'NOT_SCORED' -and
         @($result.Findings).Count -eq 0 -and $script:collected.Count -eq 1)
+}
+Test-WinSecScopeIntegration 'Scan and Rescan labels follow exact scope history and Enter creates separate sessions' {
+    $coordinator=New-WinSecScanCoordinator
+    Add-WinSecScopeKey -Code 13
+    $full=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ConfirmAction $confirm
+    Assert-WinSecScopeIntegration (($script:lines -join ' ') -match 'CONFIRM SCAN' -and
+        ($script:lines -join ' ') -notmatch 'CONFIRM RESCAN')
+    $key=Get-WinSecScanSessionKey $full.DeviceId $full.ScanId
+    $before=ConvertTo-Json -InputObject $coordinator.Sessions[$key] -Depth 25 -Compress
+    Add-WinSecScopeKey -Code 13
+    $section=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType SECTION -ScopeKey SystemSecurity -ConfirmAction $confirm
+    Assert-WinSecScopeIntegration (($script:lines -join ' ') -match 'CONFIRM SCAN')
+    Add-WinSecScopeKey -Code 13
+    $repeat=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType SECTION -ScopeKey SystemSecurity -ConfirmAction $confirm
+    Assert-WinSecScopeIntegration (($script:lines -join ' ') -match 'CONFIRM RESCAN' -and
+        $coordinator.Sessions.Count -eq 3 -and $section.ScanId -cne $repeat.ScanId -and
+        (Get-WinSecScanAction $coordinator $full.DeviceId DEVICE ALL) -ceq 'Rescan' -and
+        (Get-WinSecScanAction $coordinator $full.DeviceId CONTROL WSA-SYS-001) -ceq 'Scan' -and
+        $before -ceq (ConvertTo-Json -InputObject $coordinator.Sessions[$key] -Depth 25 -Compress))
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

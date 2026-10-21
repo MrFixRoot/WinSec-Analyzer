@@ -5,7 +5,7 @@ param()
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 foreach($file in @(
-    'src/Core/ScoreEngine.ps1','src/Core/ResultModel.ps1','src/CLI/Invoke-WinSecCLI.ps1',
+    'src/Core/ScoreEngine.ps1','src/Core/ResultModel.ps1','src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1',
     'src/UI/Core/TerminalRenderer.ps1','src/UI/Components/Banner.ps1','src/UI/Components/Table.ps1',
     'src/UI/Components/KeyboardHelp.ps1','src/UI/Core/LayoutManager.ps1',
     'src/UI/Core/NavigationController.ps1','src/UI/Core/ResizeHandler.ps1','src/UI/Screens/MainMenu.ps1'
@@ -84,7 +84,7 @@ Test-WinSecMenuIntegration 'An enabled scan shortcut only renders and does not e
     Set-WinSecMenuTestTerminal -Width 80 -Height 26
     Show-WinSecMainMenu -NavigationState $state -SectionResults $public.SectionResults `
         -OverallStatus NOT_SCORED -EnableRescan
-    Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan / Rescan Local Device' -and
+    Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Local Device' -and
         $script:lines.Count -le $script:terminal.Height -and $script:scanCalls -eq 0 -and
         $before -ceq (ConvertTo-Json -InputObject @($state,$context,$session) -Depth 25 -Compress))
 }
@@ -118,6 +118,37 @@ Test-WinSecMenuIntegration 'Invalid direct input is rejected before any screen o
     $caught=$null
     try {Show-WinSecMainMenu -NavigationState $state -OverallScore 100 -OverallStatus PASS} catch {$caught=$_}
     Assert-WinSecMenuIntegration ($null -ne $caught -and $script:lines.Count -eq 0 -and $script:renderCalls -eq $renders)
+}
+Test-WinSecMenuIntegration 'CLI renders Scan or Rescan from coordinator scope history without a duplicate shortcut' {
+    $originalEligibility=(Get-Command Test-WinSecCLIRescanEligibility).ScriptBlock
+    $oldCoordinator=$context.ScanCoordinator
+    try {
+        function Test-WinSecCLIRescanEligibility {$true}
+        $coordinator=[pscustomobject]@{Component='ScanCoordinator';SchemaVersion='1.0.0';ProjectRoot=$root;
+            Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@()};Sessions=@{};
+            ParallelExecution=$false;RemoteExecution=$false;AutomaticEvidencePersistence=$false;ScoringEnabled=$false}
+        $context.ScanCoordinator=$coordinator
+        Set-WinSecMenuTestTerminal -Width 80 -Height 26
+        Show-WinSecCLICurrentScreen -State $state -Context $context
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan Local Device' -and
+            ($script:lines -join '|') -notmatch '\[R\] Rescan')
+        $scoped=New-WinSecResultSession -DeviceId $deviceId -ScanId $scanId -ControlResults $session.ControlResults `
+            -ExpectedCheckIds $session.ExpectedCheckIds -ScopeType DEVICE -ScopeKey ALL -ExecutionStatus COMPLETED `
+            -StartedAtUTC '2026-10-20T00:00:00Z' -CompletedAtUTC '2026-10-20T00:01:00Z'
+        $coordinator.Sessions[(Get-WinSecScanSessionKey $deviceId $scanId)]=[pscustomobject]@{
+            DeviceId=$deviceId;ScanId=$scanId;Session=$scoped;EvidenceStorage=[pscustomobject]@{
+                DeviceId=$deviceId;ScanId=$scanId;Status='NOT_REQUESTED';StoredCount=0;FailedCount=0;SkippedCount=0}}
+        Show-WinSecCLICurrentScreen -State $state -Context $context
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Rescan Local Device' -and
+            @($script:lines|Where-Object{$_ -match '\[R\]'}).Count -eq 1 -and $script:scanCalls -eq 0)
+        $scoped.ScopeKey='CHANGED'
+        Show-WinSecCLICurrentScreen -State $state -Context $context
+        Assert-WinSecMenuIntegration (($script:lines -join '|') -match '\[R\] Scan \(unavailable\)' -and $script:scanCalls -eq 0)
+    }
+    finally {
+        $context.ScanCoordinator=$oldCoordinator
+        Set-Item -Path Function:Test-WinSecCLIRescanEligibility -Value $originalEligibility
+    }
 }
 [Console]::WriteLine('Passed: '+$script:passed)
 [Console]::WriteLine('Failed: '+$script:failed)

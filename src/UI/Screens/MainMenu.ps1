@@ -273,7 +273,9 @@ function Show-WinSecMainMenu {
 
         # Display-only authorization flag.
         # The caller must validate the selected target.
-        [switch]$EnableRescan
+        [switch]$EnableRescan,
+
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
     )
 
     # No caller-supplied number or success/failure label authorizes scoring.
@@ -517,13 +519,13 @@ function Show-WinSecMainMenu {
     if ($EnableRescan.IsPresent -and $device.Selected) {
 
         Write-WinSecText `
-            -Text '[R] Scan / Rescan Local Device' `
+            -Text ('[R] {0} Local Device' -f $ScanAction) `
             -Color Cyan
     }
     else {
 
         Write-WinSecText `
-            -Text '[R] Scan / Rescan (unavailable)' `
+            -Text ('[R] {0} (unavailable)' -f $ScanAction) `
             -Color DarkGray
     }
 
@@ -533,5 +535,6 @@ function Show-WinSecMainMenu {
 
     Write-WinSecKeyboardHelp `
         -Screen 'MainMenu' `
+        -HiddenKeys @('R') `
         -EnableRescan:$EnableRescan
 }

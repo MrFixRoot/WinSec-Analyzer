@@ -59,7 +59,7 @@ function Get-WinSecKeyboardShortcuts {
                 }
                 @{
                     Key    = 'DEL/SUPR'
-                    Action = 'Delete Device + History'
+                    Action = 'Delete Device'
                 }
                 @{
                     Key    = 'Q'

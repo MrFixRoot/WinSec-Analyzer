@@ -23,7 +23,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         if ($Request.RegistersAgainOnStartup) {
             $lines += 'This computer will register again on next startup, with no history.'
         }
-        $lines += '[Y] Delete device and history | [Esc / N / Enter] Cancel'
+        $lines += '[Y / Enter] Delete device and history | [N / Esc] Cancel'
         $wrapped = @(
             foreach ($line in $lines) {
                 for ($offset=0; $offset -lt $line.Length; $offset+=$width) {
@@ -33,7 +33,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         )
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count+1)) {
             Write-WinSecText -Text 'Resize to view the complete deletion request.' -Color Yellow
-            Write-WinSecText -Text '[Esc / N / Enter] Cancel'
+            Write-WinSecText -Text '[N / Esc] Cancel'
             return
         }
         foreach ($line in $wrapped) { Write-WinSecText -Text $line }
@@ -45,7 +45,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         $key = Read-WinSecResizeAwareKey -ResizeState $resizeState -RenderAction $render
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -in @(27,13) -or [string]$key.Character -ieq 'N') { return $false }
-        if ($display.CanConfirm -and [string]$key.Character -ieq 'Y') { return $true }
+        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') { return $false }
+        if ($display.CanConfirm -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) { return $true }
     }
 }

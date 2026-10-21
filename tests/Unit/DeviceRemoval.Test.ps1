@@ -244,5 +244,29 @@ Test-WinSecRemovalCase 'A hash table key named Keys cannot hide inconsistent ses
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
     Assert-WinSecRemoval ((Import-WinSecDeviceInventory $root).targets.Count -eq 2 -and $script:coordinator.Sessions.Count -eq 2)
 }
+# Exercise the actual dialog against the existing in-memory removal backend.
+function Get-WinSecTerminalSize {[pscustomobject]@{Width=100;ContentWidth=99;Height=40}}
+function Clear-WinSecScreen {}
+function Write-WinSecText {param($Text,$Color)}
+function New-WinSecResizeState {[pscustomobject]@{}}
+function Invoke-WinSecResizeHandler {param($ResizeState,$RenderAction)}
+function Read-WinSecResizeAwareKey {param($ResizeState,$RenderAction);$script:dialogKeys.Dequeue()}
+foreach($keyCode in @(13,27,78)){
+    Test-WinSecRemovalCase ('Real confirmation key reaches only the memory backend: '+$keyCode) {
+        $script:dialogKeys=New-Object 'System.Collections.Generic.Queue[object]'
+        $script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$keyCode;Character=if($keyCode -eq 78){'N'}else{''};
+            ControlKeyState=0;KeyDown=$true})
+        $before=ConvertTo-Json -InputObject @($script:coordinator.Sessions,$script:inventoryMemory.Json) -Depth 20 -Compress
+        $result=Invoke-WinSecRemovalFixture -Confirm {param($request); & $script:realDialog -Request $request}
+        if($keyCode -eq 13){
+            Assert-WinSecRemoval ($null -ne $result -and (Import-WinSecDeviceInventory $root).targets.Count -eq 1 -and
+                $script:coordinator.Sessions.Count -eq 1)
+        }
+        else {
+            Assert-WinSecRemoval ($null -eq $result -and $before -ceq
+                (ConvertTo-Json -InputObject @($script:coordinator.Sessions,$script:inventoryMemory.Json) -Depth 20 -Compress))
+        }
+    }
+}
 Write-Host "Passed: $script:passed; Failed: $script:failed"
 if ($script:failed -gt 0) { throw 'Device removal unit tests failed.' }

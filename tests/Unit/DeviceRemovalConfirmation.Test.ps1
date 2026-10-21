@@ -38,11 +38,26 @@ Test-WinSecDialog 'Explicit Y approves after rendering the complete identity and
     Assert-WinSecDialog ($text -match 'permanently deletes' -and $text -match 'register again' -and
         $text -match 'Scans in this session: 2' -and $text -match 'files: 3' -and $text -match 'FIXTURE')
 }
-foreach ($key in @(@{C='';V=27},@{C='';V=13},@{C='N';V=78})) {
-    Test-WinSecDialog 'Esc Enter and N cancel' {
+foreach ($key in @(@{C='';V=27},@{C='N';V=78})) {
+    Test-WinSecDialog 'Esc and N cancel' {
         Add-WinSecRemovalKey $key.C $key.V
         Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
     }
+}
+Test-WinSecDialog 'Enter confirms only the fully visible deletion request' {
+    Add-WinSecRemovalKey '' 13
+    Assert-WinSecDialog (Show-WinSecDeviceRemovalConfirmation $script:request)
+    Assert-WinSecDialog (($script:lines -join ' ') -match '\[Y / Enter\]' -and
+        ($script:lines -join ' ') -match '\[N / Esc\]')
+}
+Test-WinSecDialog 'Enter cannot approve a deletion on a truncated terminal' {
+    $script:terminal.Height=4
+    Add-WinSecRemovalKey '' 13; Add-WinSecRemovalKey N
+    Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
+}
+Test-WinSecDialog 'Modified and release Enter events cannot approve deletion' {
+    Add-WinSecRemovalKey '' 13 4;Add-WinSecRemovalKey '' 13 0 $false;Add-WinSecRemovalKey N
+    Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
 Test-WinSecDialog 'Small terminal cannot approve a truncated deletion request' {
     $script:terminal.Height=4

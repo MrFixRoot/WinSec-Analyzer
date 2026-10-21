@@ -693,6 +693,12 @@ function Get-WinSecScanConfirmationPlan {
         $request | Add-Member -NotePropertyName ScopeType -NotePropertyValue $ScopeType
         $request | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $ScopeKey
     }
+    $scanAction = 'Scan'
+    if ($hasScope) {
+        $scanAction = Get-WinSecScanAction -Coordinator $Coordinator -DeviceId $target.DeviceId `
+            -ScopeType $ScopeType -ScopeKey $ScopeKey
+    }
+    $request | Add-Member -NotePropertyName ScanAction -NotePropertyValue $scanAction
     $requestJson = ConvertTo-Json -InputObject $request -Depth 8 -Compress
     return [pscustomobject]@{
         Target = $target
@@ -1056,7 +1062,10 @@ function Get-WinSecCoordinatorHistory {
         [Parameter(Mandatory)]
         [object]$Coordinator,
 
-        [string]$DeviceId = ''
+        [string]$DeviceId = '',
+
+        [AllowNull()][object]$ScopeType = $null,
+        [AllowNull()][object]$ScopeKey = $null
     )
 
     Assert-WinSecScanCoordinator `
@@ -1066,6 +1075,14 @@ function Get-WinSecCoordinatorHistory {
         Assert-WinSecScanIdentifier `
             -Value $DeviceId `
             -FieldName 'DeviceId'
+    }
+    $hasScopeFilter = $PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')
+    if ($hasScopeFilter) {
+        if ($DeviceId.Length -eq 0) { throw 'Scope history requires a device identifier.' }
+        Assert-WinSecResultScope -ScopeType $ScopeType -ScopeKey $ScopeKey
+        if ($ScopeType -ceq 'CONTROL') {
+            Assert-WinSecScanIdentifier -Value $ScopeKey -FieldName 'CheckId'
+        }
     }
 
     $history = New-Object `
@@ -1139,6 +1156,12 @@ function Get-WinSecCoordinatorHistory {
             if ($consistent -cne $true) { throw 'Stored evidence metadata failed validation.' }
         }
 
+        # Filter only after validating the selected device's stored entry.
+        # Legacy sessions with unknown scope cannot match an explicit scope.
+        if ($hasScopeFilter -and
+            ((Get-WinSecResultField $public 'ScopeType') -cne $ScopeType -or
+             (Get-WinSecResultField $public 'ScopeKey') -cne $ScopeKey)) { continue }
+
         # Only metadata is included in history.
         # No raw evidence, file paths or collector secrets.
 
@@ -1172,4 +1195,21 @@ function Get-WinSecCoordinatorHistory {
         $history.ToArray() |
             Sort-Object StartedAtUTC, ScanId, DeviceId
     )
+}
+
+# Display context only. This read never authorizes or starts a scan.
+function Get-WinSecScanAction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Coordinator,
+        [Parameter(Mandatory)][string]$DeviceId,
+        [Parameter(Mandatory)][AllowNull()][object]$ScopeType,
+        [Parameter(Mandatory)][AllowNull()][object]$ScopeKey
+    )
+    $history = @(Get-WinSecCoordinatorHistory -Coordinator $Coordinator -DeviceId $DeviceId `
+        -ScopeType $ScopeType -ScopeKey $ScopeKey)
+    if (@($history | Where-Object {
+        $_.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')
+    }).Count -gt 0) { return 'Rescan' }
+    return 'Scan'
 }
