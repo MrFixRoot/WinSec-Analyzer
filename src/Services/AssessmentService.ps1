@@ -1,11 +1,9 @@
 # Read-only evaluation orchestration. Catalogs are data; no scripts/remediation.
+. (Join-Path $PSScriptRoot 'DefenderProfileRegistry.ps1')
 function Get-WinSecInstalledAssessmentProfiles {
     [CmdletBinding()]
-    param()
-    @(
-        [pscustomobject]@{Profile='WSA-W11-24H2-PRO-DEF-BASE';FileName='defender-win11-24h2-pro.json'}
-        [pscustomobject]@{Profile='WSA-W11-25H2-ENT-DEF-BASE';FileName='defender-win11-25h2-enterprise.json'}
-    )
+    param([string]$ProjectRoot = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))))
+    Get-WinSecDefenderProfileDefinitions -ProjectRoot $ProjectRoot
 }
 
 function Get-WinSecAssessmentCatalog {
@@ -15,8 +13,9 @@ function Get-WinSecAssessmentCatalog {
     if ($CheckId -cne 'WSA-SYS-001') { return $null }
     $path = Join-Path $ProjectRoot 'config/criteria/defender.json'
     if ($PSBoundParameters.ContainsKey('Profile')) {
-        $definition=@(Get-WinSecInstalledAssessmentProfiles|Where-Object {$_.Profile -ceq $Profile})
+        $definition=@(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot|Where-Object {$_.Profile -ceq $Profile})
         if ($definition.Count -ne 1) { throw 'Unknown installed assessment profile.' }
+        if ($null -eq $definition[0].FileName) { return Get-WinSecExpandedDefenderCatalog -ProjectRoot $ProjectRoot -Profile $Profile }
         $path=Join-Path $ProjectRoot ('config/criteria/profiles/' + $definition[0].FileName)
     }
     Assert-WinSecDeviceRemovalPath -ProjectRoot $ProjectRoot -Path $path
@@ -88,7 +87,7 @@ function Get-WinSecAssessmentProfilePlan {
             throw 'Invalid assessment profile control selection.'
         }
         $snapshot = Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId)
-        if ($checkId -ceq 'WSA-SYS-001' -and @((Get-WinSecInstalledAssessmentProfiles)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
+        if ($checkId -ceq 'WSA-SYS-001' -and @((Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
             $snapshot=Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId -Profile $Profile)
         }
         $snapshots[$checkId] = $snapshot
@@ -134,9 +133,27 @@ function Get-WinSecAssessmentProfileOptions {
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
     }
     if ($CheckIds -ccontains 'WSA-SYS-001') {
-        foreach ($definition in @(Get-WinSecInstalledAssessmentProfiles)) {
+        $installed = @(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)
+        $expanded = @($installed | Where-Object {$null -eq $_.FileName})
+        $template = $null
+        if ($expanded.Count) {
+            $template = Get-WinSecAssessmentCatalog $ProjectRoot 'WSA-SYS-001' -Profile 'WSA-W11-24H2-PRO-DEF-BASE'
+            if (-not (Test-WinSecCriteriaCatalog $template.Catalog).ReadyForEvaluation -or
+                @($expanded | Where-Object {$_.TemplateSha256 -cne $template.Sha256}).Count) { throw 'Expanded profile template is unavailable or changed.' }
+        }
+        foreach ($definition in $installed) {
             if ($names.Contains($definition.Profile)) { continue }
-            (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
+            if ($null -ne $definition.FileName) {
+                (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
+                continue
+            }
+            # Discovery offers metadata only. Materialize and validate the selected
+            # catalog in Get-WinSecAssessmentProfilePlan before scan confirmation.
+            Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$definition.Profile;Policies=@(
+                [pscustomobject]@{CheckId='WSA-SYS-001';CatalogId=$definition.Profile;CatalogVersion=$definition.CatalogVersion;
+                    CatalogSha256=(Get-WinSecDefenderProfileFingerprint $definition.MatrixSha256 $template.Sha256 $definition.Profile);
+                    OSFamily='Windows';OSRelease=$definition.OSRelease;Edition=$definition.Edition}
+            )})
         }
     }
 }

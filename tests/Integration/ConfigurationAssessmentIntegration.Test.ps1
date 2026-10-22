@@ -43,6 +43,11 @@ function Get-WinSecConfigurationScoringPolicy {
     if($script:changedPolicy){$snapshot.Sha256=('F'*64)}
     $snapshot
 }
+function Get-FileHash {
+    [CmdletBinding()]param([string]$LiteralPath,[string]$Algorithm='SHA256')
+    if($script:changedMatrix -and $LiteralPath -like '*defender-windows11-matrix.json'){return [pscustomobject]@{Hash=('F'*64)}}
+    Microsoft.PowerShell.Utility\Get-FileHash @PSBoundParameters
+}
 function Save-WinSecPublicHistory {
     param($ProjectRoot,$Session)
     if($script:store.ContainsKey($Session.ScanId)){throw 'Immutable test history conflict.'}
@@ -89,6 +94,7 @@ function Test-WinSecConfigIntegration {
     param([string]$Name,[scriptblock]$Action)
     $script:reads=0;$script:osReads=0;$script:realtime=$false;$script:mode='Normal';$script:collectionError=$false;$script:changedPolicy=$false
     $script:metrics=[pscustomobject]@{Reads=0}
+    $script:changedMatrix=$false
     $script:osVersion='10.0.26100';$script:sku=48;$script:store=@{}
     $script:reports=New-Object 'System.Collections.Generic.List[object]';$script:keys=New-Object 'System.Collections.Generic.Queue[object]'
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
@@ -98,9 +104,12 @@ function Test-WinSecConfigIntegration {
 }
 Test-WinSecConfigIntegration 'Initialization and installed profile discovery never collect Windows security information' {
     $ctx=New-WinSecConfigIntegrationContext;$options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
-    Assert-WinSecConfigIntegration ($options.Count -eq 2 -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
+    Assert-WinSecConfigIntegration ($options.Count -eq 101 -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
 }
-foreach($spec in @(@{P='WSA-W11-24H2-PRO-DEF-BASE';V='10.0.26100';S=48},@{P='WSA-W11-25H2-ENT-DEF-BASE';V='10.0.26200';S=4})) {
+foreach($spec in @(@{P='WSA-W11-24H2-PRO-DEF-BASE';V='10.0.26100';S=48},@{P='WSA-W11-25H2-ENT-DEF-BASE';V='10.0.26200';S=4},
+    @{P='WSA-W11-23H2-PRO-DEF-BASE';V='10.0.22631';S=48},@{P='WSA-W11-21H2-HOME-DEF-BASE';V='10.0.22000';S=101},
+    @{P='WSA-W11-26H2-PRO-WORKSTATION-N-DEF-BASE';V='10.0.26300';S=162},
+    @{P='WSA-W11-24H2-IOT-ENT-LTSC-DEF-BASE';V='10.0.26100';S=191},@{P='WSA-W11-26H1-EDU-N-DEF-BASE';V='10.0.28000';S=122})) {
     Test-WinSecConfigIntegration ('Confirmed real pipeline produces and persists 75 without a global score: '+$spec.P) {
         $script:osVersion=$spec.V;$script:sku=$spec.S;$ctx=New-WinSecConfigIntegrationContext
         $public=Invoke-WinSecConfigIntegrationScan $ctx -Profile $spec.P
@@ -151,6 +160,18 @@ Test-WinSecConfigIntegration 'A later all-pass rescan keeps the earlier 75 and r
     $second=Invoke-WinSecConfigIntegrationScan $ctx -Id 'config-integration-2'
     Assert-WinSecConfigIntegration ($second.ConfigurationAssessment.Controls[0].Value -eq 100 -and $second.Findings.Count -eq 0 -and
         $second.ConfigurationAssessment.Controls[0].Criteria.Count -eq 4 -and $before -ceq $script:store['config-integration-1'])
+}
+Test-WinSecConfigIntegration 'Expanded profile history restores the original 23H2 Pro criteria version and exports without raw evidence' {
+    $script:osVersion='10.0.22631';$ctx=New-WinSecConfigIntegrationContext
+    $p=Invoke-WinSecConfigIntegrationScan $ctx -Profile 'WSA-W11-23H2-PRO-DEF-BASE'
+    $saved=$script:store['config-integration-1'];$restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
+    $state=New-WinSecNavigationState;$state.Screen='Findings';$state.FindingsScope='Control';$state.SelectedDeviceId=$p.DeviceId
+    $selection=Get-WinSecCLIFindingsExportSelection $state $restart
+    $report=New-WinSecFindingsMarkdown $selection -FrameworkId cis-controls
+    Assert-WinSecConfigIntegration ($selection.ConfigurationAssessment.Controls[0].Value -eq 75 -and
+        $selection.ConfigurationAssessment.Controls[0].Criteria[0].CatalogVersion -ceq '0.2.0' -and
+        $report.Markdown.Contains('75/100') -and $saved -ceq $script:store['config-integration-1'] -and
+        $saved -notmatch 'DefenderStatus|PRIVATE-CONFIG|ExpectedValue|ReviewedBy')
 }
 Test-WinSecConfigIntegration 'The real scan confirmation displays and binds the configuration method before any collection' {
     $ctx=New-WinSecConfigIntegrationContext
@@ -215,7 +236,13 @@ Test-WinSecConfigIntegration 'Native validation helper prepares safely, rejects 
     Assert-WinSecConfigIntegration ($result.ConfigurationScore -eq 75 -and $script:metrics.Reads -eq 1 -and $script:store.Count -eq 0 -and
         $result.ApplicabilityDiagnostics.Count -eq 0 -and $result.RawEvidencePersisted -ceq $false -and $result.PublicHistoryPersisted -ceq $false -and $result.WindowsChanges -ceq $false)
 }
-Test-WinSecConfigIntegration 'A native-validation fixture on an unapproved Windows build reports scope mismatch without a score or persistence' {
+Test-WinSecConfigIntegration 'A changed profile matrix during confirmation aborts before Windows reads or publication' {
+    $ctx=New-WinSecConfigIntegrationContext;$caught=$false
+    try{$null=Invoke-WinSecConfigIntegrationScan $ctx -Profile 'WSA-W11-23H2-PRO-DEF-BASE' -ConfirmAction {$script:changedMatrix=$true;return $true}}
+    catch{$caught=$true}
+    Assert-WinSecConfigIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0 -and $ctx.ScanCoordinator.Sessions.Count -eq 0)
+}
+Test-WinSecConfigIntegration 'A native-validation fixture using a mismatched profile reports scope mismatch without a score or persistence' {
     $script:osVersion='10.0.22631'
     $helper=Join-Path $root 'tests/Integration/Invoke-DefenderNativeValidation.ps1'
     $plan=(. $helper -PlanOnly)|ConvertFrom-Json

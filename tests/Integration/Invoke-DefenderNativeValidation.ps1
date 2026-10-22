@@ -5,7 +5,7 @@ param(
     [switch]$PlanOnly,
     [string]$OperationId = '',
     [string]$ApprovedRequestHash = '',
-    [ValidateSet('WSA-W11-24H2-PRO-DEF-BASE','WSA-W11-25H2-ENT-DEF-BASE')]
+    [ValidatePattern('\AWSA-W11-2[1-6]H[12]-[A-Z][A-Z0-9-]{0,39}-DEF-BASE\z')]
     [string]$Profile = 'WSA-W11-24H2-PRO-DEF-BASE'
 )
 $ErrorActionPreference='Stop'
