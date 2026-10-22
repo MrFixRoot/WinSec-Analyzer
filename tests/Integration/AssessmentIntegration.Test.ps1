@@ -367,17 +367,20 @@ foreach($field in @('DeviceId','ScanId')){
 }
 foreach($screen in @('Devices','MainMenu','Section')){
     Test-WinSecAssessmentIntegration ('CLI picker and final confirmation reach approved evaluation and history: '+$screen) {
+        $script:context|Add-Member -NotePropertyName LocalSystemInfo -NotePropertyValue ([pscustomobject]@{
+            DeviceId=$script:context.Devices[0].DeviceId;Label='Pro 24H2 | build: 26100'})
         Add-WinSecAssessmentPickerKey 40
         Add-WinSecAssessmentPickerKey 13
         Add-WinSecAssessmentPickerKey 13 -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
-        Add-WinSecAssessmentPickerKey 89 'y' -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
+        Add-WinSecAssessmentPickerKey 13 -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
         $p=Invoke-WinSecAssessmentPickerIntegrationScan $screen
         Assert-WinSecAssessmentIntegration ($p.Findings[0].Guidance.Profile -ceq 'TEST' -and $p.OverallStatus -ceq 'NOT_SCORED' -and
             $script:reads -eq 1 -and $script:osReads -eq 1 -and $script:store.Count -eq 1 -and $script:pickerKeys.Count -eq 0 -and
             $script:context.PublicScans.Count -eq 1)
         $text=$script:allLines -join '|'
         Assert-WinSecAssessmentIntegration ($text.Contains('ASSESSMENT PROFILE') -and $text.Contains('CONFIRM SCAN') -and
-            $text.Contains('Evaluation profile: TEST') -and $text -notmatch 'PRIVATE-ASSESSMENT-RAW-PATH')
+            $text.Contains('Evaluation profile: TEST') -and $text.Contains('Current OS: Pro 24H2 | build: 26100') -and
+            $text -notmatch 'PRIVATE-ASSESSMENT-RAW-PATH' -and ($script:store.Values -join '|') -notmatch 'LocalSystemInfo|Current OS:')
     }
 }
 foreach($where in @('picker','confirmation')){
@@ -390,7 +393,7 @@ foreach($where in @('picker','confirmation')){
     }
 }
 Test-WinSecAssessmentIntegration 'Collection-only choice cannot silently use an available approved profile' {
-    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13
     $p=Invoke-WinSecAssessmentPickerIntegrationScan
     Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and
         @($p.Findings|Where-Object {$null -ne $_.Guidance}).Count -eq 0 -and
@@ -398,7 +401,7 @@ Test-WinSecAssessmentIntegration 'Collection-only choice cannot silently use an 
 }
 Test-WinSecAssessmentIntegration 'The real draft offers collection only without pretending to have an approved profile' {
     $script:policy=Copy-WinSecResultData $script:draft
-    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13
     $p=Invoke-WinSecAssessmentPickerIntegrationScan
     Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and
         ($script:allLines -join '|').Contains('No approved profile is available') -and
@@ -435,9 +438,9 @@ Test-WinSecAssessmentIntegration 'The picker cannot return metadata for a policy
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
 }
 Test-WinSecAssessmentIntegration 'The next rescan asks again and a collection-only result cannot rewrite prior guidance' {
-    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13
     $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
-    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13
     $second=Invoke-WinSecAssessmentPickerIntegrationScan
     Assert-WinSecAssessmentIntegration ($script:reads -eq 2 -and $script:store.Count -eq 2 -and
         $script:store[$first.ScanId] -ceq $saved -and $first.Findings[0].Guidance.Profile -ceq 'TEST' -and
@@ -457,7 +460,7 @@ Test-WinSecAssessmentIntegration 'An empty executable selection skips the picker
         -not ($script:allLines -join '|').Contains('ASSESSMENT PROFILE'))
 }
 Test-WinSecAssessmentIntegration 'Cancelling profile selection preserves an existing CLI assessment and immutable history' {
-    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13
     $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
     $publicBefore=Get-WinSecPublicHistoryJson $script:context.PublicScans
     Add-WinSecAssessmentPickerKey 27

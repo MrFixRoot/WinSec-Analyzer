@@ -32,53 +32,58 @@ function Test-WinSecDialog {
     try { $null=& $Action; $script:passed++; Write-Host "[PASS] $Name" }
     catch { $script:failed++; Write-Host "[FAIL] $Name : $($_.Exception.Message)" }
 }
-Test-WinSecDialog 'Explicit Y approves after rendering the complete identity and irreversible scope' {
+Test-WinSecDialog 'Y and N do nothing until Enter approves the complete irreversible scope' {
     Add-WinSecRemovalKey Y
+    Add-WinSecRemovalKey N
+    Add-WinSecRemovalKey '' 13
     Assert-WinSecDialog (Show-WinSecDeviceRemovalConfirmation $script:request)
+    Assert-WinSecDialog ($script:keys.Count -eq 0)
     $text=$script:lines -join ' '
     Assert-WinSecDialog ($text -match 'permanently deletes' -and $text -match 'register again' -and
         $text -match 'Scans in this session: 2' -and $text -match 'files: 3' -and $text -match 'FIXTURE')
 }
 foreach ($key in @(@{C='';V=27},@{C='N';V=78})) {
-    Test-WinSecDialog 'Esc and N cancel' {
+    Test-WinSecDialog 'Esc cancels and N is ignored until Esc' {
         Add-WinSecRemovalKey $key.C $key.V
+        if($key.V -eq 78){Add-WinSecRemovalKey '' 27}
         Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
+        Assert-WinSecDialog ($script:keys.Count -eq 0)
     }
 }
 Test-WinSecDialog 'Enter confirms only the fully visible deletion request' {
     Add-WinSecRemovalKey '' 13
     Assert-WinSecDialog (Show-WinSecDeviceRemovalConfirmation $script:request)
-    Assert-WinSecDialog (($script:lines -join ' ') -match '\[Y\] Accept' -and
-        ($script:lines -join ' ') -match '\[N / Esc\]')
+    Assert-WinSecDialog (($script:lines -join ' ') -match '\[Enter\] Select' -and
+        ($script:lines -join ' ') -match '\[Esc\] Cancel' -and ($script:lines -join ' ') -notmatch '\[Y|\[N')
 }
 Test-WinSecDialog 'Enter cannot approve a deletion on a truncated terminal' {
     $script:terminal.Height=4
-    Add-WinSecRemovalKey '' 13; Add-WinSecRemovalKey N
+    Add-WinSecRemovalKey '' 13; Add-WinSecRemovalKey '' 27
     Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
 Test-WinSecDialog 'Modified and release Enter events cannot approve deletion' {
-    Add-WinSecRemovalKey '' 13 4;Add-WinSecRemovalKey '' 13 0 $false;Add-WinSecRemovalKey N
+    Add-WinSecRemovalKey '' 13 4;Add-WinSecRemovalKey '' 13 0 $false;Add-WinSecRemovalKey '' 27
     Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
 Test-WinSecDialog 'Small terminal cannot approve a truncated deletion request' {
     $script:terminal.Height=4
-    Add-WinSecRemovalKey Y; Add-WinSecRemovalKey N
+    Add-WinSecRemovalKey '' 13; Add-WinSecRemovalKey '' 27
     Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
-Test-WinSecDialog 'Resizing requires a new explicit Y after the full request becomes visible' {
+Test-WinSecDialog 'Resizing requires a new Enter after the full request becomes visible' {
     $script:terminal.Height=4
-    Add-WinSecRemovalKey Y
+    Add-WinSecRemovalKey '' 13
     $script:keys.Enqueue({$script:terminal.Height=40})
-    Add-WinSecRemovalKey Y
+    Add-WinSecRemovalKey '' 13
     Assert-WinSecDialog (Show-WinSecDeviceRemovalConfirmation $script:request)
 }
 Test-WinSecDialog 'Shrinking the terminal revokes prior display eligibility' {
     $script:keys.Enqueue({$script:terminal.Height=4})
-    Add-WinSecRemovalKey Y; Add-WinSecRemovalKey N
+    Add-WinSecRemovalKey '' 13; Add-WinSecRemovalKey '' 27
     Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
-Test-WinSecDialog 'Modifier and key release Y events cannot approve' {
-    Add-WinSecRemovalKey Y 89 4; Add-WinSecRemovalKey Y 89 0 $false; Add-WinSecRemovalKey N
+Test-WinSecDialog 'Modifier and key release Enter events cannot approve' {
+    Add-WinSecRemovalKey '' 13 4; Add-WinSecRemovalKey '' 13 0 $false; Add-WinSecRemovalKey '' 27
     Assert-WinSecDialog (-not (Show-WinSecDeviceRemovalConfirmation $script:request))
 }
 Test-WinSecDialog 'A scan request cannot authorize a deletion' {

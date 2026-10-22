@@ -296,22 +296,25 @@ function New-WinSecConfirmationKey {
     param([string]$Character = '', [int]$Code = 0, [int]$Modifiers = 0)
     return [pscustomobject]@{ Character = $Character; VirtualKeyCode = $Code; ControlKeyState = $Modifiers; KeyDown = $true }
 }
-Test-WinSecConfirmationCase 'UI explicitly confirms Y after showing identity scope controls and read-only mode' {
+Test-WinSecConfirmationCase 'Y and N are ignored until Enter confirms the complete request' {
     $request = New-WinSecConfirmationUIFixture
     $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'y' -Code 89))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'n' -Code 78))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
     $result = Show-WinSecScanConfirmation -Request $request
-    Assert-WinSecConfirmationTest ($result -ceq $true)
+    Assert-WinSecConfirmationTest ($result -ceq $true -and $script:keys.Count -eq 0)
     $text = $script:lines -join ' '
     foreach ($expected in @('local:UI-FIXTURE', 'UI-FIXTURE', 'Scope:', 'WSA-SYS-001', 'READ ONLY')) {
         Assert-WinSecConfirmationTest ($text.Contains($expected))
     }
 }
 foreach ($code in @(27, 78)) {
-    Test-WinSecConfirmationCase 'Escape and N cancel instead of approving' {
+    Test-WinSecConfirmationCase 'Only Escape cancels; N cannot make a decision' {
         $request = New-WinSecConfirmationUIFixture
         $character = if ($code -eq 78) { 'n' } else { '' }
         $script:keys.Enqueue((New-WinSecConfirmationKey -Character $character -Code $code))
-        Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
+        if ($code -eq 78) { $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27)) }
+        Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false -and $script:keys.Count -eq 0)
     }
 }
 Test-WinSecConfirmationCase 'Enter explicitly approves a fully visible request' {
@@ -329,7 +332,7 @@ Test-WinSecConfirmationCase 'Enter cannot approve while the request is truncated
 Test-WinSecConfirmationCase 'Small terminals cannot approve a truncated request' {
     $request = New-WinSecConfirmationUIFixture
     $script:terminal = [pscustomobject]@{ Width = 40; ContentWidth = 39; Height = 10 }
-    $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'y' -Code 89))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
     $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
 }
@@ -340,14 +343,14 @@ Test-WinSecConfirmationCase 'Resizing only redraws and does not imply consent' {
         Width = 40; ContentWidth = 39; Height = 10
     })
     $script:keys.Enqueue($key)
-    $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'y' -Code 89))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
     $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
 }
 Test-WinSecConfirmationCase 'A resized complete request can be explicitly approved' {
     $request = New-WinSecConfirmationUIFixture
     $script:terminal = [pscustomobject]@{ Width = 40; ContentWidth = 39; Height = 10 }
-    $key = New-WinSecConfirmationKey -Character 'Y' -Code 89
+    $key = New-WinSecConfirmationKey -Code 13
     $key | Add-Member -NotePropertyName Terminal -NotePropertyValue ([pscustomobject]@{
         Width = 100; ContentWidth = 99; Height = 40
     })
@@ -363,9 +366,9 @@ Test-WinSecConfirmationCase 'No executable checks shows the real limitation and 
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
     Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains('NO_EXECUTABLE_CHECKS'))
 }
-Test-WinSecConfirmationCase 'Ctrl Y is ignored' {
+Test-WinSecConfirmationCase 'Ctrl Enter is ignored' {
     $request = New-WinSecConfirmationUIFixture
-    $script:keys.Enqueue((New-WinSecConfirmationKey -Character 'Y' -Code 89 -Modifiers 8))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13 -Modifiers 8))
     $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation -Request $request) -ceq $false)
 }
@@ -375,7 +378,7 @@ Test-WinSecConfirmationCase 'Modified and release Enter events cannot approve a 
     $released = New-WinSecConfirmationKey -Code 13
     $released.KeyDown = $false
     $script:keys.Enqueue($released)
-    $script:keys.Enqueue((New-WinSecConfirmationKey -Character N))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
     Assert-WinSecConfirmationTest (-not (Show-WinSecScanConfirmation -Request $request))
 }
 Test-WinSecConfirmationCase 'The scan dialog cannot authorize raw evidence storage' {
@@ -391,7 +394,7 @@ foreach ($scopeSpec in @(@{Type='DEVICE';Key='ALL';Mode='ALL_EXECUTABLE';Label='
         $request.SelectionMode = $scopeSpec.Mode
         $request | Add-Member -NotePropertyName ScopeType -NotePropertyValue $scopeSpec.Type
         $request | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $scopeSpec.Key
-        $script:keys.Enqueue((New-WinSecConfirmationKey -Character Y))
+        $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
         Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $request)
         Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains($scopeSpec.Label))
     }
@@ -441,7 +444,7 @@ Test-WinSecConfirmationCase 'Dictionary requests display their declared scope ra
     foreach ($property in $request.PSObject.Properties) { $dictionary[$property.Name] = $property.Value }
     $dictionary.SelectionMode = 'EXPLICIT_CHECKS'
     $dictionary.ScopeType = 'CONTROL'; $dictionary.ScopeKey = 'WSA-SYS-001'
-    $script:keys.Enqueue((New-WinSecConfirmationKey -Character Y))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
     Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $dictionary)
     Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains('Control: WSA-SYS-001'))
 }

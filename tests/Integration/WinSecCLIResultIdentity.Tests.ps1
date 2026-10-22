@@ -17,6 +17,8 @@ foreach ($relativePath in @(
     'src/Core/FindingsEngine.ps1'
     'src/Core/ResultModel.ps1'
     'src/CLI/Invoke-WinSecCLI.ps1'
+    'src/UI/Screens/MainMenu.ps1'
+    'src/UI/Screens/Results.ps1'
 )) {
     . (Join-Path $projectRoot $relativePath)
 }
@@ -80,7 +82,7 @@ function New-WinSecIdentityIntegrationFixture {
     return [pscustomobject]@{
         Session = $session
         Public = $public
-        State = [pscustomobject]@{ SelectedDeviceId = $deviceId }
+        State = [pscustomobject]@{ SelectedDeviceId = $deviceId; SectionIndex = 0; ControlIndex = 0 }
         Context = [pscustomobject]@{
             ActiveScanByDevice = @{ $deviceId = $scanId }
             PublicScans = @{ $key = $public }
@@ -181,10 +183,11 @@ Test-WinSecIdentityIntegrationCase 'Rendering receives owned records and cannot 
     # A deliberately mutating renderer exercises the real CLI dispatch boundary.
     # The function exists only in this test invocation's scope.
     function Show-WinSecResults {
-        param($NavigationState, $SectionResults, $ControlResults, $Version)
+        param($NavigationState, $SectionResults, $ControlResults, $Version, $ControlViews)
         $script:renderCalls++
         $ControlResults[0].ScanId = 'renderer-change'
         $ControlResults[0].Status = 'FAIL'
+        $ControlViews[0].ControlResults[0].ScanId = 'row-renderer-change'
     }
     Show-WinSecCLICurrentScreen -State $fixture.State -Context $fixture.Context
     Assert-WinSecIdentityIntegration (

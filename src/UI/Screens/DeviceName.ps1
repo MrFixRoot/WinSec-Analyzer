@@ -6,6 +6,7 @@ function Show-WinSecDeviceNameEditor {
     if (-not (Test-WinSecTargetIdentifier $requestCopy.DeviceId) -or
         -not (Test-WinSecDeviceDisplayName $requestCopy.DisplayName)) { throw 'Invalid device name editor request.' }
     $text=$requestCopy.DisplayName;$replace=$true;$review=$false
+    $choice=[pscustomobject]@{Index=0}
     $render={
         param($State)
         $terminal=Get-WinSecTerminalSize
@@ -13,12 +14,18 @@ function Show-WinSecDeviceNameEditor {
         $width=[Math]::Max(1,[int]$terminal.ContentWidth)
         $lines=@('DEVICE NAME',('Device ID: '+$requestCopy.DeviceId),('Current: '+$requestCopy.DisplayName),('New name: '+$text),
             'This changes the application label only.')
-        if($review){$lines+='[Y / Enter] Save | [N / Esc] Cancel'}
+        if($review){$lines+=@('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Esc] Cancel')}
         else{$lines+='Type to replace; Backspace deletes. Enter reviews; Esc cancels.'}
         $wrapped=@(foreach($line in $lines){for($i=0;$i -lt $line.Length;$i+=$width){$line.Substring($i,[Math]::Min($width,$line.Length-$i))}})
         $script:WinSecDeviceNameVisible=($terminal.Width -ge 40 -and $terminal.Height -ge ($wrapped.Count+1))
         if(-not $script:WinSecDeviceNameVisible){Write-WinSecText -Text 'Resize to view the complete name request.' -Color Yellow;return}
-        foreach($line in $wrapped){Write-WinSecText -Text $line -Color Gray}
+        foreach($line in $wrapped){
+            $color='Gray'
+            if(($line -ceq '  [ Accept ]' -and $choice.Index -eq 0) -or ($line -ceq '  [ Cancel ]' -and $choice.Index -eq 1)){
+                $line='> '+$line.Substring(2);$color='Cyan'
+            }
+            Write-WinSecText -Text $line -Color $color
+        }
     }
     $resize=New-WinSecResizeState
     while($true){
@@ -27,8 +34,9 @@ function Show-WinSecDeviceNameEditor {
         if($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0){continue}
         if($key.VirtualKeyCode -eq 27){return $null}
         if($review){
-            if([string]$key.Character -match '^[nN]$'){return $null}
-            if(($key.VirtualKeyCode -eq 13 -or [string]$key.Character -match '^[yY]$') -and $script:WinSecDeviceNameVisible){
+            if($key.VirtualKeyCode -in @(37,38,39,40)){$choice.Index=1-$choice.Index;continue}
+            if($key.VirtualKeyCode -eq 13 -and $choice.Index -eq 1){return $null}
+            if($key.VirtualKeyCode -eq 13 -and $script:WinSecDeviceNameVisible){
                 return [pscustomobject]@{DeviceId=$requestCopy.DeviceId;DisplayName=$text}
             }
             continue

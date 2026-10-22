@@ -242,7 +242,7 @@ foreach($id in @('cis-controls','nist-csf','mitre-attack')) {
         $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
         $options=@(Get-WinSecExportFrameworkOptions);$index=[array]::IndexOf(@($options.Id),$id)
         for($i=0;$i -lt $index;$i++){$script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=40;Character='';KeyDown=$true;ControlKeyState=0})}
-        $script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=89;Character='y';KeyDown=$true;ControlKeyState=0})
+        $script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
         $null=Invoke-WinSecCLIFindingsExport $state $exportContext
         Assert-WinSecFindingIntegration ($script:exportWrites -eq ($writes+1) -and $script:frameworkReads -gt $reads -and
             $script:exportedReport.Markdown.Contains('Selected export framework: '+$id) -and
@@ -255,10 +255,11 @@ foreach($code in @(78,27)) {
         $exportContext=New-WinSecExportContext;$writes=$script:exportWrites
         $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
         $script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$code;Character=$(if($code -eq 78){'n'}else{''});KeyDown=$true;ControlKeyState=0})
+        if($code -eq 78){$script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0})}
         $r=Invoke-WinSecCLIFindingsExport $state $exportContext
         Assert-WinSecFindingIntegration ($null -eq $r -and $script:exportWrites -eq $writes -and
             $exportContext.LastExportMessage -ceq 'Export cancelled.' -and
-            $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress))
+            $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress) -and $script:frameworkKeys.Count -eq 0)
     }
 }
 Test-WinSecFindingIntegration 'Changing the selected control while choosing a framework aborts before writing' {

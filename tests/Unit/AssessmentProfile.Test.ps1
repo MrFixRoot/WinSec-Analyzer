@@ -110,20 +110,22 @@ Test-WinSecProfile 'Prepared catalog snapshots do not retain current policy refe
     Assert-WinSecProfile ($p.AssessmentCatalogs['WSA-SYS-001'].Catalog.Criteria[0].Recommendation -cne 'CHANGED')
 }
 foreach($code in @(89,13)){
-    Test-WinSecProfile 'Y and Enter confirm only after showing profile and policy provenance' {
+    Test-WinSecProfile 'Enter confirms with provenance; a preceding Y is ignored' {
         $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
         $script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 89){'y'}else{''})))
+        if($code -eq 89){$script:keys.Enqueue((New-WinSecProfileKey 13))}
         Assert-WinSecProfile (Show-WinSecScanConfirmation $request)
         $text=$script:lines -join ' '
         Assert-WinSecProfile ($text.Contains('Evaluation profile: TEST') -and $text.Contains('test-1') -and
-            $text.Contains(('D'*64)) -and $text.Contains('Windows 11 TEST') -and $text.Contains('NOT_SCORED'))
+            $text.Contains(('D'*64)) -and $text.Contains('Windows 11 TEST') -and $text.Contains('NOT_SCORED') -and $script:keys.Count -eq 0)
     }
 }
 foreach($code in @(78,27)){
-    Test-WinSecProfile 'N and Escape cancel profile-bound scan confirmation' {
+    Test-WinSecProfile 'Escape cancels a profile-bound confirmation; a preceding N is ignored' {
         $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
         $script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 78){'n'}else{''})))
-        Assert-WinSecProfile (-not (Show-WinSecScanConfirmation $request))
+        if($code -eq 78){$script:keys.Enqueue((New-WinSecProfileKey 27))}
+        Assert-WinSecProfile (-not (Show-WinSecScanConfirmation $request) -and $script:keys.Count -eq 0)
     }
 }
 Test-WinSecProfile 'A small terminal cannot approve a truncated profile or its hash' {
@@ -196,29 +198,31 @@ foreach($withOptions in @($false,$true)){
     }
 }
 foreach($code in @(89,13)){
-    Test-WinSecProfile 'Arrows and Y or Enter explicitly choose a profile with its complete provenance' {
+    Test-WinSecProfile 'Arrows and Enter choose a profile with provenance; Y is ignored' {
         $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
         $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
         $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey 13))
         $script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 89){'y'}else{''})))
+        if($code -eq 89){$script:keys.Enqueue((New-WinSecProfileKey 13))}
         $answer=Show-WinSecAssessmentProfileSelection -Request $request -Profiles $options
         Assert-WinSecProfile ($answer.Confirmed -ceq $true -and $answer.Selection.Profile -ceq 'TEST' -and
-            ($script:lines -join ' ').Contains(('D'*64)) -and $script:coordinator.Sessions.Count -eq 0)
+            ($script:lines -join ' ').Contains(('D'*64)) -and $script:coordinator.Sessions.Count -eq 0 -and $script:keys.Count -eq 0)
         $answer.Selection.Policies[0].CatalogVersion='changed'
         Assert-WinSecProfile ($options[0].Policies[0].CatalogVersion -ceq 'test-1')
     }
 }
 foreach($code in @(78,27)){
-    Test-WinSecProfile 'N and Escape cancel even after navigating to an approved profile' {
+    Test-WinSecProfile 'Escape cancels after navigation; a preceding N cannot decide' {
         $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
         $script:keys.Enqueue((New-WinSecProfileKey 38));$script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 78){'n'}else{''})))
+        if($code -eq 78){$script:keys.Enqueue((New-WinSecProfileKey 27))}
         $answer=Show-WinSecAssessmentProfileSelection $request @(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
-        Assert-WinSecProfile ($answer.Confirmed -ceq $false -and $null -eq $answer.Selection)
+        Assert-WinSecProfile ($answer.Confirmed -ceq $false -and $null -eq $answer.Selection -and $script:keys.Count -eq 0)
     }
 }
 Test-WinSecProfile 'Modified and release events cannot choose a profile or imply confirmation' {
     $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
-    $modified=New-WinSecProfileKey 89 'y';$modified.ControlKeyState=4
+    $modified=New-WinSecProfileKey 13;$modified.ControlKeyState=4
     $released=New-WinSecProfileKey 13;$released.KeyDown=$false
     $script:keys.Enqueue($modified);$script:keys.Enqueue($released);$script:keys.Enqueue((New-WinSecProfileKey 27))
     Assert-WinSecProfile (-not (Show-WinSecAssessmentProfileSelection $request @()).Confirmed -and $script:keys.Count -eq 0)

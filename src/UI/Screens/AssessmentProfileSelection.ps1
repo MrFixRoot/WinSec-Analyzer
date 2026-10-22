@@ -3,7 +3,8 @@ function Show-WinSecAssessmentProfileSelection {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object]$Request,
-        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Profiles
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Profiles,
+        [ValidateLength(0,256)][ValidatePattern('\A[^\p{C}]*\z')][string]$CurrentSystemLabel = ''
     )
     $requestCopy = Copy-WinSecResultData $Request
     if ($requestCopy.Operation -isnot [string] -or $requestCopy.Operation -cne 'SCAN' -or
@@ -74,6 +75,7 @@ function Show-WinSecAssessmentProfileSelection {
     foreach ($group in $groups) {
         $group.Profiles = @($group.Profiles | Sort-Object Label,Build)
     }
+    $groups = @($groups | Sort-Object Label)
     $display = [pscustomobject]@{Stage='OS';Index=0;SystemIndex=0;CanChoose=$false}
     $wrap = {
         param([object[]]$Lines,[int]$Width)
@@ -93,6 +95,7 @@ function Show-WinSecAssessmentProfileSelection {
             ('Device: ' + $requestCopy.Hostname),('DeviceId: ' + $requestCopy.DeviceId),
             ('Scope: {0} / {1}' -f $requestCopy.ScopeType,$requestCopy.ScopeKey),
             'Mode: READ ONLY | Overall score: NOT_SCORED')
+        if ($CurrentSystemLabel) { $lines += 'Current OS: ' + $CurrentSystemLabel }
         $details = @()
         if ($display.Stage -ceq 'OS') {
             $lines += 'OPERATING SYSTEM / EDITION'
@@ -116,13 +119,13 @@ function Show-WinSecAssessmentProfileSelection {
         }
         $lines += 'Choice {0} / {1}' -f ($display.Index+1),$labels.Count
         $details += 'A scan confirmation follows. No scan has started.'
-        $details += '[Up / Down] Choice | [Y / Enter] Select | [N] Cancel scan'
+        $details += '[Up / Down] Choice | [Enter] Select'
         $details += if ($display.Stage -ceq 'OS') {'[Esc] Cancel scan'} else {'[Esc] Back to operating systems'}
         $header = @(& $wrap $lines $width)
         $footer = @(& $wrap $details $width)
         $rows = [Math]::Min(8,[Math]::Min($labels.Count,$terminal.Height-1-$header.Count-$footer.Count))
         if ($terminal.Width -lt 40 -or $rows -lt 1) {
-            $hints = @('Resize to view the complete profile.','[Esc] Back | [N] Cancel scan')
+            $hints = @('Resize to view the complete profile.','[Esc] Back')
             for ($i=0;$i -lt [Math]::Min($hints.Count,[Math]::Max(0,$terminal.Height-1));$i++) {
                 Write-WinSecText -Text $hints[$i].Substring(0,[Math]::Min($width,$hints[$i].Length)) -Color Yellow
             }
@@ -151,7 +154,7 @@ function Show-WinSecAssessmentProfileSelection {
             $null = & $render $null
             continue
         }
-        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
+        if ($key.VirtualKeyCode -eq 27) {
             return [pscustomobject]@{Confirmed=$false;Selection=$null}
         }
         if ($key.VirtualKeyCode -in @(38,40)) {
@@ -160,7 +163,7 @@ function Show-WinSecAssessmentProfileSelection {
             $display.Index = ($display.Index+$delta+$count) % $count
             $null = & $render $null
         }
-        elseif ($display.CanChoose -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
+        elseif ($display.CanChoose -and $key.VirtualKeyCode -eq 13) {
             if ($display.Stage -ceq 'OS' -and $display.Index -gt 0) {
                 $display.SystemIndex=$display.Index;$display.Index=0;$display.Stage='BUILD'
                 $null = & $render $null

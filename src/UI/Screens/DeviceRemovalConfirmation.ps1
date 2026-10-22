@@ -23,7 +23,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         if ($Request.RegistersAgainOnStartup) {
             $lines += 'This computer will register again on next startup, with no history.'
         }
-        $lines += @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Y] Accept | [N / Esc] Cancel')
+        $lines += @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Esc] Cancel')
         $wrapped = @(
             foreach ($line in $lines) {
                 for ($offset=0; $offset -lt $line.Length; $offset+=$width) {
@@ -32,7 +32,7 @@ function Show-WinSecDeviceRemovalConfirmation {
             }
         )
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count+1)) {
-            $hints = @('Resize to view the complete deletion request.','[N / Esc] Cancel')
+            $hints = @('Resize to view the complete deletion request.','[Esc] Cancel')
             foreach ($hint in @($hints | Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
                 Write-WinSecText -Text $hint.Substring(0,[Math]::Min($width,$hint.Length)) -Color Yellow
             }
@@ -54,13 +54,13 @@ function Show-WinSecDeviceRemovalConfirmation {
         $key = Read-WinSecResizeAwareKey -ResizeState $resizeState -RenderAction $render
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') { return $false }
+        if ($key.VirtualKeyCode -eq 27) { return $false }
         if ($key.VirtualKeyCode -in @(37,38,39,40)) {
             $display.Choice=1-$display.Choice
             $null=& $render $null
             continue
         }
         if ($key.VirtualKeyCode -eq 13 -and $display.Choice -eq 1) { return $false }
-        if ($display.CanConfirm -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) { return $true }
+        if ($display.CanConfirm -and $key.VirtualKeyCode -eq 13) { return $true }
     }
 }

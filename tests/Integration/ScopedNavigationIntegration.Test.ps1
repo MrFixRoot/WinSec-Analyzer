@@ -43,7 +43,7 @@ function Write-Host {
 function Read-WinSecResizeAwareKey {
     param($ResizeState,$RenderAction)
     $key=$script:keys.Dequeue()
-    if($key -is [scriptblock]){$null=& $key;return [pscustomobject]@{Character='Y';VirtualKeyCode=89;ControlKeyState=0;KeyDown=$true}}
+    if($key -is [scriptblock]){$null=& $key;return [pscustomobject]@{Character='';VirtualKeyCode=13;ControlKeyState=0;KeyDown=$true}}
     return $key
 }
 function Add-WinSecNavigationKey {
@@ -52,8 +52,9 @@ function Add-WinSecNavigationKey {
 }
 function Invoke-WinSecNavigationKey {
     param([int]$Code,[string]$Character='')
-    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context
     $event=[pscustomobject]@{VirtualKeyCode=$Code;Character=$Character;ControlKeyState=0;KeyDown=$true}
+    if (Invoke-WinSecCLIBackNavigation -KeyInfo $event -State $script:state) { return }
+    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context
     $action=ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $script:state.Screen -EnableRescan
     $null=Invoke-WinSecNavigationAction -State $script:state -Action $action -Devices $script:context.Devices `
         -SectionCount $counts.SectionCount -ControlCount $counts.ControlCount -FindingCount $counts.FindingCount
@@ -147,12 +148,15 @@ Test-WinSecScopedNavigation 'Cancellation leaves navigation caches full sessions
     Invoke-WinSecNavigationKey 13
     Add-WinSecNavigationKey
     $null=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
-    $before=ConvertTo-Json -InputObject @($script:state,$script:context) -Depth 30 -Compress
+    $before=ConvertTo-Json -InputObject @($script:state,
+        ($script:context|Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 30 -Compress
     $calls=$script:collected.Count
-    Add-WinSecNavigationKey -Code 78 -Character N
+    Add-WinSecNavigationKey -Code 27
     $result=Invoke-WinSecCLILocalRescan -State $script:state -Context $script:context
     Assert-WinSecNavigationScan ($null -eq $result -and $calls -eq $script:collected.Count -and
-        $before -ceq (ConvertTo-Json -InputObject @($script:state,$script:context) -Depth 30 -Compress))
+        $before -ceq (ConvertTo-Json -InputObject @($script:state,
+            ($script:context|Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 30 -Compress) -and
+        $script:context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.')
 }
 Test-WinSecScopedNavigation 'Changing control selection inside confirmation aborts before collection' {
     Invoke-WinSecNavigationKey 13;Invoke-WinSecNavigationKey 13

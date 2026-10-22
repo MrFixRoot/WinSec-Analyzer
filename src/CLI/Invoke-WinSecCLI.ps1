@@ -733,6 +733,65 @@ function Get-WinSecCLIActiveAssessment {
 # Render current application screen
 # ------------------------------------------------------------
 
+function Get-WinSecCLIControlViews {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+
+    $sections = @(Get-WinSecMainMenuSections)
+    if ($State.Screen -cnotin @('Section','Results') -or $State.SectionIndex -isnot [int] -or
+        $State.SectionIndex -lt 0 -or $State.SectionIndex -ge $sections.Count) {
+        throw 'Invalid control table selection.'
+    }
+    $controls = @(Get-WinSecSectionControls -SectionKey $sections[$State.SectionIndex].Key)
+    # Resolve each row independently. Never mutate navigation or combine these
+    # sessions into a new assessment, section score, Findings or report.
+    $views = @(
+        for ($i = 0; $i -lt $controls.Count; $i++) {
+            $selection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
+                SectionIndex=$State.SectionIndex;ControlIndex=$i}
+            $assessment = Get-WinSecCLIActiveAssessment -State $selection -Context $Context
+            if ($assessment.Warning) { throw 'Ambiguous control table assessment.' }
+            if ([string]::IsNullOrWhiteSpace($assessment.ScanId)) { continue }
+            [pscustomobject]@{
+                CheckId = $controls[$i].CheckId
+                DeviceId = $State.SelectedDeviceId
+                ScanId = $assessment.ScanId
+                ScopeType = Get-WinSecCLIValue $assessment 'SourceScopeType'
+                ScopeKey = Get-WinSecCLIValue $assessment 'SourceScopeKey'
+                ControlResults = @($assessment.ControlResults)
+                ConfigurationAssessment = Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
+            }
+        }
+    )
+    return $views
+}
+
+function Get-WinSecCLISystemLabel {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+    $summary = Get-WinSecCLIValue $Context 'LocalSystemInfo'
+    if ($null -eq $summary) { return '' }
+    try { $summary = Copy-WinSecResultData $summary } catch { return '' }
+    if ($summary -isnot [pscustomobject] -or @($summary.PSObject.Properties).Count -ne 2 -or
+        @($summary.PSObject.Properties | Where-Object {$_.Name -cnotin @('DeviceId','Label')}).Count -gt 0 -or
+        $summary.DeviceId -isnot [string] -or $summary.DeviceId -cnotmatch '\Alocal:hw1-[a-f0-9]{64}\z' -or
+        $summary.DeviceId -cne $State.SelectedDeviceId -or $summary.Label -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($summary.Label) -or $summary.Label.Length -gt 256 -or $summary.Label -match '[\p{C}]') {
+        return ''
+    }
+    return $summary.Label
+}
+
+function Invoke-WinSecCLIBackNavigation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$KeyInfo,[Parameter(Mandatory)][psobject]$State)
+    # Returning from a view requires no scan/export permission or result data.
+    $event = Get-WinSecKeyboardAction -KeyInfo $KeyInfo -Screen $State.Screen
+    if ($event.Action -cne 'Back') { return $false }
+    $null = Invoke-WinSecNavigationAction -State $State -Action Back
+    return $true
+}
+
 function Show-WinSecCLICurrentScreen {
     [CmdletBinding()]
     param(
@@ -761,8 +820,15 @@ function Show-WinSecCLICurrentScreen {
         return
     }
 
+    # The section heading belongs to its section/device session. The cursor
+    # only selects an action; individual rows resolve their own sessions below.
+    $assessmentState = $State
+    if ($State.Screen -cin @('Section','Results')) {
+        $assessmentState = [pscustomobject]@{Screen='Findings';FindingsScope='Section';
+            SelectedDeviceId=$State.SelectedDeviceId;SectionIndex=$State.SectionIndex;ControlIndex=0}
+    }
     $assessment = Get-WinSecCLIActiveAssessment `
-        -State $State `
+        -State $assessmentState `
         -Context $Context
 
     # --------------------------------------------------------
@@ -827,6 +893,7 @@ function Show-WinSecCLICurrentScreen {
                 -OverallStatus $assessment.OverallStatus `
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -Version $Context.Version `
+                -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) `
                 @scanPresentation
 
             # -----------------------------------------------
@@ -860,7 +927,8 @@ function Show-WinSecCLICurrentScreen {
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
-                -Version $Context.Version @scanPresentation
+                -ControlViews @(Get-WinSecCLIControlViews -State $State -Context $Context) `
+                -Version $Context.Version -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) @scanPresentation
         }
 
         'Results' {
@@ -870,7 +938,8 @@ function Show-WinSecCLICurrentScreen {
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
-                -Version $Context.Version @scanPresentation
+                -ControlViews @(Get-WinSecCLIControlViews -State $State -Context $Context) `
+                -Version $Context.Version -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) @scanPresentation
         }
 
         'Findings' {
@@ -1380,7 +1449,9 @@ function Invoke-WinSecCLILocalRescan {
             $profiles = @(Get-WinSecAssessmentProfileOptions -ProjectRoot $coordinator.ProjectRoot -CheckIds $pickerPlan.CheckIds)
             $pickerRequest = ConvertFrom-Json -InputObject $pickerPlan.RequestJson -ErrorAction Stop
             $requestSnapshot = Get-WinSecPublicHistoryJson $pickerRequest
-            $answers = @(Show-WinSecAssessmentProfileSelection -Request $pickerRequest -Profiles (Copy-WinSecResultData $profiles))
+            $systemState = [pscustomobject]@{SelectedDeviceId=$deviceId}
+            $answers = @(Show-WinSecAssessmentProfileSelection -Request $pickerRequest -Profiles (Copy-WinSecResultData $profiles) `
+                -CurrentSystemLabel (Get-WinSecCLISystemLabel -State $systemState -Context $Context))
             if ($answers.Count -ne 1) { throw 'Profile selection must return exactly one decision.' }
             $answer = Copy-WinSecResultData $answers[0]
             if ($answer -isnot [pscustomobject] -or @($answer.PSObject.Properties).Count -ne 2 -or
@@ -2065,7 +2136,15 @@ function Invoke-WinSecCLI {
         PublicScans = @{}
         LastScanMessage = ''
         LastDeviceMessage = ''
+        LocalSystemInfo = $null
     }
+
+    # Informational OS metadata only, requested for selecting the correct profile.
+    # Read once; drawing this label never queries Windows.
+    try {
+        $context.LocalSystemInfo = Get-WinSecLocalSystemSummary -DeviceId (New-WinSecLocalTarget).DeviceId -ProjectRoot $ProjectRoot
+    }
+    catch { $context.LocalSystemInfo = $null }
 
     # Recuperar resultados públicos antes del primer dibujo; nunca auditar al iniciar.
     $scanCoordinator.PublicHistoryEnabled=$true
@@ -2108,6 +2187,12 @@ function Invoke-WinSecCLI {
             -ResizeState $resizeState `
             -RenderAction $renderAction `
             -NavigationState $navigationState
+
+        # Esc must leave Findings even when its data/export checks cannot resolve.
+        if (Invoke-WinSecCLIBackNavigation -KeyInfo $keyInfo -State $navigationState) {
+            $null = & $renderAction $navigationState
+            continue
+        }
 
         # ----------------------------------------------------
         # Get action from centralized KeyboardController

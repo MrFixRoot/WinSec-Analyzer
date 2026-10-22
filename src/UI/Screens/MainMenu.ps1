@@ -273,6 +273,7 @@ function Show-WinSecMainMenu {
         [string]$OverallStatus = 'PENDING',
 
         [string]$Version = '0.9.0',
+        [ValidateLength(0,256)][ValidatePattern('\A[^\p{C}]*\z')][string]$SystemLabel = '',
 
         # Display-only authorization flag.
         # The caller must validate the selected target.
@@ -405,6 +406,7 @@ function Show-WinSecMainMenu {
     Write-WinSecText `
         -Text $deviceText `
         -Color $deviceColor
+    if ($SystemLabel) { Write-WinSecText -Text ('CURRENT OS: ' + $SystemLabel) -Color Gray }
 
     # --------------------------------------------------------
     # Display overall security score
@@ -494,6 +496,7 @@ function Show-WinSecMainMenu {
     }
 
     # Recalculate layout using actual content reservations.
+    if ($SystemLabel) { $reservedRows++ }
     $layout = Get-WinSecLayout `
         -Screen 'MainMenu' `
         -ReservedRows $reservedRows

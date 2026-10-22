@@ -110,12 +110,17 @@ Test-WinSecControls 'Catalog load failure rejects without exposing its diagnosti
 Test-WinSecControls 'Catalog visibility filters display without authorizing or running checks' {
     . (Join-Path $root 'src/Core/CheckRegistry.ps1')
     $script:displayRegistryFixture=Get-WinSecCheckRegistry -ProjectRoot $root
+    $permissionsBefore=ConvertTo-Json @($script:displayRegistryFixture.Checks|Select-Object CheckId,ExecutionEnabled,ExecutionReady,ImplementationStatus,RegistryStatus) -Compress
+    $script:displayExecutions=0
+    function Invoke-WinSecAudit {$script:displayExecutions++;throw 'Unexpected display audit.'}
+    function Invoke-WinSecCoordinatedScan {$script:displayExecutions++;throw 'Unexpected display scan.'}
     $hidden=@($script:displayRegistryFixture.Checks|Where-Object{$_.CheckId -ceq 'WSA-SYS-002'})
     $hidden[0].Visible=$false
     function Get-WinSecCheckRegistry {param($ProjectRoot);$script:displayRegistryFixture}
     $rows=@(Get-WinSecSectionControls -SectionKey SystemSecurity -ControlResults @(@{CheckId='WSA-SYS-002';Status='NOT_SELECTED'}))
     Assert-WinSecControls ($rows.Count -eq 2 -and @($rows|Where-Object{$_.CheckId -ceq 'WSA-SYS-002'}).Count -eq 0 -and
-        @($script:displayRegistryFixture.Checks|Where-Object{$_.ExecutionEnabled}).Count -eq 0)
+        $script:displayExecutions -eq 0 -and $permissionsBefore -ceq
+        (ConvertTo-Json @($script:displayRegistryFixture.Checks|Select-Object CheckId,ExecutionEnabled,ExecutionReady,ImplementationStatus,RegistryStatus) -Compress))
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

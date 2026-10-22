@@ -145,10 +145,10 @@ function Show-WinSecScanConfirmation {
             $lines += 'NO_EXECUTABLE_CHECKS - no audit will be started. NOT_SCORED.'
         }
         $lines += if ($hasChecks) {
-            @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Y] Accept | [N / Esc] Cancel')
+            @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Esc] Cancel')
         }
         else {
-            '[N / Esc] Back'
+            '[Esc] Back'
         }
 
         # Wrap every field completely; do not approve truncated requests.
@@ -161,7 +161,7 @@ function Show-WinSecScanConfirmation {
         )
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count + 1)) {
             $hints = @('Resize to view the complete scan request.',
-                ('Required height at this width: {0}' -f ($wrapped.Count + 1)),'[N / Esc] Cancel')
+                ('Required height at this width: {0}' -f ($wrapped.Count + 1)),'[Esc] Cancel')
             foreach ($hint in @($hints | Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
                 Write-WinSecText -Text $hint.Substring(0,[Math]::Min($width,$hint.Length)) -Color Yellow
             }
@@ -185,7 +185,7 @@ function Show-WinSecScanConfirmation {
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or
             ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
+        if ($key.VirtualKeyCode -eq 27) {
             return $false
         }
         if ($key.VirtualKeyCode -in @(37,38,39,40)) {
@@ -194,7 +194,7 @@ function Show-WinSecScanConfirmation {
             continue
         }
         if ($key.VirtualKeyCode -eq 13 -and $display.Choice -eq 1) { return $false }
-        if ($display.CanConfirm -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
+        if ($display.CanConfirm -and $key.VirtualKeyCode -eq 13) {
             return $true
         }
     }

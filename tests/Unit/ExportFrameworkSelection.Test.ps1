@@ -40,22 +40,24 @@ Test-WinSecExportChoice 'Only the three supported frameworks are offered' {
 }
 foreach($index in 0..2) {
     foreach($code in @(13,89)) {
-        Test-WinSecExportChoice ('Each framework shows its benefit and requires Y/Enter: '+$index+' / '+$code) {
+        Test-WinSecExportChoice ('Each framework shows its benefit and requires Enter; Y is ignored: '+$index+' / '+$code) {
             $options=@(Get-WinSecExportFrameworkOptions);$before=ConvertTo-Json $script:selection -Compress
             for($i=0;$i -lt $index;$i++) {$script:keys.Enqueue((New-WinSecExportChoiceKey 40))}
             $script:keys.Enqueue((New-WinSecExportChoiceKey $code $(if($code -eq 89){'y'}else{''})))
+            if($code -eq 89){$script:keys.Enqueue((New-WinSecExportChoiceKey 13))}
             $answer=Show-WinSecExportFrameworkSelection $script:selection
             Assert-WinSecExportChoice ($answer.Confirmed -ceq $true -and $answer.FrameworkId -ceq $options[$index].Id -and
                 ($script:lines -join '|').Contains($options[$index].Benefit) -and ($script:lines -join '|').Contains('PENDING') -and
-                $before -ceq (ConvertTo-Json $script:selection -Compress))
+                $before -ceq (ConvertTo-Json $script:selection -Compress) -and $script:keys.Count -eq 0)
         }
     }
 }
 foreach($code in @(78,27)) {
-    Test-WinSecExportChoice 'N and Escape cancel after navigating without choosing a framework' {
+    Test-WinSecExportChoice 'Escape cancels after navigating; N cannot decide' {
         $script:keys.Enqueue((New-WinSecExportChoiceKey 40));$script:keys.Enqueue((New-WinSecExportChoiceKey $code $(if($code -eq 78){'n'}else{''})))
+        if($code -eq 78){$script:keys.Enqueue((New-WinSecExportChoiceKey 27))}
         $answer=Show-WinSecExportFrameworkSelection $script:selection
-        Assert-WinSecExportChoice ($answer.Confirmed -ceq $false -and $null -eq $answer.FrameworkId)
+        Assert-WinSecExportChoice ($answer.Confirmed -ceq $false -and $null -eq $answer.FrameworkId -and $script:keys.Count -eq 0)
     }
 }
 Test-WinSecExportChoice 'Up wraps from first to last framework' {
@@ -64,7 +66,7 @@ Test-WinSecExportChoice 'Up wraps from first to last framework' {
 }
 Test-WinSecExportChoice 'Modified keys and releases do not confirm an export' {
     $key=New-WinSecExportChoiceKey 13;$key.KeyDown=$false;$script:keys.Enqueue($key)
-    $key=New-WinSecExportChoiceKey 89 'y';$key.ControlKeyState=4;$script:keys.Enqueue($key)
+    $key=New-WinSecExportChoiceKey 13;$key.ControlKeyState=4;$script:keys.Enqueue($key)
     $script:keys.Enqueue((New-WinSecExportChoiceKey 27))
     Assert-WinSecExportChoice (-not (Show-WinSecExportFrameworkSelection $script:selection).Confirmed -and $script:keys.Count -eq 0)
 }

@@ -36,7 +36,7 @@ function Show-WinSecExportFrameworkSelection {
         $lines += 'Benefit: ' + $options[$display.Index].Benefit
         $lines += 'Only reviewed mappings can identify a reference control. Missing mappings remain PENDING.'
         $lines += 'Original scan recommendations are retained. References do not certify compliance.'
-        $lines += '[Up / Down] Framework | [Y / Enter] Export | [N / Esc] Cancel'
+        $lines += '[Up / Down] Framework | [Enter] Export | [Esc] Cancel'
         $wrapped = @(foreach ($line in $lines) {
             if ($line.Length -eq 0) { ''; continue }
             for ($offset=0;$offset -lt $line.Length;$offset+=$width) {
@@ -44,7 +44,7 @@ function Show-WinSecExportFrameworkSelection {
             }
         })
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count+1)) {
-            $hints = @('Resize to view the export choice.','[N / Esc] Cancel')
+            $hints = @('Resize to view the export choice.','[Esc] Cancel')
             for ($i=0;$i -lt [Math]::Min($hints.Count,[Math]::Max(0,$terminal.Height-1));$i++) {
                 Write-WinSecText -Text $hints[$i].Substring(0,[Math]::Min($width,$hints[$i].Length)) -Color Yellow
             }
@@ -59,7 +59,7 @@ function Show-WinSecExportFrameworkSelection {
         $key = Read-WinSecResizeAwareKey -ResizeState $resizeState -RenderAction $render
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
+        if ($key.VirtualKeyCode -eq 27) {
             return [pscustomobject]@{Confirmed=$false;FrameworkId=$null}
         }
         if ($key.VirtualKeyCode -in @(38,40)) {
@@ -67,7 +67,7 @@ function Show-WinSecExportFrameworkSelection {
             $display.Index = ($display.Index+$delta+$options.Count) % $options.Count
             $null = & $render $null
         }
-        elseif ($display.CanChoose -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
+        elseif ($display.CanChoose -and $key.VirtualKeyCode -eq 13) {
             return [pscustomobject]@{Confirmed=$true;FrameworkId=$options[$display.Index].Id}
         }
     }

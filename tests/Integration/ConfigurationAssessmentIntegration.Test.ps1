@@ -211,7 +211,13 @@ Test-WinSecConfigIntegration 'A control export from section history preserves th
 Test-WinSecConfigIntegration 'The interactive CLI selects an installed profile, confirms, publishes and displays the 75 control score' {
     $ctx=New-WinSecConfigIntegrationContext;$state=New-WinSecNavigationState
     $state.Screen='Section';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
-    foreach($code in @(40,13,13)){$script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=$code;Character='';ControlKeyState=0;KeyDown=$true})}
+    # Select Pro in the alphabetical OS list, then 24H2/build 26100, then
+    # explicitly accept the operation. No reliance on the old flat picker.
+    $editions=@((Get-WinSecDefenderProfileMatrix $root).Matrix.Editions|Sort-Object Name|ForEach-Object {$_.Name})
+    for($i=0;$i -le [array]::IndexOf($editions,'Pro');$i++) {
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=40;Character='';ControlKeyState=0;KeyDown=$true})
+    }
+    foreach($code in @(13,40,40,40,13,13)){$script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=$code;Character='';ControlKeyState=0;KeyDown=$true})}
     $p=Invoke-WinSecCLILocalRescan -State $state -Context $ctx
     Assert-WinSecConfigIntegration ($p.ConfigurationAssessment.Controls[0].Value -eq 75 -and $ctx.PublicScans.Count -eq 1 -and
         $ctx.LastScanMessage.Contains('75/100') -and $script:reads -eq 1 -and $script:keys.Count -eq 0)
@@ -223,6 +229,67 @@ Test-WinSecConfigIntegration 'The interactive CLI selects an installed profile, 
         Show-WinSecCLICurrentScreen $state $ctx
         Assert-WinSecConfigIntegration (@($script:lines|Where-Object {$_.Length -gt $size[0]}).Count -eq 0 -and
             $script:reads -eq 1 -and $saved -ceq (ConvertTo-Json $ctx.PublicScans -Depth 40 -Compress))
+    }
+}
+Test-WinSecConfigIntegration 'Restored Defender score and status stay on their row while the real cursor moves to pending controls' {
+    $ctx=New-WinSecConfigIntegrationContext;$p=Invoke-WinSecConfigIntegrationScan $ctx
+    $restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
+    $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$p.DeviceId
+    $before=ConvertTo-Json @($restart,$script:store) -Depth 50 -Compress
+    $baseline=@(Get-WinSecResultsControlRows SystemSecurity $state -ControlViews @(Get-WinSecCLIControlViews $state $restart))[0]
+    foreach($index in @(0,1,2,0)) {
+        while($state.ControlIndex -ne $index){$null=Invoke-WinSecNavigationAction $state MoveDown -ControlCount 3}
+        $rows=@(Get-WinSecResultsControlRows SystemSecurity $state -ControlViews @(Get-WinSecCLIControlViews $state $restart))
+        Assert-WinSecConfigIntegration ($rows[0].Score -ceq '75/100' -and $rows[0].Status -ceq $baseline.Status -and
+            $rows[0].ScanId -ceq $p.ScanId -and $rows[1].Score -ceq 'NOT_SCORED' -and $rows[1].Status -ceq 'PENDING')
+        Show-WinSecCLICurrentScreen $state $restart
+        $defenderLine=@($script:lines|Where-Object {$_.Contains('Windows Defender')})
+        Assert-WinSecConfigIntegration ($defenderLine.Count -eq 1 -and $defenderLine[0].Contains('75/100') -and
+            ($script:lines -join '|').Contains('SECTION SCORE: NOT_SCORED'))
+    }
+    foreach($size in @(@(80,26),@(40,20),@(16,5))) {
+        $state.ControlIndex=1;$script:terminal=[pscustomobject]@{Width=$size[0];ContentWidth=($size[0]-1);Height=$size[1]}
+        Show-WinSecCLICurrentScreen $state $restart
+        Assert-WinSecConfigIntegration (@($script:lines|Where-Object {$_.Length -gt $size[0]}).Count -eq 0)
+    }
+    $state.ControlIndex=1;$null=Invoke-WinSecNavigationAction $state ShowFindings -ControlCount 3
+    $pending=Get-WinSecCLIActiveAssessment $state $restart
+    Assert-WinSecConfigIntegration ($pending.ScanId -ceq '' -and @($pending.Findings).Count -eq 0)
+    $null=Invoke-WinSecNavigationAction $state Back
+    $state.ControlIndex=0;$null=Invoke-WinSecNavigationAction $state ShowFindings -ControlCount 3
+    $selected=Get-WinSecCLIActiveAssessment $state $restart
+    Assert-WinSecConfigIntegration ($selected.ScanId -ceq $p.ScanId -and $selected.Findings.Count -eq 1 -and
+        $script:reads -eq 1 -and $before -ceq (ConvertTo-Json @($restart,$script:store) -Depth 50 -Compress))
+}
+Test-WinSecConfigIntegration 'A control rescan replaces only its row while the section session stays immutable' {
+    $ctx=New-WinSecConfigIntegrationContext
+    $section=Invoke-WinSecConfigIntegrationScan $ctx -ScopeType SECTION -ScopeKey SystemSecurity -Id 'section-original'
+    $sectionJson=$script:store['section-original'];$script:realtime=$true
+    $control=Invoke-WinSecConfigIntegrationScan $ctx -Id 'control-later'
+    $restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
+    $state=New-WinSecNavigationState;$state.Screen='Results';$state.SelectedDeviceId=$control.DeviceId;$state.ControlIndex=1
+    $views=@(Get-WinSecCLIControlViews $state $restart)
+    $rows=@(Get-WinSecResultsControlRows SystemSecurity $state -ControlViews $views)
+    Assert-WinSecConfigIntegration ($rows[0].Score -ceq '100/100' -and $rows[0].ScanId -ceq $control.ScanId -and
+        $rows[1].ScanId -ceq $section.ScanId -and $rows[1].Score -ceq 'NOT_SCORED')
+    Show-WinSecCLICurrentScreen $state $restart
+    Assert-WinSecConfigIntegration (($script:lines -join '|').Contains('100/100') -and
+        ($script:lines -join '|').Contains('SECTION SCORE: NOT_SCORED') -and $sectionJson -ceq $script:store['section-original'])
+    $state.Screen='Findings';$state.FindingsScope='Section'
+    $original=Get-WinSecCLIActiveAssessment $state $restart
+    Assert-WinSecConfigIntegration ($original.ScanId -ceq $section.ScanId -and
+        $original.ConfigurationAssessment.Controls[0].Value -eq 75 -and $original.Findings.Count -eq 1 -and $script:reads -eq 2)
+}
+foreach($field in @('DeviceId','ScanId','ScopeKey')) {
+    Test-WinSecConfigIntegration ('A scored row rejects a conflicting configuration origin: '+$field) {
+        $ctx=New-WinSecConfigIntegrationContext;$p=Invoke-WinSecConfigIntegrationScan $ctx
+        $restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$p.DeviceId
+        $views=@(Get-WinSecCLIControlViews $state $restart)
+        $views[0].ConfigurationAssessment.$field=if($field -ceq 'DeviceId'){'local:another'}elseif($field -ceq 'ScanId'){'another-scan'}else{'WSA-SYS-002'}
+        $published=New-Object 'System.Collections.Generic.List[object]';$caught=$false
+        try{Get-WinSecResultsControlRows SystemSecurity $state -ControlViews $views|ForEach-Object{$published.Add($_)}}catch{$caught=$true}
+        Assert-WinSecConfigIntegration ($caught -and $published.Count -eq 0 -and $script:reads -eq 1)
     }
 }
 Test-WinSecConfigIntegration 'Native validation helper prepares safely, rejects an unapproved hash and collects only after a matching synthetic approval' {

@@ -331,6 +331,7 @@ foreach($keyCode in @(13,27,78)){
         $script:dialogKeys=New-Object 'System.Collections.Generic.Queue[object]'
         $script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$keyCode;Character=if($keyCode -eq 78){'N'}else{''};
             ControlKeyState=0;KeyDown=$true})
+        if($keyCode -eq 78){$script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';ControlKeyState=0;KeyDown=$true})}
         $before=ConvertTo-Json -InputObject @($script:coordinator.Sessions,$script:inventoryMemory.Json) -Depth 20 -Compress
         $result=Invoke-WinSecRemovalFixture -Confirm {param($request); & $script:realDialog -Request $request}
         if($keyCode -eq 13){

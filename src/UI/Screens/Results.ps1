@@ -144,6 +144,77 @@ function Get-WinSecSectionControls {
 
 
 # ------------------------------------------------------------
+# Resolve independently sourced control rows
+# ------------------------------------------------------------
+
+function Get-WinSecResultsControlRows {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SectionKey,
+        [AllowNull()][psobject]$NavigationState,
+        [object[]]$ControlResults = @(),
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$ControlViews = @()
+    )
+
+    $rows = @(Get-WinSecSectionControls -SectionKey $SectionKey -ControlResults $ControlResults `
+        -ConfigurationAssessment $ConfigurationAssessment)
+    if ($ControlViews.Count -gt $rows.Count) { throw 'Too many control table sessions.' }
+    if ($ControlViews.Count -eq 0) { return $rows }
+    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../../Core/ResultModel.ps1')
+    }
+    $seen = @{}
+    $ownedViews = Copy-WinSecResultData $ControlViews
+    foreach ($view in $ownedViews) {
+        if ($view -isnot [pscustomobject] -or @($view.PSObject.Properties).Count -ne 7 -or
+            @($view.PSObject.Properties | Where-Object {$_.Name -cnotin @(
+                'CheckId','DeviceId','ScanId','ScopeType','ScopeKey','ControlResults','ConfigurationAssessment')}).Count -gt 0 -or
+            $view.CheckId -isnot [string] -or $seen.ContainsKey($view.CheckId) -or
+            $null -eq $NavigationState -or $view.DeviceId -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($view.DeviceId) -or $view.DeviceId -cne $NavigationState.SelectedDeviceId -or
+            $view.ScanId -isnot [string] -or [string]::IsNullOrWhiteSpace($view.ScanId)) {
+            throw 'Invalid control table session identity.'
+        }
+        $matches = @($rows | Where-Object {$_.CheckId -ceq $view.CheckId})
+        if ($matches.Count -ne 1) { throw 'Control table session belongs to another section.' }
+        $seen[$view.CheckId] = $true
+        # Null scope is supported only for legacy, unscored public records.
+        $legacy = $null -eq $view.ScopeType -and $null -eq $view.ScopeKey -and $null -eq $view.ConfigurationAssessment
+        if (-not $legacy -and ($view.ScopeType -isnot [string] -or $view.ScopeKey -isnot [string] -or -not (
+            ($view.ScopeType -ceq 'DEVICE' -and $view.ScopeKey -ceq 'ALL') -or
+            ($view.ScopeType -ceq 'SECTION' -and $view.ScopeKey -ceq $SectionKey) -or
+            ($view.ScopeType -ceq 'CONTROL' -and $view.ScopeKey -ceq $view.CheckId)))) {
+            throw 'Control table session scope mismatch.'
+        }
+        foreach ($record in @($view.ControlResults)) {
+            if ($null -eq $record -or $record.DeviceId -isnot [string] -or $record.ScanId -isnot [string] -or
+                $record.DeviceId -cne $view.DeviceId -or $record.ScanId -cne $view.ScanId) {
+                throw 'Foreign record in control table session.'
+            }
+        }
+        if ($null -ne $view.ConfigurationAssessment) {
+            Assert-WinSecConfigurationViewContext $view.ConfigurationAssessment $NavigationState $view.ScanId
+            if ($view.ConfigurationAssessment.ScopeType -cne $view.ScopeType -or
+                $view.ConfigurationAssessment.ScopeKey -cne $view.ScopeKey) { throw 'Foreign control configuration scope.' }
+        }
+        $sourceRows = @(Get-WinSecSectionControls -SectionKey $SectionKey -ControlResults $view.ControlResults `
+            -ConfigurationAssessment $view.ConfigurationAssessment)
+        $source = @($sourceRows | Where-Object {$_.CheckId -ceq $view.CheckId})[0]
+        $matches[0].Score = $source.Score
+        $matches[0].Status = $source.Status
+        $matches[0].ObservedStatus = $source.ObservedStatus
+        # Row provenance is kept separately; it is never used to aggregate scores.
+        $matches[0] | Add-Member -NotePropertyName DeviceId -NotePropertyValue $view.DeviceId
+        $matches[0] | Add-Member -NotePropertyName ScanId -NotePropertyValue $view.ScanId
+        $matches[0] | Add-Member -NotePropertyName SourceScopeType -NotePropertyValue $view.ScopeType
+        $matches[0] | Add-Member -NotePropertyName SourceScopeKey -NotePropertyValue $view.ScopeKey
+    }
+    # Do not publish any rows until every session has been validated.
+    return $rows
+}
+
+# ------------------------------------------------------------
 # Get current device information
 # ------------------------------------------------------------
 
@@ -199,8 +270,10 @@ function Show-WinSecResults {
         [object[]]$ControlResults = @(),
 
         [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$ControlViews = @(),
         [string]$ScanId = '',
         [string]$Version = '0.9.0',
+        [ValidateLength(0,256)][ValidatePattern('\A[^\p{C}]*\z')][string]$SystemLabel = '',
         [switch]$EnableRescan,
         [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
     )
@@ -245,9 +318,10 @@ function Show-WinSecResults {
     # --------------------------------------------------------
 
     $controls = @(
-        Get-WinSecSectionControls `
+        Get-WinSecResultsControlRows `
             -SectionKey $section.Key `
-            -ControlResults $ControlResults -ConfigurationAssessment $ConfigurationAssessment
+            -ControlResults $ControlResults -ConfigurationAssessment $ConfigurationAssessment `
+            -NavigationState $NavigationState -ControlViews $ControlViews
     )
 
     if ($controls.Count -gt 0) {
@@ -314,6 +388,7 @@ function Show-WinSecResults {
     Write-WinSecText `
         -Text "DEVICE: $($device.Hostname)" `
         -Color Gray
+    if ($SystemLabel) { Write-WinSecText -Text ('CURRENT OS: ' + $SystemLabel) -Color Gray }
 
     $statusColor = Get-WinSecStatusColor `
         -Status $section.Status
@@ -390,7 +465,7 @@ function Show-WinSecResults {
         -Screen 'Section' `
         -BannerRows $layout.BannerRows `
         -HiddenKeys $hiddenKeys `
-        -ReservedRows 13
+        -ReservedRows (13 + [int][bool]$SystemLabel)
 
     $maxRows = [Math]::Max(
         1,

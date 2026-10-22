@@ -27,29 +27,32 @@ function Test-WinSecNameDialogCase {
     try{$null=& $Action;$script:passed++;Write-Host "[PASS] $Name"}catch{$script:failed++;Write-Host "[FAIL] $Name : $($_.Exception.Message)"}
 }
 foreach($confirm in @(@{Code=13;Char=''},@{Code=89;Char='y'})){
-    Test-WinSecNameDialogCase 'Enter reviews; Y or Enter saves exactly the reviewed name' {
+    Test-WinSecNameDialogCase 'Enter reviews and saves; Y cannot approve a reviewed name' {
         foreach($c in 'My device'.ToCharArray()){Add-WinSecNameDialogKey 0 ([string]$c)}
         Add-WinSecNameDialogKey;Add-WinSecNameDialogKey $confirm.Code $confirm.Char
+        if($confirm.Code -eq 89){Add-WinSecNameDialogKey}
         $before=ConvertTo-Json $script:request -Compress
         $answer=Show-WinSecDeviceNameEditor $script:request
         Assert-WinSecNameDialog ($answer.DisplayName -ceq 'My device' -and $answer.DeviceId -ceq $script:request.DeviceId -and
-            $before -ceq (ConvertTo-Json $script:request -Compress))
+            $before -ceq (ConvertTo-Json $script:request -Compress) -and $script:keys.Count -eq 0)
     }
 }
 foreach($cancel in @(@{Code=27;Char=''},@{Code=78;Char='n'})){
-    Test-WinSecNameDialogCase 'N or Escape cancels a reviewed edit' {
+    Test-WinSecNameDialogCase 'Escape cancels a reviewed edit; N is ignored' {
         Add-WinSecNameDialogKey;Add-WinSecNameDialogKey $cancel.Code $cancel.Char
+        if($cancel.Code -eq 78){Add-WinSecNameDialogKey 27}
         Assert-WinSecNameDialog ($null -eq (Show-WinSecDeviceNameEditor $script:request))
+        Assert-WinSecNameDialog ($script:keys.Count -eq 0)
     }
 }
 foreach($modifier in @(1,2,4,8)){
     Test-WinSecNameDialogCase 'Alt and Ctrl cannot confirm a renamed device' {
-        Add-WinSecNameDialogKey;Add-WinSecNameDialogKey 89 y $modifier;Add-WinSecNameDialogKey 78 n
+        Add-WinSecNameDialogKey;Add-WinSecNameDialogKey 13 '' $modifier;Add-WinSecNameDialogKey 27
         Assert-WinSecNameDialog ($null -eq (Show-WinSecDeviceNameEditor $script:request))
     }
 }
 Test-WinSecNameDialogCase 'Key releases cannot approve the change' {
-    Add-WinSecNameDialogKey;Add-WinSecNameDialogKey 89 y 0 $false;Add-WinSecNameDialogKey 27
+    Add-WinSecNameDialogKey;Add-WinSecNameDialogKey 13 '' 0 $false;Add-WinSecNameDialogKey 27
     Assert-WinSecNameDialog ($null -eq (Show-WinSecDeviceNameEditor $script:request))
 }
 Test-WinSecNameDialogCase 'Small terminal prevents approval even after a resize until a new visible confirmation' {
@@ -62,6 +65,24 @@ Test-WinSecNameDialogCase 'Small terminal prevents approval even after a resize 
 Test-WinSecNameDialogCase 'Delete edits text inside the dialog and never requests device deletion' {
     Add-WinSecNameDialogKey 46;Add-WinSecNameDialogKey 0 X;Add-WinSecNameDialogKey;Add-WinSecNameDialogKey
     Assert-WinSecNameDialog ((Show-WinSecDeviceNameEditor $script:request).DisplayName -ceq 'X')
+}
+foreach($arrow in @(37,38,39,40)){
+    Test-WinSecNameDialogCase ('Arrows select Cancel in the review; Enter discards the name: '+$arrow) {
+        Add-WinSecNameDialogKey;Add-WinSecNameDialogKey $arrow;Add-WinSecNameDialogKey
+        Assert-WinSecNameDialog ($null -eq (Show-WinSecDeviceNameEditor $script:request) -and
+            ($script:lines -join '|').Contains('> [ Cancel ]'))
+    }
+}
+Test-WinSecNameDialogCase 'Accept can be selected again without Y or N changing the reviewed name' {
+    Add-WinSecNameDialogKey;Add-WinSecNameDialogKey 40;Add-WinSecNameDialogKey 38
+    Add-WinSecNameDialogKey 89 Y;Add-WinSecNameDialogKey 78 N;Add-WinSecNameDialogKey
+    $answer=Show-WinSecDeviceNameEditor $script:request
+    Assert-WinSecNameDialog ($answer.DisplayName -ceq 'Original name' -and $script:keys.Count -eq 0 -and
+        ($script:lines -join '|').Contains('> [ Accept ]'))
+}
+Test-WinSecNameDialogCase 'Y and N remain ordinary letters while typing a device name' {
+    Add-WinSecNameDialogKey 89 Y;Add-WinSecNameDialogKey 78 N;Add-WinSecNameDialogKey;Add-WinSecNameDialogKey
+    Assert-WinSecNameDialog ((Show-WinSecDeviceNameEditor $script:request).DisplayName -ceq 'YN')
 }
 Write-Host "Passed: $script:passed; Failed: $script:failed"
 if($script:failed){throw 'Device name dialog tests failed.'}
