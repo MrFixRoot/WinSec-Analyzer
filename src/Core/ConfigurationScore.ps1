@@ -1,5 +1,6 @@
 # Versioned configuration scores and public criterion manifest. No Windows queries.
 . (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
+. (Join-Path $PSScriptRoot 'BitLockerCriterionPrerequisites.ps1')
 function Assert-WinSecConfigurationFields {
     param([object]$Value,[string[]]$Fields)
     if ($Value -isnot [pscustomobject] -or @($Value.PSObject.Properties).Count -ne $Fields.Count -or
@@ -300,6 +301,9 @@ function Assert-WinSecConfigurationProvenance {
                 $rules[0].Source.Framework -cne $criterion.SourceFramework -or $rules[0].Source.Version -cne $criterion.SourceVersion -or
                 $rules[0].Source.Title -cne $criterion.SourceTitle -or $rules[0].Applicability.Profile -cne $criterion.Profile -or
                 $rules[0].Applicability.OSRelease -cne $criterion.OSRelease -or $rules[0].Applicability.Edition -cne $criterion.Edition) { throw 'Configuration policy snapshot differs.' }
+            if($control.CheckId -ceq 'WSA-SYS-002' -and $criterion.CriterionId -clike 'WSA-BLK-BASE-*') {
+                Assert-WinSecBitLockerScoredCollection -ControlResult $collectors[0]
+            }
             $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily='Windows';OSRelease=$criterion.OSRelease;Edition=$criterion.Edition;Profile=$criterion.Profile}
             $result=Invoke-WinSecCriterionEvaluation -Criterion $rules[0] -Evidence $collectors[0].Evidence -TargetContext $context `
                 -CheckId $control.CheckId -DeviceId $Session.DeviceId -ScanId $Session.ScanId

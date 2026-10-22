@@ -250,6 +250,15 @@ Test-WinSecAssessment 'The runtime prerequisite does not assume every protection
 }
 Test-WinSecAssessment 'Other controls do not inherit Defender runtime eligibility' {
     $control=$script:audit.ControlResults[0];$control.CheckId='WSA-SYS-002'
+    $caught=$false
+    try{$null=Resolve-WinSecAssessmentDependencies $control}catch{$caught=$true}
+    Assert-WinSecAssessment $caught # BitLocker rejects the still-Defender evidence identity.
+    $control.Evidence.CheckId='WSA-SYS-002'
+    $r=Resolve-WinSecAssessmentDependencies $control @{'other-required-review'=$false}
+    Assert-WinSecAssessment ($r.Count -eq 4 -and -not $r.Contains('active-antivirus-mode') -and
+        $r['other-required-review'] -ceq $false -and $r['bitlocker-os-volume'] -ceq $false -and
+        $r['bitlocker-stable-conversion'] -ceq $false -and $r['bitlocker-valid-protection'] -ceq $false)
+    $control.CheckId='WSA-SYS-003';$control.Evidence.CheckId='WSA-SYS-003'
     $r=Resolve-WinSecAssessmentDependencies $control @{'other-required-review'=$false}
     Assert-WinSecAssessment ($r.Count -eq 1 -and -not $r.Contains('active-antivirus-mode') -and $r['other-required-review'] -ceq $false)
 }

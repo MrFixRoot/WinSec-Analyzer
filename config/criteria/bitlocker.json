@@ -1,0 +1,79 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogId": "WSA-W11-24H2-PRO-BLK-BASE",
+  "CatalogVersion": "1.0.0",
+  "CheckId": "WSA-SYS-002",
+  "Status": "APPROVED",
+  "EvaluationEnabled": true,
+  "ScoringEnabled": true,
+  "DeviceChangesAllowed": false,
+  "Description": "Owner-approved local policy for the Windows OS volume only. Two equally weighted criteria; stable conversion and valid protection telemetry required. No recovery keys collected. No native validation or framework compliance implied.",
+  "ApprovalReference": "D-053: explicit owner approval of complete OS volume encryption and active protection, equal weight; production execution remains disabled.",
+  "Criteria": [
+    {
+      "CriterionId": "WSA-BLK-BASE-001",
+      "CheckId": "WSA-SYS-002",
+      "Area": "OSVolumeEncryption",
+      "Name": "Windows volume fully encrypted",
+      "EvidencePath": "SystemVolume.ConversionStatus",
+      "Operator": "Equals",
+      "ExpectedValue": "FULLY_ENCRYPTED",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "1.0.0",
+        "ControlId": "WSA-BLK-BASE-001",
+        "Title": "WinSec local BitLocker policy: complete Windows volume encryption; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/windows/win32/secprov/getconversionstatus-win32-encryptablevolume"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit two-criterion approval D-053",
+        "ReviewedAtUTC": "2026-10-22T00:00:00Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26100",
+        "Edition": "SKU:48",
+        "Profile": "WSA-W11-24H2-PRO-DEF-BASE"
+      },
+      "ActivationDependencies": ["bitlocker-os-volume", "bitlocker-stable-conversion", "bitlocker-valid-protection"],
+      "Interpretation": "Only stable fully decrypted or fully encrypted states are assessed. A rounded encryption percentage is not evidence of completed encryption. Other disks are outside scope.",
+      "Recommendation": "Review the Windows volume encryption policy with the administrator. Before planning manual encryption, verify recovery arrangements and operational requirements. Complete the approved encryption process using the supported Windows management tools. WinSec performs no remediation.",
+      "FrameworkMappings": {"CISBenchmarks": [], "CISControls": [], "NISTCSF": [], "MITREATTACK": []}
+    },
+    {
+      "CriterionId": "WSA-BLK-BASE-002",
+      "CheckId": "WSA-SYS-002",
+      "Area": "OSVolumeProtection",
+      "Name": "Windows volume BitLocker protection active",
+      "EvidencePath": "SystemVolume.ProtectionStatus",
+      "Operator": "Equals",
+      "ExpectedValue": "ON",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "1.0.0",
+        "ControlId": "WSA-BLK-BASE-002",
+        "Title": "WinSec local BitLocker policy: active Windows volume protection; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/windows/win32/secprov/getprotectionstatus-win32-encryptablevolume"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit two-criterion approval D-053",
+        "ReviewedAtUTC": "2026-10-22T00:00:00Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26100",
+        "Edition": "SKU:48",
+        "Profile": "WSA-W11-24H2-PRO-DEF-BASE"
+      },
+      "ActivationDependencies": ["bitlocker-os-volume", "bitlocker-stable-conversion", "bitlocker-valid-protection"],
+      "Interpretation": "Fully encrypted does not imply protection is on. The running Windows volume being unlocked is normal and is not a failure. Recovery backup and protector types are not verified.",
+      "Recommendation": "Review why protection is off with the administrator, including planned maintenance or suspension. Verify recovery arrangements and the approved policy before manually restoring protection through supported Windows management tools. WinSec neither retrieves recovery keys nor changes protection.",
+      "FrameworkMappings": {"CISBenchmarks": [], "CISControls": [], "NISTCSF": [], "MITREATTACK": []}
+    }
+  ],
+  "ReviewOnly": []
+}

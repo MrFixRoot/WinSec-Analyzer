@@ -45,6 +45,10 @@
     ],
     "categories": [
         {
+            "id": "PR.DS",
+            "name": "Data Security"
+        },
+        {
             "id": "PR.PS",
             "name": "Platform Security"
         },
@@ -55,6 +59,10 @@
     ],
     "subcategories": [
         {
+            "id": "PR.DS-01",
+            "name": "Protect data at rest"
+        },
+        {
             "id": "PR.PS-05",
             "name": "Prevent unauthorized software"
         },
@@ -64,6 +72,22 @@
         }
     ],
     "mappings": [
+        {
+            "checkId": "WSA-SYS-002",
+            "references": [
+                {
+                    "id": "PR.DS-01",
+                    "functionId": "PR",
+                    "categoryId": "PR.DS",
+                    "subcategoryId": "PR.DS-01",
+                    "title": "Protect data at rest",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": ["WSA-BLK-BASE-001", "WSA-BLK-BASE-002"],
+                    "description": "NIST CSF 2.0 PR.DS-01 concerns confidentiality, integrity and availability of data at rest. BitLocker contributes confidentiality; these two local checks do not demonstrate the complete outcome. CSF specifies outcomes rather than a mandatory BitLocker algorithm or key length.",
+                    "recommendation": "Review the organization's data-at-rest risk and protection policy, recovery arrangements and complementary integrity and availability safeguards. Have an authorized administrator address confirmed encryption or protection deviations. Assess algorithm and key length against applicable cryptographic requirements, then repeat the read-only scan."
+                }
+            ]
+        },
         {
             "checkId": "WSA-SYS-001",
             "references": [

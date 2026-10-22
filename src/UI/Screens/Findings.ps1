@@ -525,10 +525,12 @@ function Get-WinSecSelectedFindings {
             throw 'Foreign or duplicate public review.'
         }
         $reviewIds[$review.ReviewId]=$true
-        if($null -eq $review.DefenderSetting){continue}
-        $safe=ConvertTo-WinSecDefenderReviewItem $review ([pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId})
+        $owner=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId}
+        if($null -ne $review.BitLockerSetting){$safe=ConvertTo-WinSecBitLockerReviewItem $review $owner}
+        elseif($null -ne $review.DefenderSetting){$safe=ConvertTo-WinSecDefenderReviewItem $review $owner}
+        else{continue}
         if($section.Key -ceq 'SystemSecurity' -and ($context.Scope -ceq 'Section' -or
-            ($null -ne $control -and $control.CheckId -ceq 'WSA-SYS-001'))) {$safe}
+            ($null -ne $control -and $control.CheckId -ceq $safe.CheckId))) {$safe}
     })
     if ($null -ne $ConfigurationAssessment) {
         Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId
@@ -547,7 +549,9 @@ function Get-WinSecSelectedFindings {
     })
     $diagnostics=@($view.Findings|Where-Object {$null -eq $_.Guidance -or $gradedIds -cnotcontains $_.Guidance.CriterionId})
     $displayNumber=0
-    $view.Rows=@(foreach($row in @($view.CheckRows)+$diagnostics+@(ConvertTo-WinSecDefenderReviewRows -ReviewItems $displayReviews)) {
+    $reviewRows=@(ConvertTo-WinSecDefenderReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.DefenderSetting}))+
+        @(ConvertTo-WinSecBitLockerReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.BitLockerSetting}))
+    $view.Rows=@(foreach($row in @($view.CheckRows)+$diagnostics+$reviewRows) {
         $definitions=@($registry.Checks|Where-Object {$_.CheckId -ceq $row.CheckId})
         if($definitions.Count -ne 1){throw 'Unknown or ambiguous finding display control.'}
         # Presentation fields belong only to this copied view, not public history.

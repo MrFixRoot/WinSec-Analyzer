@@ -88,8 +88,28 @@
         }
     ],
     "subtechniques": [],
-    "mitigations": [],
+    "mitigations": [
+        {
+            "id": "M1041",
+            "name": "Encrypt Sensitive Information"
+        }
+    ],
     "mappings": [
+        {
+            "checkId": "WSA-SYS-002",
+            "references": [
+                {
+                    "id": "M1041",
+                    "mitigationId": "M1041",
+                    "type": "Mitigation",
+                    "title": "Encrypt Sensitive Information",
+                    "url": "https://attack.mitre.org/mitigations/M1041/",
+                    "criterionIds": ["WSA-BLK-BASE-001", "WSA-BLK-BASE-002"],
+                    "description": "MITRE ATT&CK M1041 describes encryption of sensitive information, including full-disk encryption. This is defensive context, not a detected attack technique, proof of an incident or a complete mitigation test. Encryption does not prevent all access by an adversary in an already unlocked session.",
+                    "recommendation": "Review sensitive-data exposure and the threat model for stored data. Have the authorized administrator address confirmed encryption or protection deviations under approved policy with verified recovery arrangements. Review access controls separately; do not infer compromise or complete attack prevention from a BitLocker state."
+                }
+            ]
+        },
         {
             "checkId": "WSA-SYS-001",
             "references": [

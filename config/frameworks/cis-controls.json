@@ -12,11 +12,19 @@
     },
     "controls": [
         {
+            "id": "3",
+            "name": "Data Protection"
+        },
+        {
             "id": "10",
             "name": "Malware defenses"
         }
     ],
     "safeguards": [
+        {
+            "id": "3.6",
+            "name": "Encrypt Data on End-User Devices"
+        },
         {
             "id": "10.1",
             "name": "Deploy and Maintain Anti-Malware Software"
@@ -31,6 +39,19 @@
         }
     ],
     "mappings": [
+        {
+            "checkId": "WSA-SYS-002",
+            "references": [
+                {
+                    "id": "3.6",
+                    "title": "Encrypt Data on End-User Devices",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls3/",
+                    "criterionIds": ["WSA-BLK-BASE-001", "WSA-BLK-BASE-002"],
+                    "description": "CIS Controls v8.1 safeguard 3.6 addresses encryption of sensitive data on end-user devices. The Windows volume and two local criteria are a partial view; data classification, other volumes and the enterprise population are not assessed.",
+                    "recommendation": "Review sensitive-data scope and the approved device encryption standard. Have the authorized administrator address confirmed encryption or protection deviations after verifying recovery arrangements. Select algorithm and key length from approved policy and Microsoft guidance; this safeguard does not itself grade 128 versus 256 bits. Repeat the read-only assessment."
+                }
+            ]
+        },
         {
             "checkId": "WSA-SYS-001",
             "references": [

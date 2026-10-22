@@ -29,6 +29,7 @@
 
 . (Join-Path $PSScriptRoot 'ConfigurationScore.ps1')
 . (Join-Path $PSScriptRoot 'DefenderReviewModel.ps1')
+. (Join-Path $PSScriptRoot 'BitLockerReviewModel.ps1')
 
 function Get-WinSecResultField {
     [CmdletBinding()]
@@ -371,6 +372,9 @@ function Assert-WinSecFindingGuidanceProvenance {
         $rule[0].Source.Url -cne $Guidance.ReferenceUrl) { throw 'Guidance source differs from the selected criterion.' }
     if (([DateTimeOffset]::Parse($rule[0].Verification.ReviewedAtUTC)).UtcDateTime.ToString('o') -cne $Guidance.VerifiedAtUTC) {
         throw 'Guidance verification date differs from the selected criterion.'
+    }
+    if($Finding.CheckId -ceq 'WSA-SYS-002' -and $Guidance.CriterionId -clike 'WSA-BLK-BASE-*') {
+        Assert-WinSecBitLockerScoredCollection -ControlResult $control[0]
     }
     $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily=$Guidance.OSFamily;
         OSRelease=$Guidance.OSRelease;Edition=$Guidance.Edition;Profile=$Guidance.Profile}
@@ -861,6 +865,16 @@ function ConvertTo-WinSecPublicScanResult {
             }
             if ($null -ne (Get-WinSecResultField $item 'DefenderSetting')) {
                 $safeReview = ConvertTo-WinSecDefenderReviewItem -Item $item -Owner $Session
+            }
+            if ($null -ne (Get-WinSecResultField $item 'BitLockerSetting')) {
+                $safeReview = ConvertTo-WinSecBitLockerReviewItem -Item $item -Owner $Session
+                $source=@($Session.ControlResults|Where-Object CheckId -CEQ 'WSA-SYS-002')
+                if($source.Count -ne 1){throw 'Missing BitLocker review source.'}
+                if($null -ne (Get-WinSecResultField $source[0] 'Evidence')) {
+                    $expected=@(New-WinSecBitLockerReviewItems $source[0]|Where-Object ReviewId -CEQ $safeReview.ReviewId)
+                    if($expected.Count -ne 1 -or $expected[0].Status -cne $safeReview.Status -or
+                        $expected[0].BitLockerSetting.Value -cne $safeReview.BitLockerSetting.Value){throw 'Untrusted BitLocker review observation.'}
+                }
             }
             $safeReview
         }

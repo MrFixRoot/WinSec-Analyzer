@@ -45,10 +45,11 @@ function New-WinSecFindingsMarkdown {
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
     $reviews=@()
     if($null -ne $copy.ReviewItems) {
-        if($copy.ReviewItems -isnot [array] -or $copy.ReviewItems.Count -gt 132){throw 'Invalid review export collection.'}
+        if($copy.ReviewItems -isnot [array] -or $copy.ReviewItems.Count -gt 135){throw 'Invalid review export collection.'}
         $reviewIds=@{}
         $reviews=@(foreach($review in $copy.ReviewItems) {
-            $safe=ConvertTo-WinSecDefenderReviewItem $review $copy
+            $safe=if($null -ne $review.BitLockerSetting){ConvertTo-WinSecBitLockerReviewItem $review $copy}
+                else{ConvertTo-WinSecDefenderReviewItem $review $copy}
             if($reviewIds.ContainsKey($safe.ReviewId) -or
                 ($copy.ScopeType -ceq 'CONTROL' -and $copy.ScopeKey -cne $safe.CheckId) -or
                 ($copy.ScopeType -ceq 'SECTION' -and $copy.ScopeKey -cne 'SystemSecurity') -or
@@ -203,7 +204,10 @@ function New-WinSecFindingsMarkdown {
                 $lines.Add('Platform exclusion source: '+(ConvertTo-WinSecMarkdownText $criterion.ApplicabilitySourceUrl))
             }
         }
-        $lines.Add('Percentages describe only recorded approved applicable configuration criteria. Verified NOT_APPLICABLE criteria are excluded from the denominator. UNKNOWN and NOT_EVALUATED are not exclusions or failures and receive no percentage. ASR scoring covers only the vulnerable signed driver rule; other ASR rules remain inventory-only.')
+        $lines.Add('Percentages describe only recorded approved applicable configuration criteria. Verified NOT_APPLICABLE criteria are excluded from the denominator. UNKNOWN and NOT_EVALUATED are not exclusions or failures and receive no percentage.')
+        if(@($visibleConfiguration.Controls|Where-Object CheckId -CEQ 'WSA-SYS-001').Count) {
+            $lines.Add('ASR scoring covers only the vulnerable signed driver rule; other ASR rules remain inventory-only.')
+        }
     }
     $lines.Add(''); $lines.Add('## Configuration deviations'); $lines.Add('')
     $lines.Add('| Finding | Configuration | Status | Original policy control | Referenced framework control |')
@@ -260,12 +264,13 @@ function New-WinSecFindingsMarkdown {
             $lines.Add('Manual recommendations: PENDING_APPROVED_CRITERIA. No framework-specific remediation has been approved for export.')
         }
     }
-    if($reviews.Count) {
+    $defenderReviews=@($reviews|Where-Object {$null -ne $_.DefenderSetting})
+    if($defenderReviews.Count) {
         $lines.Add('');$lines.Add('## Defender observations - REVIEW_ONLY, excluded from scoring');$lines.Add('')
         $lines.Add('Observed configuration is not proof of effective enforcement or a confirmed policy deviation. Cloud connectivity is not tested. Unlisted ASR rules are not assessed.')
         $lines.Add('');$lines.Add('| Setting | Identifier | Observed mode | Inventory | Status |')
         $lines.Add('| --- | --- | --- | --- | --- |')
-        foreach($review in $reviews) {
+        foreach($review in $defenderReviews) {
             $s=$review.DefenderSetting
             $values=@($s.Topic,$s.SettingId,$s.Mode,$s.InventoryState,$review.Status)
             $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
@@ -277,6 +282,37 @@ function New-WinSecFindingsMarkdown {
             'https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure',
             'https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection',
             'https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-overview')){$lines.Add('Technical reference: '+$url)}
+    }
+    $bitLockerReviews=@($reviews|Where-Object {$null -ne $_.BitLockerSetting})
+    if($bitLockerReviews.Count) {
+        $lines.Add('');$lines.Add('## BitLocker observations - REVIEW_ONLY, excluded from scoring');$lines.Add('')
+        $lines.Add('Only the Windows volume is observed. These observations do not add approved criteria or configuration deviations. Native encryption progress is not the configuration score; 100% alone does not prove conversion has completed.')
+        $lines.Add('');$lines.Add('| ID | Control | Configuration | State | Configuration % |')
+        $lines.Add('| --- | --- | --- | --- | --- |')
+        $number=if($null -ne $configuration){$checkRows.Count}else{0}
+        $number+=$diagnostics.Count
+        foreach($review in $bitLockerReviews) {
+            $number++;$row=@(ConvertTo-WinSecBitLockerReviewRows @($review))[0]
+            $values=@(('{0:D2}' -f $number),$review.CheckId,$row.Finding,'REVIEW_ONLY','N/A')
+            $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
+        }
+        $lines.Add('')
+        $lines.Add('Algorithm guidance reviewed 2026-10-22: Microsoft recommends XTS-AES for software-encrypted Windows volumes. Choose 128 or 256 bits according to device performance and regulatory or organizational requirements. XTS-AES-128 is not automatically a failure. CBC/diffuser modes require a compatibility and policy review; HARDWARE_ENCRYPTION does not identify a verified cipher or key length. UNKNOWN is not a configuration failure.')
+        $lines.Add('An unlocked Windows volume during normal use is expected; this report does not recommend locking the running OS volume. TPM/PIN, recovery-key custody and regulatory compliance are not assessed. Review recovery arrangements and obtain administrative authorization before any manual encryption change. WinSec never changes encryption.')
+        $lines.Add('Technical source: https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/configure')
+        $lines.Add('Cryptographic context: NIST SP 800-38E (2010 final) approves XTS-AES for storage confidentiality; it does not provide data or source authentication. This is distinct from NIST CSF and is not a certification of this device.')
+        $lines.Add('Technical source: https://csrc.nist.gov/pubs/sp/800/38/e/final')
+        $lines.Add('');$lines.Add('### Selected framework context for BitLocker');$lines.Add('')
+        $contextRefs=@(Get-WinSecFrameworkMappings -CheckId WSA-SYS-002 -CriterionId WSA-BLK-BASE-001 -Platform Windows `
+            -Frameworks @($frameworks|Where-Object {$_.mappingRules.includeInReports -eq $true}))
+        if(-not $contextRefs.Count){$lines.Add('PENDING: no reviewed framework context available.')}
+        foreach($ref in $contextRefs) {
+            $lines.Add('- '+(ConvertTo-WinSecMarkdownText ($ref.FrameworkName+' / '+$ref.FrameworkVersion+' / '+$ref.ReferenceId+': '+$ref.Title)))
+            $lines.Add('  Context: '+(ConvertTo-WinSecMarkdownText $ref.Description))
+            $lines.Add('  Manual review: '+(ConvertTo-WinSecMarkdownText $ref.Recommendation))
+            $lines.Add('  Source: '+$ref.Url)
+        }
+        $lines.Add('These references contextualize encryption at rest. They do not impose an automatic 128-versus-256-bit grade or declare a framework violation from an informational observation. Original historical scores and criteria remain unchanged on re-export.')
     }
     return [pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;Markdown=($lines -join "`n") + "`n"}
 }

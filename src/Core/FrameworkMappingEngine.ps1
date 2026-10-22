@@ -290,6 +290,18 @@ function Test-WinSecFrameworkReference {
 
         'mitre-attack' {
 
+            # A mitigation is not an attack technique. Require an explicit,
+            # catalogued M identifier and keep the existing T validation intact.
+            $mitigationId=Get-WinSecFrameworkString -InputObject $Reference -Name 'mitigationId'
+            if($mitigationId -or $referenceId -cmatch '\AM[0-9]{4}\z') {
+                $type=Get-WinSecFrameworkString -InputObject $Reference -Name 'type'
+                $technique=Get-WinSecFrameworkString -InputObject $Reference -Name 'techniqueId'
+                $include=Get-WinSecFrameworkField (Get-WinSecFrameworkField $Framework 'mappingRules') 'includeMitigations'
+                $declared=@(Get-WinSecFrameworkField $Framework 'mitigations'|Where-Object {$_.id -ceq $mitigationId})
+                return ($type -ceq 'Mitigation' -and $mitigationId -cmatch '\AM[0-9]{4}\z' -and
+                    $referenceId -ceq $mitigationId -and -not $technique -and $include -is [bool] -and $include -and $declared.Count -eq 1)
+            }
+
             $techniqueId = Get-WinSecFrameworkString `
                 -InputObject $Reference -Name 'techniqueId'
 
@@ -489,7 +501,7 @@ function Get-WinSecFrameworkMappings {
                     }
                 }
 
-                if ($frameworkId -eq 'mitre-attack') {
+                if ($frameworkId -eq 'mitre-attack' -and $referenceType -cne 'Mitigation') {
                     if (-not $techniqueId) {
                         $techniqueId = $referenceId
                     }

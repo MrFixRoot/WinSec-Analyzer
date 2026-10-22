@@ -420,6 +420,9 @@ function Get-WinSecCLIActiveAssessment {
             if ($null -ne (Get-WinSecCLIValue $review 'DefenderSetting')) {
                 $null = ConvertTo-WinSecDefenderReviewItem $review $publicResult
             }
+            if ($null -ne (Get-WinSecCLIValue $review 'BitLockerSetting')) {
+                $null = ConvertTo-WinSecBitLockerReviewItem $review $publicResult
+            }
         }
 
         # ----------------------------------------------------
