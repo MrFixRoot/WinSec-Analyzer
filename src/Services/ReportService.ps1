@@ -23,13 +23,23 @@ function New-WinSecFindingsMarkdown {
         throw 'Invalid report framework.'
     }
     $copy = Copy-WinSecResultData -Value $Selection
-    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings','ReviewItems','ConfigurationAssessment')
+    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings','ReviewItems','ConfigurationAssessment','DeviceName','CurrentSystemLabel')
     if ($copy -isnot [pscustomobject]) { throw 'Invalid report selection.' }
     foreach ($p in $copy.PSObject.Properties) {
         if ($p.Name -cnotin $allowed) { throw 'Unexpected report field.' }
     }
     if (-not (Test-WinSecTargetIdentifier $copy.DeviceId) -or -not (Test-WinSecTargetIdentifier $copy.ScanId)) {
         throw 'Invalid report identity.'
+    }
+    $deviceName='NOT_RECORDED'
+    if($null -ne $copy.PSObject.Properties['DeviceName']) {
+        if(-not (Test-WinSecDeviceDisplayName $copy.DeviceName)){throw 'Invalid report device name.'}
+        $deviceName=$copy.DeviceName
+    }
+    if($null -ne $copy.PSObject.Properties['CurrentSystemLabel'] -and
+        ($copy.CurrentSystemLabel -isnot [string] -or [string]::IsNullOrWhiteSpace($copy.CurrentSystemLabel) -or
+        $copy.CurrentSystemLabel.Length -gt 256 -or $copy.CurrentSystemLabel -match '[\p{C}\p{Zl}\p{Zp}]')) {
+        throw 'Invalid report system label.'
     }
     Assert-WinSecResultScope $copy.SourceScopeType $copy.SourceScopeKey
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
@@ -116,19 +126,37 @@ function New-WinSecFindingsMarkdown {
         }
         $referencesByFinding[$finding.FindingId]=$refs
     }
+    # Recorded applicability is not the current OS of the machine exporting history.
+    $platforms=@(if($null -ne $configuration) {
+        foreach($control in $visibleConfiguration.Controls){$control.Criteria|Select-Object OSRelease,Edition}
+    } else {
+        foreach($finding in $copy.Findings){if($null -ne $finding.Guidance){$finding.Guidance|Select-Object OSRelease,Edition}}
+    })
+    $platforms=@($platforms|Select-Object OSRelease,Edition -Unique)
+    $recordedOS='NOT_RECORDED';$recordedBuild='NOT_RECORDED'
+    if($platforms.Count -eq 1) {
+        $recordedOS=$platforms[0].OSRelease+' / '+$platforms[0].Edition
+        if($platforms[0].OSRelease -cmatch '\AWindows 11 10\.0\.([1-9][0-9]{0,8})\z'){$recordedBuild=$Matches[1]}
+    } elseif($platforms.Count -gt 1) {
+        $recordedOS='MULTIPLE: see original criteria';$recordedBuild='MULTIPLE: see original criteria'
+    }
     $lines = New-Object 'System.Collections.Generic.List[string]'
     foreach ($line in @('# WinSec Analyzer - Findings','',
-        ('Device: ' + (ConvertTo-WinSecMarkdownText $copy.DeviceId)),
-        ('Scan: ' + (ConvertTo-WinSecMarkdownText $copy.ScanId)),
-        ('Source scope: ' + $copy.SourceScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.SourceScopeKey)),
-        ('Exported selection: ' + $copy.ScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.ScopeKey)),
-        ('Check catalog: ' + (ConvertTo-WinSecMarkdownText $copy.CatalogVersion)),
-        ('Exported at UTC: ' + [DateTime]::UtcNow.ToString('o')),
-        $(if ($null -ne $configuration) {'Overall device score: NOT_SCORED; individual configuration scores are recorded below.'} else {'Score: NOT_SCORED'}),
-        $(if ($null -ne $configuration) {'Criteria: complete original criterion manifest recorded, including PASS and unresolved checks.'}
+        ('- Device name (inventory at export): ' + (ConvertTo-WinSecMarkdownText $deviceName)),
+        ('- Device: ' + (ConvertTo-WinSecMarkdownText $copy.DeviceId)),
+        ('- Operating system (recorded criteria): ' + (ConvertTo-WinSecMarkdownText $recordedOS)),
+        ('- Build (recorded criteria): ' + (ConvertTo-WinSecMarkdownText $recordedBuild)),
+        $(if($null -ne $copy.CurrentSystemLabel){'- Current local OS (at application startup): Windows 11 ' + (ConvertTo-WinSecMarkdownText $copy.CurrentSystemLabel)}),
+        ('- Scan: ' + (ConvertTo-WinSecMarkdownText $copy.ScanId)),
+        ('- Source scope: ' + $copy.SourceScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.SourceScopeKey)),
+        ('- Exported selection: ' + $copy.ScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.ScopeKey)),
+        ('- Check catalog: ' + (ConvertTo-WinSecMarkdownText $copy.CatalogVersion)),
+        ('- Report generated at UTC: ' + [DateTime]::UtcNow.ToString('o')),
+        $(if ($null -ne $configuration) {'- Overall device score: NOT_SCORED; individual configuration scores are recorded below.'} else {'- Score: NOT_SCORED'}),
+        $(if ($null -ne $configuration) {'- Criteria: complete original criterion manifest recorded, including PASS and unresolved checks.'}
         elseif (@($copy.Findings|Where-Object {$null -ne $_.Guidance}).Count -gt 0) {
-            'Criteria: original verified criterion snapshots are recorded per finding.'
-        } else {'Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
+            '- Criteria: original verified criterion snapshots are recorded per finding.'
+        } else {'- Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
         'Public results only. Framework references provide context; they do not certify compliance.',
         'A partial selection does not replace a complete assessment.','', '## Configured frameworks','')) { $lines.Add($line) }
     if ($selectedFramework) { $lines.Add('Selected export framework: ' + $FrameworkId) }
@@ -155,14 +183,16 @@ function New-WinSecFindingsMarkdown {
         $checkRows=@(Get-WinSecConfigurationRows $configuration $copy.ScopeType $copy.ScopeKey)
         if($checkRows.Count -eq 0 -and $copy.Findings.Count -eq 0 -and $reviews.Count -eq 0){throw 'No configuration checks in this report scope.'}
         $lines.Add('');$lines.Add('## Configuration checks');$lines.Add('')
-        $lines.Add('| Check | Verification | Result | Config % | Referenced framework control | Applicability |')
-        $lines.Add('| --- | --- | --- | --- | --- | --- |')
+        $lines.Add('| ID | Control | Configuration | State | Configuration % | Referenced framework control | Applicability |')
+        $lines.Add('| --- | --- | --- | --- | --- | --- | --- |')
+        $displayNumber=0
         foreach($row in $checkRows) {
+            $displayNumber++
             $failed=@($copy.Findings|Where-Object {$null -ne $_.Guidance -and $_.CheckId -ceq $row.CheckId -and $_.Guidance.CriterionId -ceq $row.CriterionId})
             $refs=@(foreach($finding in $failed){$referencesByFinding[$finding.FindingId]})
             $refText=if($row.EvaluationStatus -ceq 'FAIL' -and $refs.Count){($refs|ForEach-Object {$_.FrameworkName+' / '+$_.ReferenceId}) -join '; '}else{'Not asserted'}
             $applicability=if($row.EvaluationStatus -ceq 'NOT_APPLICABLE'){$row.Description}else{'Applicable or unresolved; see recorded result'}
-            $values=@(($row.CheckId+' / '+$row.CriterionId),$row.Finding,$row.EvaluationStatus,$row.ConfigurationPercent,$refText,$applicability)
+            $values=@(('{0:D2}' -f $displayNumber),($row.CheckId+' / '+$row.CriterionId),$row.Finding,$row.ConfigurationState,$row.ConfigurationPercent,$refText,$applicability)
             $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
         }
         $lines.Add('')

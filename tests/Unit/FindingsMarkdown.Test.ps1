@@ -39,6 +39,36 @@ Test-WinSecReportCase 'Only the three supported frameworks disclose versions and
         $report.Markdown.Contains('PENDING_APPROVED_CRITERIA') -and $report.Markdown.Contains('no validated framework references') -and
         @([regex]::Matches($report.Markdown,'SHA256: [A-F0-9]{64}')).Count -eq 3)
 }
+Test-WinSecReportCase 'Report metadata escapes device names and distinguishes generation time from scan and OS history' {
+    $selection=New-WinSecReportFixture
+    $selection|Add-Member -NotePropertyName DeviceName -NotePropertyValue 'SYNTHETIC <Desk> | Lab'
+    $selection|Add-Member -NotePropertyName CurrentSystemLabel -NotePropertyValue 'Pro 22H2 | build: 22621'
+    $before=ConvertTo-Json $selection -Depth 10 -Compress;$started=[datetimeoffset]::UtcNow
+    $report=New-WinSecFindingsMarkdown $selection
+    $finished=[datetimeoffset]::UtcNow
+    Assert-WinSecReport ($report.Markdown.Contains('Device name (inventory at export): SYNTHETIC &lt;Desk&gt; \| Lab') -and
+        $report.Markdown.Contains('Operating system (recorded criteria): NOT\_RECORDED') -and
+        $report.Markdown.Contains('Build (recorded criteria): NOT\_RECORDED') -and
+        $report.Markdown.Contains('Current local OS (at application startup): Windows 11 Pro 22H2 \| build: 22621') -and
+        $report.Markdown -match '(?m)^- Report generated at UTC: (\S+)$' -and
+        $before -ceq (ConvertTo-Json $selection -Depth 10 -Compress))
+    $generated=[datetimeoffset]::Parse($Matches[1],[Globalization.CultureInfo]::InvariantCulture)
+    Assert-WinSecReport ($generated.Offset -eq [timespan]::Zero -and $generated -ge $started -and $generated -le $finished)
+}
+Test-WinSecReportCase 'Legacy selections never invent a name or operating system' {
+    $report=New-WinSecFindingsMarkdown (New-WinSecReportFixture)
+    Assert-WinSecReport ($report.Markdown.Contains('Device name (inventory at export): NOT\_RECORDED') -and
+        $report.Markdown.Contains('Build (recorded criteria): NOT\_RECORDED') -and -not $report.Markdown.Contains('Current local OS'))
+}
+foreach($field in @('DeviceName','CurrentSystemLabel')) {
+    foreach($invalid in @($null,42,@('SYNTHETIC'),"bad`nmetadata",('x'*300))) {
+        Test-WinSecReportCase ('Rejects malformed report metadata: '+$field) {
+            $selection=New-WinSecReportFixture
+            $selection|Add-Member -NotePropertyName $field -NotePropertyValue $invalid
+            Assert-WinSecReportRejects {New-WinSecFindingsMarkdown $selection}
+        }
+    }
+}
 foreach($field in @('Evidence','RawEvidence','Recommendation','Score','Metadata','ExpectedValue')) {
     Test-WinSecReportCase ('Rejects unprojected finding field: '+$field) {
         $selection=New-WinSecReportFixture
@@ -138,6 +168,15 @@ Test-WinSecReportCase 'Configuration table retains original criterion and safe r
         $report.Markdown.Contains('PENDING: no validated mapping') -and $report.Markdown.Contains('SYNTHETIC\-POLICY\-RT') -and
         $report.Markdown.Contains('SYNTHETIC manual review, no automatic changes\.') -and
         -not $report.Markdown.Contains('## Diagnostics') -and $before -ceq (ConvertTo-Json $selection -Depth 25 -Compress))
+    # A legacy finding can retain applicability without the later full configuration manifest.
+    $historical=Copy-WinSecResultData $selection
+    $historical.Findings[0].Guidance.OSRelease='Windows 11 10.0.26100'
+    $historical.Findings[0].Guidance.Edition='SKU:48'
+    $historical|Add-Member -NotePropertyName CurrentSystemLabel -NotePropertyValue 'Enterprise 25H2 | build: 26200'
+    $historicalReport=New-WinSecFindingsMarkdown $historical -FrameworkId cis-controls
+    Assert-WinSecReport ($historicalReport.Markdown.Contains('Operating system (recorded criteria): Windows 11 10\.0\.26100 / SKU:48') -and
+        $historicalReport.Markdown.Contains('Build (recorded criteria): 26100') -and
+        $historicalReport.Markdown.Contains('Current local OS (at application startup): Windows 11 Enterprise 25H2 \| build: 26200'))
     $reader=(Get-Command Get-WinSecFrameworkMappings).ScriptBlock
     function Get-WinSecFrameworkMappings {
         param($CheckId,$Platform,$Frameworks)

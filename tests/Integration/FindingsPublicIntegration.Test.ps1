@@ -31,7 +31,7 @@ function Set-WinSecFindingTestTerminal {
     param([int]$Width,[int]$Height)
     $script:terminal=[pscustomobject]@{Width=$Width;Height=$Height;ContentWidth=$Width-1}
 }
-$device='local:FINDINGS-PUBLIC';$scan='findings-public-1'
+$device='local:hw1-'+('a'*64);$scan='findings-public-1'
 $collectors=@(foreach($id in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001')){
     [pscustomobject]@{DeviceId=$device;ScanId=$scan;CheckId=$id;
         SectionKey=if($id -like 'WSA-SYS-*'){'SystemSecurity'}else{'NetworkSecurity'};
@@ -80,6 +80,7 @@ foreach($size in @(@{Width=120;Height=55},@{Width=80;Height=26},@{Width=40;Heigh
             $before -ceq (ConvertTo-Json -InputObject @($state,$context,$session) -Depth 25 -Compress) -and $script:scanCalls -eq 0)
         if($size.Width -ge 80){
             Assert-WinSecFindingIntegration ($text.Contains('CONTROL') -and $text.Contains('WSA-SYS-001') -and $text.Contains('WSA-SYS-002'))
+            Assert-WinSecFindingIntegration ($text -match '(?m)^\s*ID\s+CONTROL\s+CONFIGURATION\s+STATE\s+CONFIGURATION %\s*$')
             $assessment=Get-WinSecCLIActiveAssessment -State $state -Context $context
             $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $scan
             for($i=0;$i -lt $view.Rows.Count;$i++) {
@@ -167,6 +168,10 @@ function New-WinSecExportContext {
     $copy | Add-Member -NotePropertyName ProjectRoot -NotePropertyValue $root
     $copy.PublicScans[$key] | Add-Member -NotePropertyName ScopeType -NotePropertyValue DEVICE
     $copy.PublicScans[$key] | Add-Member -NotePropertyName ScopeKey -NotePropertyValue ALL
+    $copy | Add-Member -NotePropertyName Devices -NotePropertyValue @(
+        [pscustomobject]@{DeviceId='local:OTHER';DisplayName='SYNTHETIC OTHER DEVICE'},
+        [pscustomobject]@{DeviceId=$device;DisplayName='SYNTHETIC Workstation';Hostname='SYNTHETIC-HOST'})
+    $copy | Add-Member -NotePropertyName LocalSystemInfo -NotePropertyValue ([pscustomobject]@{DeviceId=$device;Label='Pro 22H2 | build: 22621'})
     return $copy
 }
 $tokens=$null;$errors=$null
@@ -196,6 +201,9 @@ Test-WinSecFindingIntegration 'P exports only the visible control findings with 
     Assert-WinSecFindingIntegration ($script:exportWrites -eq ($writes+1) -and $script:scanCalls -eq 0 -and
         $script:exportedReport.Markdown.Contains('Source scope: DEVICE / ALL') -and
         $script:exportedReport.Markdown.Contains('Exported selection: CONTROL / WSA\-SYS\-002') -and
+        $script:exportedReport.Markdown.Contains('Device name (inventory at export): SYNTHETIC Workstation') -and
+        $script:exportedReport.Markdown.Contains('Current local OS (at application startup): Windows 11 Pro 22H2 \| build: 22621') -and
+        $script:exportedReport.Markdown.Contains('Report generated at UTC: ') -and
         $script:exportedReport.Markdown -notmatch 'WSA\\-NET|WSA\\-SYS\\-001|SYNTHETIC-FINDINGS-RAW|"Evidence"|\d+/100' -and
         $script:exportedReport.Markdown.Contains('PENDING_APPROVED_CRITERIA') -and
         $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress) -and $null -eq $moving.PendingCommand)
@@ -210,6 +218,25 @@ Test-WinSecFindingIntegration 'Section export includes matching findings and exc
         $script:exportedReport.Markdown.Contains('Exported selection: SECTION / SystemSecurity') -and
         $script:exportedReport.Markdown.Contains('WSA\-SYS\-001') -and $script:exportedReport.Markdown.Contains('WSA\-SYS\-003') -and
         -not $script:exportedReport.Markdown.Contains('WSA\-NET\-001'))
+}
+Test-WinSecFindingIntegration 'Export metadata uses the matching inventory name or hostname and omits foreign OS metadata' {
+    $exportContext=New-WinSecExportContext
+    $exportContext.Devices[1].PSObject.Properties.Remove('DisplayName')
+    $exportContext.LocalSystemInfo.DeviceId='local:hw1-'+('b'*64)
+    $selection=Get-WinSecCLIFindingsExportSelection $state $exportContext
+    Assert-WinSecFindingIntegration ($selection.DeviceName -ceq 'SYNTHETIC-HOST' -and
+        $null -eq $selection.PSObject.Properties['CurrentSystemLabel'] -and $script:scanCalls -eq 0)
+    $exportContext.Devices=@($exportContext.Devices[0])
+    $selection=Get-WinSecCLIFindingsExportSelection $state $exportContext
+    Assert-WinSecFindingIntegration ($null -eq $selection.PSObject.Properties['DeviceName'])
+    foreach($fault in @('Duplicate','InvalidName')) {
+        $exportContext=New-WinSecExportContext
+        if($fault -ceq 'Duplicate'){$exportContext.Devices+=@($exportContext.Devices[1])}
+        else{$exportContext.Devices[1].DisplayName="SYNTHETIC`nINVALID"}
+        $writes=$script:exportWrites;$caught=$false
+        try{$null=Invoke-WinSecCLIFindingsExport $state $exportContext}catch{$caught=$true}
+        Assert-WinSecFindingIntegration ($caught -and $script:exportWrites -eq $writes)
+    }
 }
 foreach($fault in @('LegacyScope','ForeignIdentity','RawEvidence','Empty','WrongScreen')) {
     Test-WinSecFindingIntegration ('Export rejects before write: '+$fault) {
@@ -277,6 +304,13 @@ Test-WinSecFindingIntegration 'Changing the selected control while choosing a fr
     $script:changingExportState.FindingsScope='Control';$writes=$script:exportWrites;$caught=$false
     $script:exportSelectionMutation={$script:changingExportState.ControlIndex=1}
     try{$null=Invoke-WinSecCLIFindingsExport $script:changingExportState $exportContext}catch{$caught=$true}
+    Assert-WinSecFindingIntegration ($caught -and $script:exportWrites -eq $writes -and $script:scanCalls -eq 0)
+}
+Test-WinSecFindingIntegration 'Changing device metadata during framework selection aborts before writing' {
+    $script:changingExportContext=New-WinSecExportContext
+    $writes=$script:exportWrites;$caught=$false
+    $script:exportSelectionMutation={$script:changingExportContext.Devices[1].DisplayName='SYNTHETIC CHANGED'}
+    try{$null=Invoke-WinSecCLIFindingsExport $state $script:changingExportContext}catch{$caught=$true}
     Assert-WinSecFindingIntegration ($caught -and $script:exportWrites -eq $writes -and $script:scanCalls -eq 0)
 }
 foreach($invalid in @(

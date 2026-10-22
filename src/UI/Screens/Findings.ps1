@@ -1112,6 +1112,16 @@ function Show-WinSecFindings {
         }
 
         @{
+            Key      = 'Finding'
+            Header   = 'Configuration'
+            Width    = 46
+            MinWidth = 14
+            MaxWidth = 72
+            Priority = 1
+            Expand   = $true
+        }
+
+        @{
             Key      = 'ConfigurationState'
             Header   = 'State'
             Width    = 14
@@ -1121,16 +1131,7 @@ function Show-WinSecFindings {
         }
 
         @{
-            Key      = 'Finding'
-            Header   = 'Configuration'
-            Width    = 46
-            MinWidth = 14
-            MaxWidth = 72
-            Priority = 1
-            Expand   = $true
-        }
-        @{
-            Key='ConfigurationPercent';Header='Config %';Width=10;MinWidth=10;MaxWidth=12;Priority=3;Align='Right'
+            Key='ConfigurationPercent';Header='Configuration %';Width=15;MinWidth=15;MaxWidth=15;Priority=3;Align='Right'
         }
     )
 

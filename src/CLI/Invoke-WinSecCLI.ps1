@@ -1138,6 +1138,20 @@ function Get-WinSecCLIFindingsExportSelection {
     if (@($view.ReviewItems).Count) {$selection | Add-Member -NotePropertyName ReviewItems -NotePropertyValue (Copy-WinSecResultData $view.ReviewItems)}
     $configuration=Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
     if ($null -ne $configuration) {$selection|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue (Copy-WinSecResultData $configuration)}
+    # Export metadata is separate from immutable scan results; never query Windows here.
+    $devices=@(Get-WinSecCLIValue $Context 'Devices'|Where-Object {$_.DeviceId -ceq $view.DeviceId})
+    if($devices.Count -gt 1){throw 'Ambiguous export device metadata.'}
+    if($devices.Count -eq 1) {
+        $name=Get-WinSecCLIValue $devices[0] 'DisplayName'
+        if($null -eq $name){$name=Get-WinSecCLIValue $devices[0] 'Hostname'}
+        if($null -eq $name){$name=Get-WinSecCLIValue $devices[0] 'Name'}
+        if($null -ne $name) {
+            if(-not (Test-WinSecDeviceDisplayName $name)){throw 'Invalid export device name.'}
+            $selection|Add-Member -NotePropertyName DeviceName -NotePropertyValue $name
+        }
+    }
+    $systemLabel=Get-WinSecCLISystemLabel -State $State -Context $Context
+    if($systemLabel -and $systemLabel -cne 'Unavailable'){$selection|Add-Member -NotePropertyName CurrentSystemLabel -NotePropertyValue $systemLabel}
     return $selection
 }
 

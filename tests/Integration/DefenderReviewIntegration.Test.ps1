@@ -79,6 +79,7 @@ Test-WinSecReviewIntegration 'Findings routes observations separately and includ
     Show-WinSecCLICurrentScreen $state $ctx
     Assert-WinSecReviewIntegration ($view.Findings.Count -eq 4 -and $view.ReviewItems.Count -eq 8 -and $view.CheckRows.Count -eq 8 -and $counts.FindingCount -eq 12 -and
         ($script:lines -join '|').Contains('PASS') -and ($script:lines -join '|').Contains('FAIL') -and $script:reads -eq 1)
+    Assert-WinSecReviewIntegration (($script:lines -join "`n") -match '(?m)^\s*ID\s+CONTROL\s+CONFIGURATION\s+STATE\s+CONFIGURATION %\s*$')
     foreach($row in $view.Rows|Where-Object {$_.Kind -ceq 'CRITERION_RESULT'}) {
         Assert-WinSecReviewIntegration ($row.ControlCode -ceq ($row.CheckId+' / '+$row.CriterionId) -and
             ($script:lines -join '|').Contains($row.ControlCode))
@@ -95,8 +96,19 @@ foreach($framework in @('cis-controls','nist-csf','mitre-attack')) {
         Assert-WinSecReviewIntegration ($report.Markdown.Contains('Defender observations') -and $report.Markdown.Contains('BLOCK') -and
             $report.Markdown.Contains('9e6c4e1f') -and $report.Markdown.Contains('excluded from scoring') -and
             $report.Markdown.Contains('50/100') -and $report.Markdown.Contains('Configuration checks') -and $report.Markdown.Contains('Framework-oriented manual guidance:') -and
+            $report.Markdown.Contains('Operating system (recorded criteria): Windows 11 10\.0\.26100 / SKU:48') -and
+            $report.Markdown.Contains('Build (recorded criteria): 26100') -and -not $report.Markdown.Contains('Current local OS') -and
             $report.Markdown -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"' -and $script:reads -eq 1)
         $markdownLines=@($report.Markdown -split '\r?\n')
+        Assert-WinSecReviewIntegration ($report.Markdown.Contains('| ID | Control | Configuration | State | Configuration % | Referenced framework control | Applicability |'))
+        $active=Get-WinSecCLIActiveAssessment $state $ctx
+        $view=Get-WinSecSelectedFindings $state -ControlResults $active.ControlResults -Findings $active.Findings -ScanId $active.ScanId -ReviewItems $active.ReviewItems -ConfigurationAssessment $active.ConfigurationAssessment
+        for($i=0;$i -lt $view.CheckRows.Count;$i++) {
+            $row=$view.Rows[$i]
+            $values=@($row.DisplayId,$row.ControlCode,$row.Finding,$row.ConfigurationState,$row.ConfigurationPercent)
+            $prefix='| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |'
+            Assert-WinSecReviewIntegration ($report.Markdown.Contains($prefix))
+        }
         for($i=0;$i -lt $markdownLines.Count;$i++) {
             if(-not $markdownLines[$i].StartsWith('|')){continue}
             if($i -eq 0 -or -not $markdownLines[$i-1].StartsWith('|')) {
