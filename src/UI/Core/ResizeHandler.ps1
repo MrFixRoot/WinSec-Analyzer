@@ -241,6 +241,23 @@ function Invoke-WinSecResizeHandler {
 # Read keyboard input while monitoring terminal resizing
 # ------------------------------------------------------------
 
+function Read-WinSecPendingKey {
+    [CmdletBinding()]
+    param([AllowNull()][object]$InputUI = $null)
+    # A single non-blocking poll, used only during a confirmed scan.
+    try {
+        $rawUI = if ($null -eq $InputUI) { $Host.UI.RawUI } else { $InputUI }
+        if ($null -eq $rawUI) { throw 'No interactive keyboard.' }
+        $keyAvailable = $rawUI.KeyAvailable
+        if ($keyAvailable -isnot [bool]) { throw 'Invalid keyboard availability.' }
+        if (-not $keyAvailable) { return $null }
+        # KeyAvailable includes releases. Filtering them here can block until
+        # the next press; callers already ignore events with KeyDown=false.
+        return $rawUI.ReadKey('NoEcho,IncludeKeyDown,IncludeKeyUp')
+    }
+    catch { throw 'Unable to read scan keyboard input.' }
+}
+
 function Read-WinSecResizeAwareKey {
     [CmdletBinding()]
     param(
@@ -254,14 +271,17 @@ function Read-WinSecResizeAwareKey {
         [psobject]$NavigationState = $null,
 
         [ValidateRange(50, 1000)]
-        [int]$PollIntervalMilliseconds = 150
+        [int]$PollIntervalMilliseconds = 150,
+
+        [AllowNull()]
+        [object]$InputUI = $null
     )
 
     # --------------------------------------------------------
     # Verify interactive console availability
     # --------------------------------------------------------
 
-    $rawUI = $Host.UI.RawUI
+    $rawUI = if ($null -eq $InputUI) { $Host.UI.RawUI } else { $InputUI }
 
     if ($null -eq $rawUI) {
 
@@ -292,7 +312,8 @@ function Read-WinSecResizeAwareKey {
 
         try {
 
-            $keyAvailable = [bool]$rawUI.KeyAvailable
+            $keyAvailable = $rawUI.KeyAvailable
+            if ($keyAvailable -isnot [bool]) { throw 'Invalid keyboard availability.' }
         }
         catch {
 
@@ -307,10 +328,11 @@ function Read-WinSecResizeAwareKey {
 
             # Return the native PowerShell key information.
             # KeyboardController remains responsible for
-            # translating the key into a navigation action.
+            # translating the key into a navigation action, ignoring releases.
+            # Accept both event types so a buffered release cannot block redraws.
 
             return $rawUI.ReadKey(
-                'NoEcho,IncludeKeyDown'
+                'NoEcho,IncludeKeyDown,IncludeKeyUp'
             )
         }
 

@@ -97,6 +97,7 @@ if (@($parseErrors).Count -gt 0) {
 # ------------------------------------------------------------
 
 . $cliPath
+. (Join-Path $root 'src/UI/Screens/MainMenu.ps1')
 
 if (-not (
     Get-Command Test-WinSecCLIRescanEligibility `
@@ -151,6 +152,7 @@ $coordinator = [pscustomobject]@{
 
 $state = [pscustomobject]@{
     Screen = 'MainMenu'
+    SectionIndex = 0
     SelectedDeviceId = 'local:UNIT-PC'
 }
 

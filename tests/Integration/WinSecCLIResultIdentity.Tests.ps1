@@ -17,6 +17,8 @@ foreach ($relativePath in @(
     'src/Core/FindingsEngine.ps1'
     'src/Core/ResultModel.ps1'
     'src/CLI/Invoke-WinSecCLI.ps1'
+    'src/UI/Screens/MainMenu.ps1'
+    'src/UI/Screens/Results.ps1'
 )) {
     . (Join-Path $projectRoot $relativePath)
 }
@@ -80,7 +82,7 @@ function New-WinSecIdentityIntegrationFixture {
     return [pscustomobject]@{
         Session = $session
         Public = $public
-        State = [pscustomobject]@{ SelectedDeviceId = $deviceId }
+        State = [pscustomobject]@{ SelectedDeviceId = $deviceId; SectionIndex = 0; ControlIndex = 0 }
         Context = [pscustomobject]@{
             ActiveScanByDevice = @{ $deviceId = $scanId }
             PublicScans = @{ $key = $public }
@@ -154,6 +156,64 @@ Test-WinSecIdentityIntegrationCase 'A foreign record prevents partial publicatio
     Assert-WinSecIdentityIntegration (
         $rejected -and $published.Count -eq 0
     ) 'A valid prefix was published before the foreign record was rejected.'
+}
+
+Test-WinSecIdentityIntegrationCase 'CLI readers cannot rewrite the public cache or internal session' {
+    $fixture = New-WinSecIdentityIntegrationFixture
+    $publicBefore = ConvertTo-Json -InputObject $fixture.Public -Depth 15 -Compress
+    $sessionBefore = ConvertTo-Json -InputObject $fixture.Session -Depth 15 -Compress
+    $first = Get-WinSecCLIActiveAssessment -State $fixture.State -Context $fixture.Context
+    $first.ControlResults[0].Status = 'FAIL'
+    $first.Findings[0].ScanId = 'changed'
+    $second = Get-WinSecCLIActiveAssessment -State $fixture.State -Context $fixture.Context
+    Assert-WinSecIdentityIntegration (
+        $second.ControlResults[0].Status -ceq 'INFORMATIONAL' -and
+        $second.Findings[0].ScanId -ceq $fixture.Session.ScanId -and
+        $publicBefore -ceq (ConvertTo-Json -InputObject $fixture.Public -Depth 15 -Compress) -and
+        $sessionBefore -ceq (ConvertTo-Json -InputObject $fixture.Session -Depth 15 -Compress)
+    ) 'A CLI read exposed stored mutable references.'
+}
+
+Test-WinSecIdentityIntegrationCase 'Rendering receives owned records and cannot change subsequent reads' {
+    $fixture = New-WinSecIdentityIntegrationFixture
+    $fixture.State | Add-Member -NotePropertyName Screen -NotePropertyValue 'Results'
+    $fixture.Context | Add-Member -NotePropertyName Version -NotePropertyValue '0.9.0'
+    $before = ConvertTo-Json -InputObject $fixture -Depth 15 -Compress
+    $script:renderCalls = 0
+    # A deliberately mutating renderer exercises the real CLI dispatch boundary.
+    # The function exists only in this test invocation's scope.
+    function Show-WinSecResults {
+        param($NavigationState, $SectionResults, $ControlResults, $Version, $ControlViews)
+        $script:renderCalls++
+        $ControlResults[0].ScanId = 'renderer-change'
+        $ControlResults[0].Status = 'FAIL'
+        $ControlViews[0].ControlResults[0].ScanId = 'row-renderer-change'
+    }
+    Show-WinSecCLICurrentScreen -State $fixture.State -Context $fixture.Context
+    Assert-WinSecIdentityIntegration (
+        $script:renderCalls -eq 1 -and
+        $before -ceq (ConvertTo-Json -InputObject $fixture -Depth 15 -Compress)
+    ) 'Rendering changed a cached or internal result.'
+}
+
+Test-WinSecIdentityIntegrationCase 'A nested private field blocks screen dispatch without disclosure' {
+    $fixture = New-WinSecIdentityIntegrationFixture
+    $fixture.State | Add-Member -NotePropertyName Screen -NotePropertyValue 'Results'
+    $fixture.Context | Add-Member -NotePropertyName Version -NotePropertyValue '0.9.0'
+    $fixture.Public.ControlResults[0] | Add-Member -NotePropertyName Metadata `
+        -NotePropertyValue @{Items=@(@{OriginalResult='SYNTHETIC-PRIVATE-SCREEN'})}
+    $script:renderCalls = 0
+    function Show-WinSecResults {
+        param($NavigationState, $SectionResults, $ControlResults, $Version)
+        $script:renderCalls++
+    }
+    $caught = $null
+    try { Show-WinSecCLICurrentScreen -State $fixture.State -Context $fixture.Context }
+    catch { $caught = $_ }
+    Assert-WinSecIdentityIntegration (
+        $null -ne $caught -and $script:renderCalls -eq 0 -and
+        $caught.Exception.Message -notlike '*SYNTHETIC-PRIVATE-SCREEN*'
+    ) 'Private data reached the renderer or error message.'
 }
 
 Write-Host "Passed: $script:passed"

@@ -114,6 +114,7 @@ function Get-WinSecDeviceRemovalPlan {
             $deviceHash = Get-WinSecEvidenceHash $identity
             Join-Path $ProjectRoot ('data/scans/' + $deviceHash)
             Join-Path $ProjectRoot ('reports/evidence/' + $deviceHash)
+            Join-Path $ProjectRoot ('reports/exports/' + $deviceHash)
         }
     ) | Sort-Object -Unique)
     $files = New-Object 'System.Collections.Generic.List[object]'
@@ -133,6 +134,10 @@ function Get-WinSecDeviceRemovalPlan {
                 Assert-WinSecDeviceRemovalPath -ProjectRoot $ProjectRoot -Path $item.FullName
                 if ($item.PSIsContainer) { $pending.Push($item.FullName) }
                 else {
+                    if ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($storageRoot)) -ceq 'exports') {
+                        if ([IO.Path]::GetExtension($item.FullName) -cne '.md' -or $item.Length -gt 1048576) { throw 'Unrecognized device export.' }
+                        $null=ConvertFrom-WinSecMarkdownArtifact -Text (Get-Content -LiteralPath $item.FullName -Raw -Encoding UTF8 -ErrorAction Stop) -DeviceId $DeviceId
+                    }
                     if ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($storageRoot)) -ceq 'scans') {
                         Assert-WinSecStoredScanRemovalOwnership -Path $item.FullName -DeviceId $DeviceId
                     }
@@ -185,10 +190,11 @@ function Remove-WinSecManagedDevice {
         if ($current.Fingerprint -cne $plan.Fingerprint) { throw 'Device data changed; confirm a new deletion request.' }
         $remaining = @($plan.Inventory.targets | Where-Object { -not [string]::Equals($_.DeviceId,$plan.DeviceId,[StringComparison]::OrdinalIgnoreCase) })
         $removedHashes = @()
-        if ($plan.Inventory.schemaVersion -ceq '1.1.0') { $removedHashes = @($plan.Inventory.removedDeviceHashes) }
+        if ($plan.Inventory.schemaVersion -cne '1.0.0') { $removedHashes = @($plan.Inventory.removedDeviceHashes) }
         $identityHash = Get-WinSecDeviceInventoryIdentityHash $plan.DeviceId
         if ($removedHashes -cnotcontains $identityHash) { $removedHashes += $identityHash }
         $updated = [pscustomobject]@{schemaVersion='1.1.0'; targets=$remaining; removedDeviceHashes=@($removedHashes)}
+        if ($plan.Inventory.schemaVersion -ceq '1.2.0') { $updated.schemaVersion='1.2.0' }
         $json = ConvertTo-Json -InputObject $updated -Depth 8
         $null = ConvertFrom-WinSecDeviceInventoryJson -Json $json
         # All consent/snapshot checks precede mutation. Physical deletion is

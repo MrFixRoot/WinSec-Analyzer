@@ -57,9 +57,10 @@ function Get-WinSecKeyboardShortcuts {
                     Key    = 'ENTER'
                     Action = 'Select Device'
                 }
+                @{ Key = 'F2'; Action = 'Rename Device' }
                 @{
                     Key    = 'DEL/SUPR'
-                    Action = 'Delete Device + History'
+                    Action = 'Delete Device'
                 }
                 @{
                     Key    = 'Q'
@@ -84,17 +85,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Open Section'
                 }
                 @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             if ($EnableRescan) {
                 $items += @{
@@ -129,17 +123,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Navigate'
                 }
                 @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             $items += @{
                 Key    = 'ESC'
@@ -165,7 +152,7 @@ function Get-WinSecKeyboardShortcuts {
             if ($EnableExport) {
                 $items += @{
                     Key    = 'P'
-                    Action = 'Export TXT'
+                    Action = 'Print report'
                 }
             }
 
@@ -202,17 +189,10 @@ function Get-WinSecKeyboardShortcuts {
                     Action = 'Navigate'
                 }
                 @{
-                    Key    = 'H'
-                    Action = 'Findings'
+                    Key    = 'F'
+                    Action = 'Open Findings'
                 }
             )
-
-            if ($EnableExport) {
-                $items += @{
-                    Key    = 'P'
-                    Action = 'Export TXT'
-                }
-            }
 
             $items += @{
                 Key    = 'ESC'

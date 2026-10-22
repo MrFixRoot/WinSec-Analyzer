@@ -415,17 +415,10 @@ function Get-WinSecDefenderASRSummary {
         }
     }
 
-    $idList = @(
-        $ids | Where-Object {
-            $null -ne $_
-        }
-    )
-
-    $actionList = @(
-        $actions | Where-Object {
-            $null -ne $_
-        }
-    )
+    # Preserve positions: filtering nulls independently can attach an action
+    # to another rule and falsely report a complete inventory.
+    $idList = @($ids)
+    $actionList = @($actions)
 
     if ($idList.Count -ne $actionList.Count) {
         $issues.Add(
@@ -433,7 +426,7 @@ function Get-WinSecDefenderASRSummary {
         )
     }
 
-    if ($idList.Count -gt 128) {
+    if ($idList.Count -gt 128 -or $actionList.Count -gt 128) {
         $issues.Add(
             'ASR evidence exceeds the collection safety limit (128 entries).'
         )
@@ -447,7 +440,12 @@ function Get-WinSecDefenderASRSummary {
     $seen = @{}
 
     for ($i = 0; $i -lt $limit; $i++) {
-        $id = [string]$idList[$i]
+        if ($idList[$i] -isnot [string]) {
+            $issues.Add('An ASR rule identifier was missing or was not text.')
+            continue
+        }
+
+        $id = $idList[$i]
         $guid = [guid]::Empty
 
         if (-not [guid]::TryParse($id, [ref]$guid)) {
@@ -507,6 +505,31 @@ function Get-WinSecDefenderASRSummary {
 # ============================================================
 # SECURITY INDICATOR MODEL
 # ============================================================
+
+function Get-WinSecDefenderConfigurationModes {
+    [CmdletBinding()]
+    param([object]$Status,[object]$Preferences,[object]$Pua,[object]$Asr)
+    $puaMode=Get-WinSecDefenderProperty $Pua 'Mode'
+    if($puaMode -isnot [string] -or $puaMode -cnotin @('BLOCK','AUDIT','DISABLED')){$puaMode=$null}
+    $cloud=Get-WinSecDefenderProperty $Preferences 'MAPSReporting';$cloudMode=$null
+    if($null -ne $cloud -and ($cloud -is [string] -or $cloud.GetType().IsEnum -or
+        $cloud.GetType() -in @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64]))) {
+        if([string]$cloud -in @('1','2','Basic','Advanced')){$cloudMode='ENABLED'}
+        elseif([string]$cloud -in @('0','Disabled')){$cloudMode='DISABLED'}
+    }
+    $tamper=Get-WinSecDefenderProperty $Status 'IsTamperProtected';$tamperMode=$null
+    if($tamper -is [bool]){$tamperMode=if($tamper){'ENABLED'}else{'DISABLED'}}
+    $driverMode=$null
+    if((Get-WinSecDefenderProperty $Asr 'Available') -is [bool] -and $Asr.Available -and
+        (Get-WinSecDefenderProperty $Asr 'Complete') -is [bool] -and $Asr.Complete -and $Asr.Rules -is [array]) {
+        $matches=@($Asr.Rules|Where-Object {$_.RuleId -ceq '56a863a9-875e-4185-98a7-b882c64b5ce5'})
+        if($matches.Count -eq 0){$driverMode='NOT_CONFIGURED'}
+        elseif($matches.Count -eq 1 -and $matches[0].Mode -is [string] -and
+            $matches[0].Mode -cin @('BLOCK','AUDIT','WARN','DISABLED','NOT_CONFIGURED')){$driverMode=$matches[0].Mode}
+    }
+    # Null is deliberate: an unknown state must never compare as a failed value.
+    [pscustomobject]@{Pua=$puaMode;Cloud=$cloudMode;Tamper=$tamperMode;AsrVulnerableDriver=$driverMode}
+}
 
 function Add-WinSecDefenderIndicator {
     [CmdletBinding()]
@@ -596,13 +619,26 @@ function Test-WinSecDefender {
         throw 'Invalid CheckId for Microsoft Defender.'
     }
 
-    if (
-        $DeviceId -cnotin @(
-            $env:COMPUTERNAME,
-            ('local:{0}' -f $env:COMPUTERNAME)
-        )
-    ) {
-        throw 'Defender collector is local-only; remote DeviceId is not supported.'
+    # TargetRegistry owns hardware identity. Hostnames and local: prefixes
+    # alone never authorize a query, including for legacy inventory entries.
+    if ($DeviceId -cnotmatch '^local:hw1-[a-f0-9]{64}$') {
+        throw 'Defender requires the current local hardware DeviceId.'
+    }
+
+    try {
+        $localIds = @(Get-WinSecLocalHardwareDeviceId -ErrorAction Stop)
+    }
+    catch {
+        throw 'Unable to validate local hardware identity for Microsoft Defender.'
+    }
+
+    if ($localIds.Count -ne 1 -or $localIds[0] -isnot [string] -or
+        $localIds[0] -cnotmatch '^local:hw1-[a-f0-9]{64}$') {
+        throw 'Unable to validate local hardware identity for Microsoft Defender.'
+    }
+
+    if ($DeviceId -cne $localIds[0]) {
+        throw 'Defender collector is local-only; DeviceId differs from the current hardware.'
     }
 
     # ========================================================
@@ -1574,6 +1610,7 @@ function Test-WinSecDefender {
 
         ExclusionCounts = $exclusions
         AttackSurfaceReduction = $asr
+        ConfigurationModes = Get-WinSecDefenderConfigurationModes -Status $status -Preferences $preferences -Pua $pua -Asr $asr
 
         Analysis = [pscustomobject]@{
             Areas = [pscustomobject]$areas

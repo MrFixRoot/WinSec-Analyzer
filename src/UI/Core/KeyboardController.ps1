@@ -53,7 +53,9 @@ function Test-WinSecKeyboardActionAllowed {
             'Exit',
             'ShowFindings',
             'ExportTXT',
+            'ExportMD',
             'DeleteDevice',
+            'RenameDevice',
             'Rescan'
         )]
         [string]$Action,
@@ -67,6 +69,7 @@ function Test-WinSecKeyboardActionAllowed {
 
     switch ($Action) {
         'DeleteDevice' { return ($Screen -ceq 'Devices') }
+        'RenameDevice' { return ($Screen -ceq 'Devices') }
 
         # ----------------------------------------------------
         # List navigation
@@ -188,6 +191,9 @@ function Test-WinSecKeyboardActionAllowed {
                 )
             )
         }
+        'ExportMD' {
+            return ([bool]$EnableExport -and $Screen -eq 'Findings')
+        }
 
         # ----------------------------------------------------
         # Security rescan
@@ -197,7 +203,7 @@ function Test-WinSecKeyboardActionAllowed {
 
             return (
                 [bool]$EnableRescan -and
-                $Screen -eq 'MainMenu'
+                $Screen -in @('Devices','MainMenu','Section','Results')
             )
         }
     }
@@ -348,6 +354,7 @@ function ConvertTo-WinSecKeyboardAction {
         }
 
         # Delete / Supr (VK_DELETE)
+        113 { $action = 'RenameDevice' }
         46 {
             $action = 'DeleteDevice'
         }
@@ -380,12 +387,12 @@ function ConvertTo-WinSecKeyboardAction {
                     $action = 'Exit'
                 }
 
-                'H' {
+                'F' {
                     $action = 'ShowFindings'
                 }
 
                 'P' {
-                    $action = 'ExportTXT'
+                    $action = 'ExportMD'
                 }
 
                 'R' {
@@ -480,7 +487,9 @@ function Get-WinSecKeyboardAction {
         $action -in @(
             'Exit',
             'ExportTXT',
+            'ExportMD',
             'DeleteDevice',
+            'RenameDevice',
             'Rescan'
         )
     )
@@ -545,10 +554,10 @@ function Test-WinSecKeyboardController {
         }
 
         @{
-            Name   = 'H on Section'
+            Name   = 'F on Section'
             Screen = 'Section'
-            Code   = 72
-            Char   = [char]'H'
+            Code   = 70
+            Char   = [char]'F'
             Expect = 'ShowFindings'
         }
 

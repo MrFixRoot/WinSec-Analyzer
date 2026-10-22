@@ -30,6 +30,10 @@ $script:WinSecScoringConfigPath = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '../../config/scoring.json')
 )
 
+# D-042: criterion percentages and equal-control section means use the
+# versioned configuration assessment contract; legacy device scoring stays off.
+. (Join-Path $PSScriptRoot 'ConfigurationScore.ps1')
+
 # ============================================================
 # OBJECT HELPERS
 # ============================================================

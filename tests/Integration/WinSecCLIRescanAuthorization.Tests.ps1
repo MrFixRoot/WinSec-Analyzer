@@ -85,6 +85,7 @@ foreach ($path in @($cliPath, $coordinatorPath)) {
 # ------------------------------------------------------------
 
 . $cliPath
+. (Join-Path $projectRoot 'src/UI/Screens/MainMenu.ps1')
 . $coordinatorPath
 
 # ------------------------------------------------------------
@@ -113,6 +114,7 @@ $localId = [string]$localTarget.DeviceId
 
 $state = [pscustomobject]@{
     Screen = 'MainMenu'
+    SectionIndex = 0
     SelectedDeviceId = $localId
 }
 

@@ -34,6 +34,8 @@
 # PROPERTY HELPERS
 # ============================================================
 
+. (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
+
 function Get-WinSecEvaluationProperty {
     [CmdletBinding()]
     param(
@@ -309,6 +311,8 @@ function Test-WinSecEvaluationCriterion {
         }
     }
 
+    try {$null=Get-WinSecCriterionPlatformExclusion $Criterion}
+    catch {$result.Reason='Invalid verified platform applicability metadata.';return $result}
     $result.Valid = $true
     $result.Reason = 'Criterion metadata is structurally valid.'
     return $result
@@ -403,6 +407,13 @@ function Invoke-WinSecCriterionEvaluation {
             $output.Reason = "Criterion scope does not match the target field: $name."
             return $output
         }
+    }
+
+    $exclusion=Get-WinSecCriterionPlatformExclusion $Criterion $TargetContext
+    if($null -ne $exclusion) {
+        $output.Status='NOT_APPLICABLE'
+        $output.Reason=$exclusion.Reason
+        return $output
     }
 
     $resolved = Resolve-WinSecEvaluationPath `

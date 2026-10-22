@@ -28,8 +28,6 @@
                          mrRoot
 ```
 
-> **Development status:** This README is a proposed revision of the existing public `README.md`, not a claim that the planned features below have all shipped. Review against the checked-out repository before replacing the existing README.
-
 ## Overview
 
 WinSec Analyzer is a Windows command-line security assessment project written primarily in PowerShell. Its purpose is to **inspect local security configuration**, organize findings by security domain, and eventually produce reports with context from recognized security frameworks.
@@ -90,7 +88,6 @@ The workflow above is the approved design; availability of each step must be con
 
 The project's framework catalogues cover:
 
-- **CIS Benchmarks** — Windows configuration guidance.
 - **CIS Controls** — prioritized security safeguards.
 - **NIST Cybersecurity Framework (CSF)** — risk-management context.
 - **MITRE ATT&CK** — adversary behavior and defensive context.

@@ -1,4 +1,3 @@
-
 {
     "schemaVersion": "1.0.0",
     "frameworkId": "nist-csf",
@@ -44,9 +43,90 @@
             "description": "Restore assets and operations affected by cybersecurity incidents."
         }
     ],
-    "categories": [],
-    "subcategories": [],
-    "mappings": [],
+    "categories": [
+        {
+            "id": "PR.DS",
+            "name": "Data Security"
+        },
+        {
+            "id": "PR.PS",
+            "name": "Platform Security"
+        },
+        {
+            "id": "DE.CM",
+            "name": "Continuous Monitoring"
+        }
+    ],
+    "subcategories": [
+        {
+            "id": "PR.DS-01",
+            "name": "Protect data at rest"
+        },
+        {
+            "id": "PR.PS-05",
+            "name": "Prevent unauthorized software"
+        },
+        {
+            "id": "DE.CM-09",
+            "name": "Monitor computing environments and data"
+        }
+    ],
+    "mappings": [
+        {
+            "checkId": "WSA-SYS-002",
+            "references": [
+                {
+                    "id": "PR.DS-01",
+                    "functionId": "PR",
+                    "categoryId": "PR.DS",
+                    "subcategoryId": "PR.DS-01",
+                    "title": "Protect data at rest",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": ["WSA-BLK-BASE-001", "WSA-BLK-BASE-002"],
+                    "description": "NIST CSF 2.0 PR.DS-01 concerns confidentiality, integrity and availability of data at rest. BitLocker contributes confidentiality; these two local checks do not demonstrate the complete outcome. CSF specifies outcomes rather than a mandatory BitLocker algorithm or key length.",
+                    "recommendation": "Review the organization's data-at-rest risk and protection policy, recovery arrangements and complementary integrity and availability safeguards. Have an authorized administrator address confirmed encryption or protection deviations. Assess algorithm and key length against applicable cryptographic requirements, then repeat the read-only scan."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-SYS-001",
+            "references": [
+                {
+                    "id": "PR.PS-05",
+                    "functionId": "PR",
+                    "categoryId": "PR.PS",
+                    "subcategoryId": "PR.PS-05",
+                    "title": "Prevent unauthorized software",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-001",
+                        "WSA-DEF-BASE-002",
+                        "WSA-DEF-BASE-003",
+                        "WSA-DEF-BASE-004",
+                        "WSA-DEF-ADD-001",
+                        "WSA-DEF-ADD-002",
+                        "WSA-DEF-ADD-003",
+                        "WSA-DEF-ADD-004"
+                    ],
+                    "description": "The outcome concerns prevention of unauthorized software. Defender protection is one contributing safeguard, not complete evidence of this CSF outcome.",
+                    "recommendation": "Document the approved protection baseline and exceptions, review the disabled protection against that baseline, and have the authorized administrator restore the approved configuration. Confirm it with another read-only assessment."
+                },
+                {
+                    "id": "DE.CM-09",
+                    "functionId": "DE",
+                    "categoryId": "DE.CM",
+                    "subcategoryId": "DE.CM-09",
+                    "title": "Monitor computing environments and data",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-004"
+                    ],
+                    "description": "The outcome concerns monitoring computing environments for adverse events. Behavior monitoring contributes context; this check does not assess the complete monitoring program.",
+                    "recommendation": "Review whether disabling behavior monitoring was authorized, document the monitoring gap, and restore the approved protection through authorized administration. Retain and review relevant monitoring records separately."
+                }
+            ]
+        }
+    ],
     "mappingRules": {
         "matchBy": "checkId",
         "requireFrameworkVersion": true,

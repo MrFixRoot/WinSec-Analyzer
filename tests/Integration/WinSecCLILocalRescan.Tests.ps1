@@ -18,7 +18,7 @@
 #
 # Safety:
 # - Synthetic collector only; no Windows audit
-# - All executable checks must be disabled
+# - Only the individually validated Defender check may be enabled
 # - No security scoring
 # - No remote sessions
 # - No automatic evidence persistence
@@ -220,7 +220,7 @@ Assert-WinSecIntegration `
     -Description 'Automatic execution remains disabled'
 
 # ------------------------------------------------------------
-# TEST 5 - ALL CHECKS DISABLED
+# TEST 5 - ONLY VALIDATED DEFENDER ENABLED
 # ------------------------------------------------------------
 
 $enabledChecks = @(
@@ -230,8 +230,8 @@ $enabledChecks = @(
 )
 
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 0) `
-    -Description 'No executable checks are enabled'
+    -Condition ($enabledChecks.Count -eq 1 -and $enabledChecks[0].checkId -ceq 'WSA-SYS-001' -and $enabledChecks[0].implementationStatus -ceq 'VALIDATED') `
+    -Description 'Only validated Defender is enabled in production'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING POLICY DISABLED
@@ -253,7 +253,9 @@ Assert-WinSecIntegration `
 if (
     -not $readOnly -or
     -not $noAutomaticStartup -or
-    $enabledChecks.Count -gt 0 -or
+    $enabledChecks.Count -ne 1 -or
+    $enabledChecks[0].checkId -cne 'WSA-SYS-001' -or
+    $enabledChecks[0].implementationStatus -cne 'VALIDATED' -or
     -not $scoringDisabled
 ) {
     throw (
@@ -307,7 +309,8 @@ if (-not $coordinatorSafe) {
 # ------------------------------------------------------------
 
 $state = [pscustomobject]@{
-    Screen = 'MainMenu'
+    Screen = 'Devices'
+    DeviceIndex = 0
     SelectedDeviceId = $localId
 }
 
@@ -406,8 +409,8 @@ Assert-WinSecIntegration `
 
 # This invokes the real coordination pipeline.
 #
-# All checks were verified disabled before execution.
-# No collector checks should run.
+# The confirmed fixture replaces the collector boundary.
+# No native collector checks should run.
 #
 # No evidence persistence parameter is supplied.
 
@@ -486,15 +489,17 @@ $sessionKey = '{0}:{1}{2}:{3}' -f `
 
 $sessionStored = (
     $context.PublicScans.ContainsKey($sessionKey) -and
-    [object]::ReferenceEquals(
+    -not [object]::ReferenceEquals(
         $context.PublicScans[$sessionKey],
         $publicResult
-    )
+    ) -and
+    (ConvertTo-Json -InputObject $context.PublicScans[$sessionKey] -Depth 15 -Compress) -ceq
+        (ConvertTo-Json -InputObject $publicResult -Depth 15 -Compress)
 )
 
 Assert-WinSecIntegration `
     -Condition $sessionStored `
-    -Description 'Public result is stored by DeviceId and ScanId'
+    -Description 'An equal independent public result is stored by DeviceId and ScanId'
 
 # ------------------------------------------------------------
 # TEST 18 - ACTIVE SCAN IS REGISTERED
@@ -639,6 +644,40 @@ $noChecksExecuted = (
         'COMPLETED' -and
     $unexpectedControls.Count -eq 0
 )
+
+# Publication ownership: mutating the CLI response cannot rewrite its cache,
+# the coordinator's completed session or later scan history.
+$cacheBefore = ConvertTo-Json -InputObject $context.PublicScans[$sessionKey] -Depth 15 -Compress
+$coreBefore = ConvertTo-Json -InputObject (
+    Get-WinSecCoordinatorPublicResult -Coordinator $coordinator -DeviceId $localId -ScanId $scanId
+) -Depth 15 -Compress
+$historyBefore = ConvertTo-Json -InputObject $history -Depth 10 -Compress
+$publicResult.DeviceId = 'local:CHANGED-RESPONSE'
+$publicResult.ControlResults[0].ScanId = 'changed-response-scan'
+$publicResult.ControlResults[0].Status = 'ERROR'
+$publicResult.CheckResults[0].Status = 'UNKNOWN'
+
+Assert-WinSecIntegration -Condition (
+    $cacheBefore -ceq (ConvertTo-Json -InputObject $context.PublicScans[$sessionKey] -Depth 15 -Compress) -and
+    (Get-WinSecCLIActiveAssessment -State $state -Context $context).ScanId -ceq $scanId
+) -Description 'Mutating the CLI response preserves cached data and subsequent public reads'
+
+Assert-WinSecIntegration -Condition (
+    $coreBefore -ceq (ConvertTo-Json -InputObject (
+        Get-WinSecCoordinatorPublicResult -Coordinator $coordinator -DeviceId $localId -ScanId $scanId
+    ) -Depth 15 -Compress) -and
+    $historyBefore -ceq (ConvertTo-Json -InputObject @(
+        Get-WinSecCoordinatorHistory -Coordinator $coordinator -DeviceId $localId
+    ) -Depth 10 -Compress)
+) -Description 'Mutating the CLI response preserves the coordinator session and history'
+
+$secondResult = Invoke-WinSecCLILocalRescan -State $state -Context $context -ErrorAction Stop
+Assert-WinSecIntegration -Condition (
+    $secondResult.ScanId -cne $scanId -and $context.PublicScans.Count -eq 2 -and
+    $context.ActiveScanByDevice[$localId] -ceq $secondResult.ScanId -and
+    $cacheBefore -ceq (ConvertTo-Json -InputObject $context.PublicScans[$sessionKey] -Depth 15 -Compress) -and
+    @(Get-WinSecCoordinatorHistory -Coordinator $coordinator -DeviceId $localId).Count -eq 2
+) -Description 'A second confirmed synthetic scan preserves the first cached session'
 
 }
 finally {

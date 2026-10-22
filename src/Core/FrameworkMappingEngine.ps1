@@ -10,7 +10,6 @@
 # framework references using configured JSON mappings.
 #
 # Supported frameworks:
-# - CIS Benchmarks
 # - CIS Controls
 # - NIST CSF
 # - MITRE ATT&CK
@@ -225,24 +224,6 @@ function Test-WinSecFrameworkReference {
 
     switch ($FrameworkId) {
 
-        'cis-benchmarks' {
-
-            $benchmarkId = Get-WinSecFrameworkString `
-                -InputObject $Mapping -Name 'benchmarkId'
-
-            $benchmarkVersion = Get-WinSecFrameworkString `
-                -InputObject $Mapping -Name 'benchmarkVersion'
-
-            if (
-                [string]::IsNullOrWhiteSpace($benchmarkId) -or
-                [string]::IsNullOrWhiteSpace($benchmarkVersion)
-            ) {
-                return $false
-            }
-
-            return $true
-        }
-
         'cis-controls' {
 
             if ([string]::IsNullOrWhiteSpace($version)) {
@@ -309,6 +290,18 @@ function Test-WinSecFrameworkReference {
 
         'mitre-attack' {
 
+            # A mitigation is not an attack technique. Require an explicit,
+            # catalogued M identifier and keep the existing T validation intact.
+            $mitigationId=Get-WinSecFrameworkString -InputObject $Reference -Name 'mitigationId'
+            if($mitigationId -or $referenceId -cmatch '\AM[0-9]{4}\z') {
+                $type=Get-WinSecFrameworkString -InputObject $Reference -Name 'type'
+                $technique=Get-WinSecFrameworkString -InputObject $Reference -Name 'techniqueId'
+                $include=Get-WinSecFrameworkField (Get-WinSecFrameworkField $Framework 'mappingRules') 'includeMitigations'
+                $declared=@(Get-WinSecFrameworkField $Framework 'mitigations'|Where-Object {$_.id -ceq $mitigationId})
+                return ($type -ceq 'Mitigation' -and $mitigationId -cmatch '\AM[0-9]{4}\z' -and
+                    $referenceId -ceq $mitigationId -and -not $technique -and $include -is [bool] -and $include -and $declared.Count -eq 1)
+            }
+
             $techniqueId = Get-WinSecFrameworkString `
                 -InputObject $Reference -Name 'techniqueId'
 
@@ -342,7 +335,8 @@ function Get-WinSecFrameworkMappings {
         [AllowEmptyCollection()]
         [object[]]$Frameworks = @(),
 
-        [string]$Platform = ''
+        [string]$Platform = '',
+        [string]$CriterionId = ''
     )
 
     # Prevent duplicate framework references
@@ -373,7 +367,6 @@ function Get-WinSecFrameworkMappings {
         }
 
         if ($frameworkId -notin @(
-            'cis-benchmarks',
             'cis-controls',
             'nist-csf',
             'mitre-attack'
@@ -442,6 +435,16 @@ function Get-WinSecFrameworkMappings {
                 if ($null -eq $reference) {
                     continue
                 }
+                # Read the collection directly: pipeline output unwraps a one-item array.
+                # Retain its original type so malformed scalar mappings still fail closed.
+                $criterionIds=$null
+                if ($reference -is [System.Collections.IDictionary]) {
+                    if ($reference.Contains('criterionIds')) {$criterionIds=$reference['criterionIds']}
+                } elseif ($null -ne $reference.PSObject.Properties['criterionIds']) {
+                    $criterionIds=$reference.PSObject.Properties['criterionIds'].Value
+                }
+                if ($null -ne $criterionIds -and
+                    ($criterionIds -isnot [array] -or $criterionIds.Count -eq 0 -or $criterionIds -cnotcontains $CriterionId)) { continue }
 
                 # Validate framework-specific requirements
                 $valid = Test-WinSecFrameworkReference `
@@ -492,14 +495,13 @@ function Get-WinSecFrameworkMappings {
                 if (-not $referenceType) {
 
                     $referenceType = switch ($frameworkId) {
-                        'cis-benchmarks' { 'Benchmark' }
                         'cis-controls'   { 'Safeguard' }
                         'nist-csf'       { 'Subcategory' }
                         'mitre-attack'   { 'Technique' }
                     }
                 }
 
-                if ($frameworkId -eq 'mitre-attack') {
+                if ($frameworkId -eq 'mitre-attack' -and $referenceType -cne 'Mitigation') {
                     if (-not $techniqueId) {
                         $techniqueId = $referenceId
                     }
@@ -537,6 +539,8 @@ function Get-WinSecFrameworkMappings {
                     ReferenceType    = $referenceType
                     Title            = $title
                     Url              = $url
+                    Description      = Get-WinSecFrameworkString -InputObject $reference -Name 'description'
+                    Recommendation   = Get-WinSecFrameworkString -InputObject $reference -Name 'recommendation'
 
                     BenchmarkId      = $benchmarkId
                     BenchmarkVersion = $benchmarkVersion

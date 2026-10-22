@@ -1,10 +1,9 @@
-
 {
     "schemaVersion": "1.0.0",
     "frameworkId": "mitre-attack",
     "name": "MITRE ATT&CK",
     "knowledgeBase": "Enterprise ATT&CK",
-    "frameworkVersion": null,
+    "frameworkVersion": "20.0",
     "organization": "MITRE",
     "description": "Adversary tactics, techniques, subtechniques and defensive mitigation mappings for WinSec Analyzer.",
     "enabled": true,
@@ -43,7 +42,11 @@
         },
         {
             "id": "TA0005",
-            "name": "Defense Evasion"
+            "name": "Stealth"
+        },
+        {
+            "id": "TA0112",
+            "name": "Defense Impairment"
         },
         {
             "id": "TA0006",
@@ -74,10 +77,73 @@
             "name": "Impact"
         }
     ],
-    "techniques": [],
+    "techniques": [
+        {
+            "id": "T1685",
+            "name": "Disable or Modify Tools"
+        },
+        {
+            "id": "T1068",
+            "name": "Exploitation for Privilege Escalation"
+        }
+    ],
     "subtechniques": [],
-    "mitigations": [],
-    "mappings": [],
+    "mitigations": [
+        {
+            "id": "M1041",
+            "name": "Encrypt Sensitive Information"
+        }
+    ],
+    "mappings": [
+        {
+            "checkId": "WSA-SYS-002",
+            "references": [
+                {
+                    "id": "M1041",
+                    "mitigationId": "M1041",
+                    "type": "Mitigation",
+                    "title": "Encrypt Sensitive Information",
+                    "url": "https://attack.mitre.org/mitigations/M1041/",
+                    "criterionIds": ["WSA-BLK-BASE-001", "WSA-BLK-BASE-002"],
+                    "description": "MITRE ATT&CK M1041 describes encryption of sensitive information, including full-disk encryption. This is defensive context, not a detected attack technique, proof of an incident or a complete mitigation test. Encryption does not prevent all access by an adversary in an already unlocked session.",
+                    "recommendation": "Review sensitive-data exposure and the threat model for stored data. Have the authorized administrator address confirmed encryption or protection deviations under approved policy with verified recovery arrangements. Review access controls separately; do not infer compromise or complete attack prevention from a BitLocker state."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-SYS-001",
+            "references": [
+                {
+                    "id": "T1685",
+                    "techniqueId": "T1685",
+                    "title": "Disable or Modify Tools",
+                    "url": "https://attack.mitre.org/versions/v20/techniques/T1685/",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-001",
+                        "WSA-DEF-BASE-002",
+                        "WSA-DEF-BASE-003",
+                        "WSA-DEF-BASE-004",
+                        "WSA-DEF-ADD-001",
+                        "WSA-DEF-ADD-002",
+                        "WSA-DEF-ADD-003"
+                    ],
+                    "description": "Adversaries can interfere with defensive tools. A disabled protection alone does not prove an attack, malicious intent or this technique occurring.",
+                    "recommendation": "Establish whether the disabled protection was authorized, review relevant security records, and have the authorized administrator restore the approved protections. Repeat the WinSec read-only assessment; investigate suspected tampering through the normal incident response process."
+                },
+                {
+                    "id": "T1068",
+                    "techniqueId": "T1068",
+                    "title": "Exploitation for Privilege Escalation",
+                    "url": "https://attack.mitre.org/techniques/T1068/",
+                    "criterionIds": [
+                        "WSA-DEF-ADD-004"
+                    ],
+                    "description": "Vulnerable signed drivers can support privilege escalation. A missing ASR setting is a local configuration deviation, not evidence that exploitation occurred; this rule does not prevent loading existing vulnerable drivers.",
+                    "recommendation": "Review exposure to vulnerable drivers and approved execution protections. Have the authorized administrator configure this specific ASR rule, assess driver allow/block policy separately and review relevant events if exploitation is suspected. Repeat a read-only assessment."
+                }
+            ]
+        }
+    ],
     "mappingRules": {
         "matchBy": "checkId",
         "requireTechniqueId": true,

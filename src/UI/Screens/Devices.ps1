@@ -10,9 +10,8 @@
 #
 # Features:
 # - Device selection
-# - Security scores
-# - Assessment status
-# - Last scan information
+# - Explicit NOT_SCORED presentation
+# - Inventory metadata separated from scan results
 # - Adaptive terminal layout
 # - Keyboard navigation
 # - Automatic table resizing
@@ -27,10 +26,18 @@ function Get-WinSecDeviceRows {
     [CmdletBinding()]
     param(
         [AllowEmptyCollection()]
-        [object[]]$Devices = @()
+        [object[]]$Devices = @(),
+        [object[]]$History = @(),
+        [switch]$HistoryLoaded
     )
 
-    $index = 0
+    # Inventory is not a public scan result. Read only plain identification
+    # fields, never assessment metadata or evidence (including their getters).
+    # Validate the entire collection before publishing any display rows.
+    if ($Devices.Count -gt 10000) { throw 'Too many registered devices.' }
+    $displayFields = @('DeviceId','Hostname','Name','DisplayName','Mode')
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $rows = New-Object 'System.Collections.Generic.List[object]'
 
     foreach ($device in $Devices) {
 
@@ -38,83 +45,106 @@ function Get-WinSecDeviceRows {
             continue
         }
 
-        $index++
-
-        # Device identification
-        $deviceId = Get-WinSecTableValue `
-            -Row $device -Key 'DeviceId'
-
-        $hostname = Get-WinSecTableValue `
-            -Row $device -Key 'Hostname'
-
-        if ([string]::IsNullOrWhiteSpace($hostname)) {
-            $hostname = Get-WinSecTableValue `
-                -Row $device -Key 'Name'
+        $fields = @{}
+        if ($device -is [System.Collections.IDictionary]) {
+            foreach ($key in $device.psbase.Keys) {
+                if ($key -isnot [string]) { throw 'Invalid device property name.' }
+                if ($key -notin $displayFields) { continue }
+                if ($fields.ContainsKey($key)) { throw 'Ambiguous device property.' }
+                $fields[$key] = $device[$key]
+            }
         }
-
-        if ([string]::IsNullOrWhiteSpace($hostname)) {
-            $hostname = 'UNKNOWN'
+        elseif ($device -is [pscustomobject]) {
+            foreach ($property in $device.PSObject.Properties) {
+                if ($property.Name -notin $displayFields) { continue }
+                if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                    throw 'Device display requires plain data properties.'
+                }
+                $fields[$property.Name] = $property.Value
+            }
         }
+        else { throw 'Unsupported registered device.' }
 
-        # Assessment mode
-        $mode = Get-WinSecTableValue `
-            -Row $device -Key 'Mode'
-
-        if ([string]::IsNullOrWhiteSpace($mode)) {
-            $mode = 'UNKNOWN'
+        $deviceId = $fields.DeviceId
+        if ($deviceId -isnot [string] -or $deviceId.Length -gt 128 -or
+            $deviceId -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9._:-]*\z') {
+            throw 'Invalid device identifier.'
         }
+        if (-not $seen.Add($deviceId)) { throw 'Duplicate device identifier.' }
 
-        # Security score
-        $rawScore = Get-WinSecTableValue `
-            -Row $device -Key 'Score'
+        foreach ($name in @('Hostname','Name')) {
+            $value = $fields[$name]
+            if ($null -ne $value -and ($value -isnot [string] -or $value.Length -gt 253 -or
+                ($value -ne '' -and $value -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9._:-]*\z'))) {
+                throw 'Invalid device hostname.'
+            }
+        }
+        $hostname = $fields.Hostname
+        if ([string]::IsNullOrEmpty($hostname)) { $hostname = $fields.Name }
+        if ([string]::IsNullOrEmpty($hostname)) { $hostname = $deviceId }
+        $displayName=$fields.DisplayName
+        if($null -ne $displayName -and ($displayName -isnot [string] -or $displayName.Length -gt 253 -or
+            [string]::IsNullOrWhiteSpace($displayName) -or $displayName -cne $displayName.Trim() -or $displayName -match '[\p{C}\p{Zl}\p{Zp}]')){throw 'Invalid device display name.'}
+        if($null -eq $displayName){$displayName=$hostname}
 
-        $score = '--/100'
-
-        if (
-            $rawScore -match
-            '^\s*(\d{1,3})\s*(?:/100)?\s*$'
-        ) {
-
-            $numericScore = [int]$Matches[1]
-
-            if ($numericScore -le 100) {
-                $score = '{0}/100' -f $numericScore
+        $inferredMode = 'UNKNOWN'
+        foreach ($prefix in @('LOCAL','REMOTE','IMPORTED')) {
+            if ($deviceId.StartsWith($prefix + ':', [StringComparison]::OrdinalIgnoreCase)) {
+                $inferredMode = $prefix
+                break
+            }
+        }
+        $mode = $inferredMode
+        if ($null -ne $fields.Mode) {
+            if ($fields.Mode -isnot [string]) { throw 'Invalid device mode.' }
+            $mode = $fields.Mode.ToUpperInvariant()
+            if ($mode -cnotin @('LOCAL','REMOTE','IMPORTED','UNKNOWN') -or
+                ($inferredMode -cne 'UNKNOWN' -and $mode -cne $inferredMode)) {
+                throw 'Invalid or conflicting device mode.'
             }
         }
 
-        # Assessment status
-        $status = Get-WinSecTableValue `
-            -Row $device -Key 'Status'
-
-        if ([string]::IsNullOrWhiteSpace($status)) {
-
-            $status = if ($score -eq '--/100') {
-                'PENDING'
-            }
-            else {
-                'UNKNOWN'
-            }
-        }
-
-        # Last assessment
-        $lastScan = Get-WinSecTableValue `
-            -Row $device -Key 'LastScan'
-
-        if ([string]::IsNullOrWhiteSpace($lastScan)) {
-            $lastScan = 'Never'
-        }
-
-        # Return normalized device
-        [PSCustomObject]@{
-            Id       = '{0:D2}' -f $index
+        # These are inventory placeholders, never assertions about an audit.
+        # Historical dates require verified sessions, not LastScan metadata.
+        $rows.Add([PSCustomObject]@{
+            Id       = '{0:D2}' -f ($rows.Count + 1)
             DeviceId = $deviceId
             Hostname = $hostname
-            Mode     = $mode.ToUpperInvariant()
-            Score    = $score
-            Status   = $status.ToUpperInvariant()
-            LastScan = $lastScan
+            Device   = $displayName
+            HardwareId = if($deviceId -cmatch '^local:(hw1-[a-f0-9]{64})$'){$Matches[1]}else{'Not recorded'}
+            Mode     = $mode
+            Score    = 'NOT_SCORED'
+            Status   = 'PENDING'
+            LastScan = 'Not loaded'
+        })
+    }
+    if($HistoryLoaded){
+        if($History.Count -gt 10000){throw 'Excessive device history.'}
+        $safeHistory=@(foreach($entry in $History){Copy-WinSecResultData -Value $entry})
+        $scanKeys=@{};$byDevice=@{}
+        $exactIds=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        foreach($row in $rows){$null=$exactIds.Add($row.DeviceId)}
+        foreach($scan in $safeHistory){
+            if($scan -isnot [pscustomobject] -or $scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string] -or
+                -not $exactIds.Contains($scan.DeviceId) -or -not (Test-WinSecTargetIdentifier $scan.ScanId) -or
+                $scan.ExecutionStatus -isnot [string] -or $scan.ExecutionStatus -cnotin @('COMPLETED','COMPLETED_WITH_ERRORS') -or $null -ne $scan.OverallScore -or
+                $scan.OverallStatus -isnot [string] -or $scan.OverallStatus -cne 'NOT_SCORED'){throw 'Invalid device public history.'}
+            Assert-WinSecResultScope $scan.ScopeType $scan.ScopeKey
+            $key=Get-WinSecScanSessionKey $scan.DeviceId $scan.ScanId
+            if($scanKeys.ContainsKey($key)){throw 'Duplicate device scan.'};$scanKeys[$key]=$true
+            $null=ConvertTo-WinSecResultUtc -Value $scan.CompletedAtUTC -FieldName CompletedAtUTC
+            if(-not $byDevice.ContainsKey($scan.DeviceId)){$byDevice[$scan.DeviceId]=New-Object 'System.Collections.Generic.List[object]'}
+            $byDevice[$scan.DeviceId].Add($scan)
+        }
+        foreach($row in $rows){
+            $matching=@($byDevice[$row.DeviceId]|Sort-Object CompletedAtUTC,ScanId)
+            $row.LastScan='No saved scan'
+            if($matching.Count){$last=$matching[-1];$date=ConvertTo-WinSecResultUtc -Value $last.CompletedAtUTC -FieldName CompletedAtUTC;
+                $row.LastScan=($date.UtcDateTime.ToString('yyyy-MM-dd HH:mm')+'Z '+$last.ScopeType)}
+            if(@($matching|Where-Object{$_.ScopeType -ceq 'DEVICE'}).Count){$row.Status='NOT_SCORED'}
         }
     }
+    return $rows.ToArray()
 }
 
 
@@ -182,7 +212,11 @@ function Show-WinSecDevices {
 
         [string]$Version = '0.9.0',
 
-        [string]$Message = ''
+        [string]$Message = '',
+        [object[]]$History = @(),
+        [switch]$HistoryLoaded,
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction='Scan'
     )
 
     # --------------------------------------------------------
@@ -190,7 +224,7 @@ function Show-WinSecDevices {
     # --------------------------------------------------------
 
     $rows = @(
-        Get-WinSecDeviceRows -Devices $Devices
+        Get-WinSecDeviceRows -Devices $Devices -History $History -HistoryLoaded:$HistoryLoaded
     )
 
     $deviceCount = $rows.Count
@@ -222,6 +256,7 @@ function Show-WinSecDevices {
             'UP/DOWN'
             'ENTER'
             'DEL/SUPR'
+            'F2'
         )
     }
 
@@ -305,7 +340,7 @@ function Show-WinSecDevices {
     if ($null -ne $selectedDevice) {
 
         $selectedText = 'SELECTED: {0} | MODE: {1}' -f `
-            $selectedDevice.Hostname,
+            $selectedDevice.Device,
             $selectedDevice.Mode
 
         Write-WinSecText `
@@ -319,7 +354,7 @@ function Show-WinSecDevices {
             -Color Yellow
     }
 
-    Write-Host ''
+    if ($layout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define adaptive table columns
@@ -337,7 +372,7 @@ function Show-WinSecDevices {
         }
 
         @{
-            Key      = 'Hostname'
+            Key      = 'Device'
             Header   = 'Device'
             Width    = 27
             MinWidth = 12
@@ -347,11 +382,13 @@ function Show-WinSecDevices {
             Expand   = $true
         }
 
+        @{ Key='HardwareId';Header='Hardware ID';Width=22;MinWidth=11;MaxWidth=68;Priority=3;Align='Left' }
+
         @{
             Key      = 'Score'
             Header   = 'Score'
             Width    = 10
-            MinWidth = 7
+            MinWidth = 10
             MaxWidth = 12
             Priority = 2
             Align    = 'Right'
@@ -411,6 +448,11 @@ function Show-WinSecDevices {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
+    if ($deviceCount -gt 0) {
+        $scanText = '[R] {0} Local Device' -f $ScanAction
+        if (-not $EnableRescan) { $scanText += ' (unavailable)' }
+        Write-WinSecText -Text $scanText -Color Cyan
+    }
     Write-WinSecKeyboardHelp `
         -Screen 'Devices' `
         -HiddenKeys $hiddenKeys

@@ -30,7 +30,9 @@
 # ============================================================
 
 [CmdletBinding()]
-param()
+param(
+    [switch]$SkipLive
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -233,6 +235,7 @@ if ($script:Failed -gt 0) {
 # ============================================================
 
 try {
+    . (Join-Path $script:Root 'src/Core/TargetRegistry.ps1')
     . $script:EnginePath
     . $script:DefenderPath
 }
@@ -447,10 +450,10 @@ Write-Host ''
 Write-Host 'Real Defender evidence integration'
 Write-Host ''
 
-if ($env:OS -ne 'Windows_NT') {
+if ($SkipLive -or $env:OS -ne 'Windows_NT') {
     Skip-Case `
         'Real Defender evidence collection' `
-        'Windows is required.'
+        'Live collection was skipped or Windows is unavailable.'
 
     Complete-Tests
     return
@@ -458,9 +461,7 @@ if ($env:OS -ne 'Windows_NT') {
 
 $script:LiveResult = $null
 
-$script:LiveDeviceId = (
-    'local:{0}' -f $env:COMPUTERNAME
-)
+$script:LiveDeviceId = Get-WinSecLocalHardwareDeviceId
 
 $script:LiveScanId = (
     'EVALUATION-INTEGRATION-{0}' -f

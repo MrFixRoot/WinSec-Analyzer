@@ -1,0 +1,170 @@
+{
+  "CatalogId": "WSA-W11-25H2-ENT-DEF-BASE",
+  "CatalogVersion": "0.1.0",
+  "CheckId": "WSA-SYS-001",
+  "Status": "APPROVED",
+  "EvaluationEnabled": true,
+  "ScoringEnabled": true,
+  "DeviceChangesAllowed": false,
+  "Description": "Project-owner-approved local policy. Source URLs identify Microsoft technical guidance adopted by this policy; they are not CIS Benchmark requirements. Applies only to the designated primary Defender in observed Normal mode.",
+  "ApprovalReference": "D-041 (four rules and scopes), D-042 (scoring); no native validation implied",
+  "Criteria": [
+    {
+      "CriterionId": "WSA-DEF-BASE-001",
+      "CheckId": "WSA-SYS-001",
+      "Area": "CoreProtection",
+      "Name": "Antimalware engine enabled",
+      "EvidencePath": "DefenderStatus.AMServiceEnabled",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.1.0",
+        "ControlId": "WSA-DEF-BASE-001",
+        "Title": "WinSec local Defender baseline: Antimalware engine enabled; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit approval D-041 and scoring delegation D-042",
+        "ReviewedAtUTC": "2026-10-22T00:39:22Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26200",
+        "Edition": "SKU:4",
+        "Profile": "WSA-W11-25H2-ENT-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Service status is not proof of active antivirus enforcement.",
+      "Recommendation": "Review service state and security-product coexistence.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-BASE-002",
+      "CheckId": "WSA-SYS-001",
+      "Area": "CoreProtection",
+      "Name": "Antivirus enabled",
+      "EvidencePath": "DefenderStatus.AntivirusEnabled",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.1.0",
+        "ControlId": "WSA-DEF-BASE-002",
+        "Title": "WinSec local Defender baseline: Antivirus enabled; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/powershell/module/defender/get-mpcomputerstatus"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit approval D-041 and scoring delegation D-042",
+        "ReviewedAtUTC": "2026-10-22T00:39:22Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26200",
+        "Edition": "SKU:4",
+        "Profile": "WSA-W11-25H2-ENT-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Passive or third-party antivirus may explain a disabled state.",
+      "Recommendation": "Confirm the intended primary antivirus solution before recommending changes.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-BASE-003",
+      "CheckId": "WSA-SYS-001",
+      "Area": "CoreProtection",
+      "Name": "Real-time protection",
+      "EvidencePath": "DefenderStatus.RealTimeProtectionEnabled",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.1.0",
+        "ControlId": "WSA-DEF-BASE-003",
+        "Title": "WinSec local Defender baseline: Real-time protection; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit approval D-041 and scoring delegation D-042",
+        "ReviewedAtUTC": "2026-10-22T00:39:22Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26200",
+        "Edition": "SKU:4",
+        "Profile": "WSA-W11-25H2-ENT-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Runtime status is preferable to preference alone.",
+      "Recommendation": "Review real-time protection if Defender is the designated primary antivirus.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-BASE-004",
+      "CheckId": "WSA-SYS-001",
+      "Area": "CoreProtection",
+      "Name": "Behavior monitoring",
+      "EvidencePath": "DefenderStatus.BehaviorMonitorEnabled",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.1.0",
+        "ControlId": "WSA-DEF-BASE-004",
+        "Title": "WinSec local Defender baseline: Behavior monitoring; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit approval D-041 and scoring delegation D-042",
+        "ReviewedAtUTC": "2026-10-22T00:39:22Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26200",
+        "Edition": "SKU:4",
+        "Profile": "WSA-W11-25H2-ENT-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "A disabled state requires antivirus mode and workload context.",
+      "Recommendation": "Review behavior monitoring according to supported Microsoft Defender policy.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    }
+  ],
+  "ReviewOnly": []
+}

@@ -9,6 +9,9 @@
 
 reports/*
 !reports/.gitkeep
+!/reports/exports/
+/reports/exports/*
+!/reports/exports/.gitkeep
 
 logs/*
 !logs/.gitkeep
@@ -33,9 +36,13 @@ logs/*
 # Local Device Inventory and Scan History
 # ------------------------------------------------------------
 
-# Exclude the entire directory, including nested session data.
+# Exclude local data; preserve only the data and scans folder placeholders.
 # Already tracked inventory files must also be removed from the Git index.
-/data/
+/data/*
+!/data/.gitkeep
+!/data/scans/
+/data/scans/*
+!/data/scans/.gitkeep
 
 # ------------------------------------------------------------
 # Temporary files

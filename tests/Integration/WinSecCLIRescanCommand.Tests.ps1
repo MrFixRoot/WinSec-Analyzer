@@ -292,6 +292,12 @@ if (
 
 . $cliPath
 . $coordinatorPath
+. (Join-Path $projectRoot 'src/UI/Screens/ScanProgress.ps1')
+# This contract suite exercises the real command branch without a physical terminal.
+function Read-WinSecPendingKey { return $null }
+function Get-WinSecTerminalSize { [pscustomobject]@{Width=80;ContentWidth=79;Height=25} }
+function Clear-WinSecScreen { }
+function Write-WinSecText { param($Text,$Color) }
 . (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
 try {
 
@@ -335,7 +341,8 @@ if (-not $coordinatorSafe) {
 # ------------------------------------------------------------
 
 $state = [pscustomobject]@{
-    Screen = 'MainMenu'
+    Screen = 'Devices'
+    DeviceIndex = 0
     SelectedDeviceId = $localId
     PendingCommand = 'Rescan'
     PendingScope = 'Device'
@@ -571,6 +578,8 @@ Assert-WinSecIntegration `
 # ------------------------------------------------------------
 
 $state.SelectedDeviceId = 'remote:INTEGRATION-TEST'
+$context.Devices += @([pscustomobject]@{DeviceId='remote:INTEGRATION-TEST';Mode='REMOTE';Enabled=$true})
+$state.DeviceIndex = $context.Devices.Count - 1
 $state.PendingCommand = 'Rescan'
 $state.PendingScope = 'Device'
 
@@ -610,6 +619,7 @@ Assert-WinSecIntegration `
 # ------------------------------------------------------------
 
 $state.SelectedDeviceId = $localId
+$state.DeviceIndex = 0
 $state.PendingCommand = 'SelectDevice'
 $state.PendingScope = 'Device'
 

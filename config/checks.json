@@ -72,9 +72,9 @@
       "description": "Assess Microsoft Defender Antivirus security configuration.",
       "order": 1,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Defender/Test-Defender.ps1",
         "function": "Test-WinSecDefender"
@@ -439,7 +439,6 @@
     "requireVerifiedReferences": true,
     "inventMissingReferences": false,
     "catalogs": [
-      "config/frameworks/cis-benchmarks.json",
       "config/frameworks/cis-controls.json",
       "config/frameworks/nist-csf.json",
       "config/frameworks/mitre-attack.json"

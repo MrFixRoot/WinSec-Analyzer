@@ -6,12 +6,12 @@
 # Author    : mrRoot
 #
 # Description:
-# Displays prioritized security findings with evidence,
-# remediation guidance and framework references.
+# Displays public findings and diagnostics with manual
+# recommendations and framework context, without raw evidence.
 #
 # Features:
 # - Multi-device and multi-scan isolation
-# - P1-P5 finding prioritization
+# - Preserve Core's UNASSIGNED classifications
 # - CIS, NIST and MITRE references
 # - Adaptive terminal layout
 # - Selected finding details
@@ -85,7 +85,7 @@ function Get-WinSecFindingProperty {
 
     if ($InputObject -is [System.Collections.IDictionary]) {
 
-        foreach ($key in $InputObject.Keys) {
+        foreach ($key in $InputObject.psbase.Keys) {
 
             if (
                 [string]::Equals(
@@ -94,7 +94,7 @@ function Get-WinSecFindingProperty {
                     [System.StringComparison]::OrdinalIgnoreCase
                 )
             ) {
-                return $InputObject[$key]
+                return ,$InputObject[$key]
             }
         }
 
@@ -104,7 +104,7 @@ function Get-WinSecFindingProperty {
     $property = $InputObject.PSObject.Properties[$Name]
 
     if ($null -ne $property) {
-        return $property.Value
+        return ,$property.Value
     }
 
     return $null
@@ -210,7 +210,14 @@ function Get-WinSecFindingsContext {
             $scope = 'Control'
         }
 
-        $deviceId = [string]$deviceValue
+        if ($null -ne $deviceValue -and $deviceValue -isnot [string]) {
+            throw 'Invalid selected finding device.'
+        }
+        if ($null -ne $scopeValue -and
+            ($scopeValue -isnot [string] -or $scopeValue -cnotin @('Section','Control'))) {
+            throw 'Invalid findings navigation scope.'
+        }
+        $deviceId = $deviceValue
     }
 
     return [PSCustomObject]@{
@@ -292,11 +299,7 @@ function Get-WinSecFindingFrameworkReferences {
     }
     catch {
 
-        Write-Verbose (
-            "Framework mapping failed for {0}: {1}" -f `
-                $checkId,
-                $_.Exception.Message
-        )
+        Write-Verbose 'Framework mapping unavailable for the selected public record.'
     }
 }
 
@@ -308,434 +311,261 @@ function Get-WinSecFindingFrameworkReferences {
 function Get-WinSecSelectedFindings {
     [CmdletBinding()]
     param(
-        [AllowNull()]
-        [psobject]$NavigationState = $null,
-
-        [AllowEmptyCollection()]
-        [object[]]$SectionResults = @(),
-
-        [AllowEmptyCollection()]
-        [object[]]$ControlResults = @(),
-
-        [AllowEmptyCollection()]
-        [object[]]$Findings = @(),
-
+        [AllowNull()][psobject]$NavigationState = $null,
+        [AllowEmptyCollection()][object[]]$SectionResults = @(),
+        [AllowEmptyCollection()][object[]]$ControlResults = @(),
+        [AllowEmptyCollection()][object[]]$Findings = @(),
+        [AllowEmptyCollection()][object[]]$ReviewItems = @(),
         [string]$ScanId = '',
-
-        [string]$Platform = 'Windows'
+        [string]$Platform = 'Windows',
+        [AllowNull()][object]$ConfigurationAssessment = $null
     )
 
-    # --------------------------------------------------------
-    # Resolve selected section
-    # --------------------------------------------------------
-
-    $context = Get-WinSecFindingsContext `
-        -NavigationState $NavigationState
-
-    $sections = @(
-        Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
-    )
-
-    if ($sections.Count -eq 0) {
-        return $null
-    }
-
-    $sectionIndex = [Math]::Max(
-        0,
-        [Math]::Min(
-            $context.SectionIndex,
-            $sections.Count - 1
-        )
-    )
-
+    $context = Get-WinSecFindingsContext -NavigationState $NavigationState
+    $sections = @(Get-WinSecMainMenuSections -SectionResults $SectionResults)
+    if ($sections.Count -eq 0) { return $null }
+    $sectionIndex = [Math]::Max(0,[Math]::Min($context.SectionIndex,$sections.Count-1))
     $section = $sections[$sectionIndex]
-
-    $title = $section.Name
-    $score = $section.Score
-    $status = $section.Status
-
-    $control = $null
-
-    # --------------------------------------------------------
-    # Resolve selected control when applicable
-    # --------------------------------------------------------
-
-    if ($context.Scope -eq 'Control') {
-
-        $controls = @(
-            Get-WinSecSectionControls `
-                -SectionKey $section.Key `
-                -ControlResults $ControlResults
-        )
-
-        if ($controls.Count -gt 0) {
-
-            $controlIndex = [Math]::Max(
-                0,
-                [Math]::Min(
-                    $context.ControlIndex,
-                    $controls.Count - 1
-                )
-            )
-
-            $control = $controls[$controlIndex]
-
-            $title = $control.Name
-            $score = $control.Score
-            $status = $control.Status
-        }
+    $view = [pscustomobject]@{
+        Scope=$context.Scope; Title=$section.Name; DeviceId=$context.DeviceId
+        ScanId=$ScanId; SectionKey=$section.Key; Score='NOT_SCORED'; Status=$section.Status
+        Findings=@(); ReviewItems=@(); CheckRows=@(); Rows=@(); FrameworkStatus='UNAVAILABLE'; Warning=''
     }
-
-    # --------------------------------------------------------
-    # Filter findings without mixing devices
-    # --------------------------------------------------------
-
-    $warning = ''
-
     if ([string]::IsNullOrWhiteSpace($context.DeviceId)) {
-
-        $warning = (
-            'No device selected. Select a device ' +
-            'before viewing assessment findings.'
-        )
-
-        $matched = @()
+        $view.Warning = 'No device selected. Select a device before viewing assessment findings.'
+        return $view
     }
-    else {
 
-        $matched = @(
-            foreach ($finding in $Findings) {
-
-                if ($null -eq $finding) {
-                    continue
-                }
-
-                $findingDevice = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'DeviceId'
-                )
-
-                if ($findingDevice -ne $context.DeviceId) {
-                    continue
-                }
-
-                $findingSection = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'SectionKey'
-                )
-
-                if ($findingSection -ne $section.Key) {
-                    continue
-                }
-
-                $findingScan = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'ScanId'
-                )
-
-                if ($ScanId -and $findingScan -ne $ScanId) {
-                    continue
-                }
-
-                if ($context.Scope -eq 'Control') {
-
-                    if ($null -eq $control) {
-                        continue
-                    }
-
-                    $findingControl = [string](
-                        Get-WinSecFindingProperty `
-                            -InputObject $finding `
-                            -Name 'ControlKey'
-                    )
-
-                    $findingCheck = [string](
-                        Get-WinSecFindingProperty `
-                            -InputObject $finding `
-                            -Name 'CheckId'
-                    )
-
-                    $controlCheck = [string](
-                        Get-WinSecFindingProperty `
-                            -InputObject $control `
-                            -Name 'CheckId'
-                    )
-
-                    $matchesControl = (
-                        $findingControl -eq $control.Key -or
-                        (
-                            $controlCheck -and
-                            $findingCheck -eq $controlCheck
-                        )
-                    )
-
-                    if (-not $matchesControl) {
-                        continue
-                    }
-                }
-
-                $finding
+    # Snapshot data before reading properties. Both collectors and findings
+    # belong to one assessment; this is not an entry point for internal evidence.
+    $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+    if ($null -eq (Get-Command 'Copy-WinSecResultData' -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $projectRoot 'src/Core/ResultModel.ps1')
+    }
+    $data = Copy-WinSecResultData -Value ([pscustomobject]@{ Controls=$ControlResults; Findings=$Findings; Reviews=$ReviewItems })
+    $pending = New-Object 'System.Collections.Generic.Stack[object]'
+    $pending.Push($data)
+    while ($pending.Count -gt 0) {
+        $value = $pending.Pop()
+        if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) { continue }
+        if ($value -is [System.Collections.IList]) {
+            foreach ($item in $value) { $pending.Push($item) }
+            continue
+        }
+        $isDictionary = $value -is [System.Collections.IDictionary]
+        $names = if ($isDictionary) { @($value.psbase.Keys) } else { @($value.PSObject.Properties.Name) }
+        foreach ($name in $names) {
+            if ($name -in @('Evidence','RawEvidence','OriginalResult','ObservedValue','ExpectedValue')) {
+                throw 'Raw data is not allowed in public findings.'
             }
-        )
+            if ($isDictionary) { $child = $value[$name] }
+            else { $child = $value.PSObject.Properties[$name].Value }
+            if ($name -in @('Score','OverallScore','ScoreValue','ScoreResult','ScoringPolicy') -and $null -ne $child) {
+                throw 'Unapproved scoring data is not allowed in public findings.'
+            }
+            if ($name -in @('ScoringEnabled','ScoringEligible') -and ($child -isnot [bool] -or $child -ne $false)) {
+                throw 'Scoring authorization is not allowed in public findings.'
+            }
+            $pending.Push($child)
+        }
+    }
+    if ($ScanId -and -not (Test-WinSecResultText $ScanId)) { throw 'Invalid selected scan identifier.' }
+    if (-not (Test-WinSecResultText $context.DeviceId)) { throw 'Invalid selected device identifier.' }
+
+    try {
+        if ($null -eq (Get-Command 'Get-WinSecCheckRegistry' -CommandType Function -ErrorAction SilentlyContinue)) {
+            . (Join-Path $projectRoot 'src/Core/CheckRegistry.ps1')
+        }
+        $registry = Get-WinSecCheckRegistry -ProjectRoot $projectRoot
+    }
+    catch { throw 'Unable to load the finding control catalog.' }
+
+    $kindNames = @{
+        CONFIGURATION_DEVIATION='Configuration deviation'; EVIDENCE_GAP='Evidence gap'
+        EVALUATION_UNAVAILABLE='Evaluation unavailable'; COLLECTION_ERROR='Collection error'
+        CRITERION_PENDING='Criterion pending'; EVALUATION_PENDING='Evaluation pending'
+        CATALOG_NOT_READY='Catalog not ready'; EVALUATION_NOT_TRUSTED='Evaluation not trusted'
+        EVALUATION_DATA_ERROR='Evaluation data error'; EVALUATION_IDENTITY_ERROR='Evaluation identity error'
+        DUPLICATE_CRITERION='Duplicate criterion'; UNCLASSIFIED='Unclassified record'
+    }
+    $statuses = @('PASS','FAIL','ERROR','UNKNOWN','NOT_EVALUATED','PENDING',
+        'NOT_CHECKED','NOT_APPLICABLE','NOT_SELECTED','MANUAL','INFORMATIONAL')
+    $checked = New-Object 'System.Collections.Generic.List[object]'
+    $seenIds = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($finding in $data.Findings) {
+        $id = $finding.FindingId
+        if ($null -eq $id) { $id = $finding.Id }
+        foreach ($identity in @($id,$finding.CheckId,$finding.DeviceId,$finding.ScanId)) {
+            if (-not (Test-WinSecResultText $identity)) { throw 'Invalid public finding identity.' }
+        }
+        if ($finding.DeviceId -cne $context.DeviceId -or ($ScanId -and $finding.ScanId -cne $ScanId)) {
+            throw 'Finding identity does not match the selected assessment.'
+        }
+        if (-not $seenIds.Add($id)) { throw 'Duplicate public finding identifier.' }
+        $matches = @($registry.Checks | Where-Object { $_.CheckId -ceq $finding.CheckId })
+        if ($matches.Count -ne 1) { throw 'Unknown or ambiguous finding control.' }
+        $definition = $matches[0]
+        if (($null -ne $finding.SectionKey -and ($finding.SectionKey -isnot [string] -or $finding.SectionKey -cne $definition.SectionKey)) -or
+            ($null -ne $finding.ControlKey -and ($finding.ControlKey -isnot [string] -or $finding.ControlKey -cne $definition.ControlKey))) {
+            throw 'Conflicting public finding control metadata.'
+        }
+        foreach ($name in @('Severity','Priority')) {
+            if ($null -ne $finding.$name -and ($finding.$name -isnot [string] -or $finding.$name -cne 'UNASSIGNED')) {
+                throw 'Unapproved public finding classification.'
+            }
+        }
+        $kind = $finding.Kind
+        if ($null -eq $kind) { $kind = 'UNCLASSIFIED' }
+        if ($kind -isnot [string] -or $kind -cnotin @($kindNames.psbase.Keys)) { throw 'Invalid public finding kind.' }
+        $evaluation = $finding.EvaluationStatus
+        if ($null -eq $evaluation) { $evaluation = 'UNKNOWN' }
+        if ($evaluation -isnot [string] -or $evaluation -cnotin $statuses) { throw 'Invalid public finding evaluation status.' }
+        foreach ($name in @('Finding','Title','Description','Recommendation')) {
+            $text = $finding.$name
+            if ($null -ne $text -and ($text -isnot [string] -or $text.Length -gt 4096 -or
+                $text -match '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')) {
+                throw 'Finding display text must be bounded plain data.'
+            }
+        }
+        $title = $finding.Finding
+        if ([string]::IsNullOrWhiteSpace($title)) { $title = $finding.Title }
+        if ([string]::IsNullOrWhiteSpace($title)) { $title = $kindNames[$kind] }
+        $description = $finding.Description
+        if ([string]::IsNullOrWhiteSpace($description)) {
+            $description = 'Check: {0} | Kind: {1} | Evaluation: {2}' -f $definition.CheckId,$kind,$evaluation
+        }
+        $guidance = $null
+        if ($null -ne $finding.Guidance) {
+            $guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
+            $title = $guidance.CriterionTitle
+            $description = 'Criterion: {0} | Policy: {1} / {2} | Evaluation: {3}' -f `
+                $guidance.CriterionId,$guidance.CatalogId,$guidance.CatalogVersion,$evaluation
+        }
+        $row = [pscustomobject]@{
+            Id=$id; FindingId=$id; Finding=$title; Description=$description
+            ConfigurationState=if ($null -ne $guidance -and $kind -ceq 'CONFIGURATION_DEVIATION' -and $evaluation -ceq 'FAIL') {'MISCONFIGURED'} else {$evaluation}
+            Kind=$kind; EvaluationStatus=$evaluation; Severity='UNASSIGNED'; Priority='UNASSIGNED'
+            Evidence=''; Recommendation=if ($null -ne $guidance) {$guidance.Recommendation} else {$finding.Recommendation}
+            Reference=if ($null -ne $guidance) {'{0} {1} / {2}: {3}' -f $guidance.Framework,$guidance.FrameworkVersion,$guidance.ReferenceId,$guidance.ReferenceUrl} else {''}
+            FrameworkReferences=@()
+            CheckId=$definition.CheckId; ControlKey=$definition.ControlKey; SectionKey=$definition.SectionKey
+            DeviceId=$finding.DeviceId; ScanId=$finding.ScanId; Visible=$definition.Visible
+        }
+        if ($null -ne $guidance) { $row|Add-Member -NotePropertyName Guidance -NotePropertyValue $guidance }
+        $checked.Add($row)
     }
 
-    # --------------------------------------------------------
-    # Prevent combining separate assessment executions
-    # --------------------------------------------------------
-
-    $resolvedScanId = $ScanId
-
-    if (-not $ScanId -and $matched.Count -gt 0) {
-
-        $scanIds = @(
-            $matched | ForEach-Object {
-
-                $value = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $_ `
-                        -Name 'ScanId'
-                )
-
-                if ($value) {
-                    $value
-                }
-                else {
-                    '__UNSPECIFIED_SCAN__'
-                }
-
-            } | Select-Object -Unique
-        )
-
+    if (-not $ScanId) {
+        $scanSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        foreach ($finding in $checked) { $null = $scanSet.Add($finding.ScanId) }
+        foreach ($collector in $data.Controls) {
+            if (-not (Test-WinSecResultText $collector.ScanId)) { throw 'Invalid finding collector scan identifier.' }
+            $null = $scanSet.Add($collector.ScanId)
+        }
+        $scanIds = @($scanSet)
         if ($scanIds.Count -gt 1) {
-
-            $matched = @()
-
-            $warning = (
-                'Multiple scan executions detected. ' +
-                'Select a specific ScanId to view findings.'
-            )
+            $view.Warning = 'Multiple scan executions detected. Select a specific ScanId to view findings.'
+            return $view
         }
-        elseif (
-            $scanIds.Count -eq 1 -and
-            $scanIds[0] -ne '__UNSPECIFIED_SCAN__'
-        ) {
-            $resolvedScanId = $scanIds[0]
-        }
+        if ($scanIds.Count -eq 1) { $view.ScanId = $scanIds[0] }
     }
+    $collected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($collector in $data.Controls) {
+        foreach ($identity in @($collector.DeviceId,$collector.ScanId,$collector.CheckId)) {
+            if (-not (Test-WinSecResultText $identity)) { throw 'Invalid finding collector identity.' }
+        }
+        if ($collector.DeviceId -cne $context.DeviceId -or ($view.ScanId -and $collector.ScanId -cne $view.ScanId) -or
+            -not $collected.Add($collector.CheckId)) { throw 'Collector identity does not match the finding assessment.' }
+    }
+    foreach ($finding in $checked) {
+        if (-not $collected.Contains($finding.CheckId)) { throw 'Finding has no matching collected control.' }
+    }
+    $controls = @(Get-WinSecSectionControls -SectionKey $section.Key -ControlResults $data.Controls)
+    $control = $null
+    if ($context.Scope -ceq 'Control' -and $controls.Count -gt 0) {
+        $control = $controls[[Math]::Max(0,[Math]::Min($context.ControlIndex,$controls.Count-1))]
+        $view.Title = $control.Name
+        $view.Status = $control.Status
+    }
+    $matched = @($checked | Where-Object {
+        $_.Visible -and $_.SectionKey -ceq $section.Key -and
+        ($context.Scope -ceq 'Section' -or ($null -ne $control -and $_.CheckId -ceq $control.CheckId))
+    } | Sort-Object FindingId)
 
-    # --------------------------------------------------------
-    # Load framework catalog
-    # --------------------------------------------------------
-
+    # References are current catalog context, never a caller's compliance claim.
     $catalog = $null
-    $frameworkStatus = 'UNAVAILABLE'
-
-    $catalogCommand = Get-Command `
-        -Name 'Get-WinSecFrameworkCatalog' `
-        -CommandType Function `
-        -ErrorAction SilentlyContinue
-
-    if ($null -ne $catalogCommand) {
-
-        try {
-
-            $catalog = Get-WinSecFrameworkCatalog `
-                -ErrorAction Stop
-
-            $frameworkStatus = 'LOADED'
+    if ($matched.Count -gt 0 -and $null -ne (Get-Command 'Get-WinSecFrameworkCatalog' -CommandType Function -ErrorAction SilentlyContinue)) {
+        try { $catalog = Get-WinSecFrameworkCatalog -ErrorAction Stop; $view.FrameworkStatus = 'LOADED' }
+        catch { $view.FrameworkStatus = 'ERROR' }
+    }
+    foreach ($finding in $matched) {
+        $references = @(Get-WinSecFindingFrameworkReferences -Finding ([pscustomobject]@{CheckId=$finding.CheckId}) -Catalog $catalog -Platform $Platform)
+        $safeReferences = @(foreach ($reference in $references) {
+            $copy = Copy-WinSecResultData -Value $reference
+            if ($copy.CheckId -isnot [string] -or $copy.CheckId -cne $finding.CheckId) { throw 'Invalid finding reference identity.' }
+            $fields = [ordered]@{}
+            foreach ($name in @('FrameworkId','FrameworkName','FrameworkVersion','CheckId','ReferenceId')) {
+                $value = $copy.$name
+                if (-not (Test-WinSecResultText $value)) { throw 'Invalid public framework reference.' }
+                $fields[$name] = $value
+            }
+            [pscustomobject]$fields
+        })
+        $finding.FrameworkReferences = $safeReferences
+        $finding.PSObject.Properties.Remove('Visible')
+    }
+    # Classification remains owned by Core. Do not run the priority engine or
+    # generate extra findings, scores, recommendations or synthetic compliance.
+    $view.Findings = $matched
+    $reviewIds=@{}
+    $view.ReviewItems=@(foreach($review in $data.Reviews) {
+        if($null -eq $review){continue}
+        if($review.DeviceId -cne $context.DeviceId -or $review.ScanId -cne $view.ScanId -or
+            -not $collected.Contains($review.CheckId) -or $review.ReviewId -isnot [string] -or $reviewIds.ContainsKey($review.ReviewId)) {
+            throw 'Foreign or duplicate public review.'
         }
-        catch {
-
-            $frameworkStatus = 'ERROR'
-
-            Write-Verbose $_.Exception.Message
-        }
+        $reviewIds[$review.ReviewId]=$true
+        $owner=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId}
+        if($null -ne $review.BitLockerSetting){$safe=ConvertTo-WinSecBitLockerReviewItem $review $owner}
+        elseif($null -ne $review.DefenderSetting){$safe=ConvertTo-WinSecDefenderReviewItem $review $owner}
+        else{continue}
+        if($section.Key -ceq 'SystemSecurity' -and ($context.Scope -ceq 'Section' -or
+            ($null -ne $control -and $control.CheckId -ceq $safe.CheckId))) {$safe}
+    })
+    if ($null -ne $ConfigurationAssessment) {
+        Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId
+        $scoreScope=if ($context.Scope -ceq 'Control') {'CONTROL'} else {'SECTION'}
+        $scoreKey=if ($scoreScope -ceq 'CONTROL' -and $null -ne $control) {$control.CheckId} else {$section.Key}
+        $view.Score=Get-WinSecConfigurationScoreText $ConfigurationAssessment $scoreScope $scoreKey
+        $view.CheckRows=@(Get-WinSecConfigurationRows $ConfigurationAssessment $scoreScope $scoreKey)
     }
-
-    # --------------------------------------------------------
-    # Normalize finding records
-    # --------------------------------------------------------
-
-    $normalized = @(
-        $index = 0
-
-        foreach ($finding in $matched) {
-
-            $index++
-
-            $id = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'Id'
-            )
-
-            if (-not $id) {
-
-                $id = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'FindingId'
-                )
-            }
-
-            if (-not $id) {
-                $id = '{0:D3}' -f $index
-            }
-
-            $name = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'Finding'
-            )
-
-            if (-not $name) {
-
-                $name = [string](
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'Title'
-                )
-            }
-
-            $description = ConvertTo-WinSecFindingText `
-                -Value (
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'Description'
-                )
-
-            if (-not $name) {
-                $name = $description
-            }
-
-            if (-not $name) {
-                $name = 'Unnamed finding'
-            }
-
-            $severity = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'Severity'
-            )
-
-            if (-not $severity) {
-                $severity = 'UNRATED'
-            }
-
-            $priority = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'Priority'
-            )
-
-            $evidence = ConvertTo-WinSecFindingText `
-                -Value (
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'Evidence'
-                )
-
-            $recommendation = ConvertTo-WinSecFindingText `
-                -Value (
-                    Get-WinSecFindingProperty `
-                        -InputObject $finding `
-                        -Name 'Recommendation'
-                )
-
-            $checkId = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'CheckId'
-            )
-
-            $controlKey = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'ControlKey'
-            )
-
-            $legacyReference = [string](
-                Get-WinSecFindingProperty `
-                    -InputObject $finding `
-                    -Name 'Reference'
-            )
-
-            $references = @(
-                Get-WinSecFindingFrameworkReferences `
-                    -Finding $finding `
-                    -Catalog $catalog `
-                    -Platform $Platform
-            )
-
-            [PSCustomObject]@{
-                Id                  = $id
-                Finding             = $name
-                Description         = $description
-                Severity            = $severity.ToUpperInvariant()
-                Priority            = $priority
-                Evidence            = $evidence
-                Recommendation      = $recommendation
-                Reference           = $legacyReference
-                FrameworkReferences = $references
-
-                CheckId             = $checkId
-                ControlKey          = $controlKey
-                SectionKey          = $section.Key
-                DeviceId            = $context.DeviceId
-                ScanId              = $resolvedScanId
-            }
-        }
-    )
-
-    # --------------------------------------------------------
-    # Classify and sort by priority
-    # --------------------------------------------------------
-
-    $priorityCommand = Get-Command `
-        -Name 'Invoke-WinSecFindingPrioritization' `
-        -CommandType Function `
-        -ErrorAction SilentlyContinue
-
-    if ($null -ne $priorityCommand) {
-
-        $normalized = @(
-            Invoke-WinSecFindingPrioritization `
-                -Findings $normalized
-        )
-    }
-    else {
-
-        # Missing priority engine must not create
-        # a false classification.
-
-        $normalized = @(
-            foreach ($finding in $normalized) {
-
-                $finding.Priority = 'UNRATED'
-                $finding
-            }
-        )
-    }
-
-    return [PSCustomObject]@{
-        Scope           = $context.Scope
-        Title           = $title
-
-        DeviceId        = $context.DeviceId
-        ScanId          = $resolvedScanId
-        SectionKey      = $section.Key
-
-        Score           = $score
-        Status          = $status
-        Findings        = $normalized
-
-        FrameworkStatus = $frameworkStatus
-        Warning         = $warning
-    }
+    $gradedIds=@($view.CheckRows | ForEach-Object {$_.CriterionId})
+    $displayReviews=@($view.ReviewItems|Where-Object {
+        $s=$_.DefenderSetting
+        -not (($s.Topic -ceq 'PUA' -and $gradedIds -ccontains 'WSA-DEF-ADD-001') -or
+            ($s.Topic -ceq 'CLOUD' -and $gradedIds -ccontains 'WSA-DEF-ADD-002') -or
+            ($s.Topic -ceq 'TAMPER' -and $gradedIds -ccontains 'WSA-DEF-ADD-003') -or
+            ($s.Topic -ceq 'ASR' -and $s.SettingId -ceq '56a863a9-875e-4185-98a7-b882c64b5ce5' -and $gradedIds -ccontains 'WSA-DEF-ADD-004'))
+    })
+    $diagnostics=@($view.Findings|Where-Object {$null -eq $_.Guidance -or $gradedIds -cnotcontains $_.Guidance.CriterionId})
+    $displayNumber=0
+    $reviewRows=@(ConvertTo-WinSecDefenderReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.DefenderSetting}))+
+        @(ConvertTo-WinSecBitLockerReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.BitLockerSetting}))
+    $view.Rows=@(foreach($row in @($view.CheckRows)+$diagnostics+$reviewRows) {
+        $definitions=@($registry.Checks|Where-Object {$_.CheckId -ceq $row.CheckId})
+        if($definitions.Count -ne 1){throw 'Unknown or ambiguous finding display control.'}
+        # Presentation fields belong only to this copied view, not public history.
+        $displayRow=Copy-WinSecResultData $row
+        $displayNumber++
+        $displayRow|Add-Member -NotePropertyName DisplayId -NotePropertyValue ('{0:D2}' -f $displayNumber) -Force
+        $displayRow|Add-Member -NotePropertyName ControlName -NotePropertyValue $definitions[0].Name -Force
+        $criterionId=if($null -ne $row.CriterionId){$row.CriterionId}elseif($null -ne $row.Guidance){$row.Guidance.CriterionId}else{''}
+        $controlCode=$row.CheckId
+        if(-not [string]::IsNullOrWhiteSpace($criterionId)){$controlCode+=' / '+$criterionId}
+        $displayRow|Add-Member -NotePropertyName ControlCode -NotePropertyValue $controlCode -Force
+        $displayRow
+    })
+    return $view
 }
 
 
@@ -926,14 +756,14 @@ function Get-WinSecFindingDetailPlan {
     # Expanded details on taller terminals
     if ($available -ge 24) {
 
-        $detailRows = 13
+        $detailRows = 16
         $textLines = 2
         $referenceLines = 2
     }
     elseif ($available -ge 16) {
 
         # Compact details
-        $detailRows = 9
+        $detailRows = 11
         $textLines = 1
         $referenceLines = 1
     }
@@ -987,13 +817,23 @@ function Write-WinSecFindingDetails {
         -Color $priorityColor
 
     Write-WinSecFindingField `
+        -Label 'Technical ID' `
+        -Value $Finding.Id `
+        -MaxLines $DetailPlan.TextLines
+
+    Write-WinSecFindingField `
+        -Label 'Control' `
+        -Value $Finding.ControlName `
+        -MaxLines 1
+
+    Write-WinSecFindingField `
         -Label 'Description' `
         -Value $Finding.Description `
         -MaxLines $DetailPlan.TextLines
 
     Write-WinSecFindingField `
         -Label 'Evidence' `
-        -Value $Finding.Evidence `
+        -Value 'Not included in public results.' `
         -MaxLines $DetailPlan.TextLines
 
     Write-WinSecFindingField `
@@ -1026,7 +866,7 @@ function Write-WinSecFindingDetails {
     }
 
     Write-WinSecText `
-        -Text "FRAMEWORK REFERENCES: $($references.Count)" `
+        -Text "FRAMEWORK REFERENCES (context only): $($references.Count)" `
         -Color DarkCyan
 
     foreach ($reference in (
@@ -1061,11 +901,18 @@ function Show-WinSecFindings {
         [AllowEmptyCollection()]
         [object[]]$Findings = @(),
 
+        [AllowEmptyCollection()][object[]]$ReviewItems = @(),
+
         [string]$ScanId = '',
 
+        [AllowNull()][object]$ConfigurationAssessment = $null,
         [string]$Platform = 'Windows',
 
-        [string]$Version = '0.9.0'
+        [string]$Version = '0.9.0',
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan',
+        [switch]$EnableExport,
+        [string]$Message = ''
     )
 
     # --------------------------------------------------------
@@ -1077,8 +924,9 @@ function Show-WinSecFindings {
         -SectionResults $SectionResults `
         -ControlResults $ControlResults `
         -Findings $Findings `
+        -ReviewItems $ReviewItems `
         -ScanId $ScanId `
-        -Platform $Platform
+        -Platform $Platform -ConfigurationAssessment $ConfigurationAssessment
 
     # --------------------------------------------------------
     # Get adaptive layout
@@ -1086,7 +934,7 @@ function Show-WinSecFindings {
 
     $baseLayout = Get-WinSecLayout `
         -Screen 'Findings' `
-        -ReservedRows 12
+        -ReservedRows 12 -EnableExport:$EnableExport
 
     Clear-WinSecScreen
 
@@ -1131,7 +979,8 @@ function Show-WinSecFindings {
     # Calculate detail area
     # --------------------------------------------------------
 
-    $count = @($assessment.Findings).Count
+    $displayRows=@($assessment.Rows)
+    $count = $displayRows.Count
 
     $detailPlan = Get-WinSecFindingDetailPlan `
         -Layout $baseLayout
@@ -1150,13 +999,13 @@ function Show-WinSecFindings {
     # The remaining content area belongs to the table.
 
     $reservedRows = (
-        12 + $detailPlan.ReservedRows
+        12 + $detailPlan.ReservedRows + [int](-not [string]::IsNullOrWhiteSpace($Message))
     )
 
     $layout = Get-WinSecLayout `
         -Screen 'Findings' `
         -BannerRows $baseLayout.BannerRows `
-        -ReservedRows $reservedRows
+        -ReservedRows $reservedRows -EnableExport:$EnableExport
 
     # --------------------------------------------------------
     # Render adaptive project branding
@@ -1223,7 +1072,7 @@ function Show-WinSecFindings {
         -Color $statusColor
 
     Write-WinSecText `
-        -Text "SECURITY FINDINGS: $count" `
+        -Text "FINDINGS / DIAGNOSTICS: $count" `
         -Color Cyan
 
     # --------------------------------------------------------
@@ -1238,48 +1087,55 @@ function Show-WinSecFindings {
             -MaxLines 1
     }
 
-    Write-Host ''
+    if ($baseLayout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define responsive findings table
     # --------------------------------------------------------
 
+    $identifierWidth=[Math]::Max(2,([string]$displayRows.Count).Length)
+    $controlCodeWidth=11
+    foreach($row in $displayRows){$controlCodeWidth=[Math]::Max($controlCodeWidth,[Math]::Min(48,$row.ControlCode.Length))}
     $columns = @(
         @{
-            Key      = 'Id'
+            Key      = 'DisplayId'
             Header   = 'ID'
-            Width    = 5
-            MinWidth = 3
-            MaxWidth = 8
+            Width    = $identifierWidth
+            MinWidth = $identifierWidth
+            MaxWidth = $identifierWidth
             Priority = 1
         }
 
         @{
-            Key      = 'Priority'
-            Header   = 'Priority'
-            Width    = 9
-            MinWidth = 7
-            MaxWidth = 9
-            Priority = 2
-        }
-
-        @{
-            Key      = 'Severity'
-            Header   = 'Severity'
-            Width    = 10
-            MinWidth = 8
-            MaxWidth = 10
-            Priority = 3
+            Key      = 'ControlCode'
+            Header   = 'Control'
+            Width    = $controlCodeWidth
+            MinWidth = [Math]::Min(30,$controlCodeWidth)
+            MaxWidth = 48
+            Priority = 1
         }
 
         @{
             Key      = 'Finding'
-            Header   = 'Security Finding'
+            Header   = 'Configuration'
             Width    = 46
             MinWidth = 14
             MaxWidth = 72
             Priority = 1
             Expand   = $true
+        }
+
+        @{
+            Key      = 'ConfigurationState'
+            Header   = 'State'
+            Width    = 14
+            MinWidth = 7
+            MaxWidth = 14
+            Priority = 2
+        }
+
+        @{
+            Key='ConfigurationPercent';Header='Configuration %';Width=15;MinWidth=15;MaxWidth=15;Priority=3;Align='Right'
         }
     )
 
@@ -1318,7 +1174,7 @@ function Show-WinSecFindings {
 
     Write-WinSecTable `
         -Columns $columns `
-        -Rows $assessment.Findings `
+        -Rows $displayRows `
         -SelectedIndex $selectedIndex `
         -MaxRows $maxRows
 
@@ -1331,7 +1187,7 @@ function Show-WinSecFindings {
         $detailPlan.ShowDetails
     ) {
 
-        $selectedFinding = $assessment.Findings[
+        $selectedFinding = $displayRows[
             $selectedIndex
         ]
 
@@ -1360,5 +1216,6 @@ function Show-WinSecFindings {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
-    Write-WinSecKeyboardHelp -Screen 'Findings'
+    if ($Message) { Write-WinSecFindingField -Label 'Export' -Value $Message -MaxLines 1 }
+    Write-WinSecKeyboardHelp -Screen 'Findings' -EnableExport:$EnableExport
 }

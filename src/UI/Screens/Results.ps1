@@ -11,7 +11,7 @@
 # Features:
 # - Multi-device assessment context
 # - Five security sections
-# - Individual control scores
+# - Catalog identities and explicitly unscored control results
 # - Adaptive terminal layout
 # - Keyboard navigation
 # - Persistent control selection
@@ -26,213 +26,193 @@ function Get-WinSecSectionControls {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet(
-            'SystemSecurity',
-            'NetworkSecurity',
-            'IdentityAccess',
-            'LoggingAuditing',
-            'ServicesHardening'
-        )]
+        [ValidateSet('SystemSecurity','NetworkSecurity','IdentityAccess','LoggingAuditing','ServicesHardening')]
         [string]$SectionKey,
 
         [AllowEmptyCollection()]
-        [object[]]$ControlResults = @()
+        [object[]]$ControlResults = @(),
+        [AllowNull()][object]$ConfigurationAssessment = $null
     )
 
-    # --------------------------------------------------------
-    # Security control definitions
-    # --------------------------------------------------------
-
-    $definitions = switch ($SectionKey) {
-
-        'SystemSecurity' {
-            @(
-                @{
-                    Key = 'Defender'
-                    Name = 'Windows Defender'
-                    File = 'src/Checks/Defender/Test-Defender.ps1'
-                }
-                @{
-                    Key = 'BitLocker'
-                    Name = 'BitLocker'
-                    File = 'src/Checks/BitLocker/Test-BitLocker.ps1'
-                }
-                @{
-                    Key = 'WindowsUpdate'
-                    Name = 'Windows Update'
-                    File = 'src/Checks/System/Test-WindowsUpdate.ps1'
-                }
-            )
+    # Use the validated catalog for display identities, never execution rights.
+    # Loading CheckRegistry defines functions; it does not invoke any check.
+    $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+    try {
+        if ($null -eq (Get-Command 'Get-WinSecCheckRegistry' -CommandType Function -ErrorAction SilentlyContinue)) {
+            . (Join-Path $projectRoot 'src/Core/CheckRegistry.ps1')
         }
+        $registry = Get-WinSecCheckRegistry -ProjectRoot $projectRoot
+    }
+    catch { throw 'Unable to load the control display catalog.' }
+    $catalogChecks = @($registry.Checks)
+    $definitions = @($catalogChecks | Where-Object {
+        $_.SectionKey -eq $SectionKey -and $_.Visible -eq $true
+    } | Sort-Object Order)
 
-        'NetworkSecurity' {
-            @(
-                @{
-                    Key = 'Firewall'
-                    Name = 'Windows Firewall'
-                    File = 'src/Checks/Firewall/Test-Firewall.ps1'
-                }
-                @{
-                    Key = 'SMBv1'
-                    Name = 'SMBv1'
-                    File = 'src/Checks/Network/Test-SMBv1.ps1'
-                }
-                @{
-                    Key = 'RemoteDesktop'
-                    Name = 'Remote Desktop'
-                    File = 'src/Checks/Network/Test-RDP.ps1'
-                }
-                @{
-                    Key = 'OpenPorts'
-                    Name = 'Open Ports'
-                    File = 'src/Checks/Network/Test-OpenPorts.ps1'
-                }
-                @{
-                    Key = 'NetworkConfiguration'
-                    Name = 'Network Configuration'
-                    File = ''
-                }
-            )
+    # Validate all supplied records before producing any rows. The CLI has
+    # already checked DeviceId/ScanId ownership; this layer resolves controls.
+    $resultsById = @{}
+    $displayFields = @('CheckId','Key','ControlKey','SectionKey','Name','Score','Status','ObservedStatus')
+    $allowedStatuses = @('PASS','FAIL','ERROR','UNKNOWN','NOT_EVALUATED',
+        'PENDING','NOT_CHECKED','NOT_APPLICABLE','NOT_SELECTED','MANUAL','INFORMATIONAL')
+    if ($ControlResults.Count -gt 10000) { throw 'Too many control results.' }
+    foreach ($result in $ControlResults) {
+        if ($null -eq $result) { continue }
+        $fields = @{}
+        if ($result -is [System.Collections.IDictionary]) {
+            foreach ($entry in $result.GetEnumerator()) {
+                if ($entry.Key -isnot [string]) { throw 'Invalid control property name.' }
+                if ($entry.Key -notin $displayFields) { continue }
+                if ($fields.ContainsKey($entry.Key)) { throw 'Ambiguous control property.' }
+                $fields[$entry.Key] = $entry.Value
+            }
         }
-
-        'IdentityAccess' {
-            @(
-                @{
-                    Key = 'LocalAdministrators'
-                    Name = 'Local Administrators'
-                    File = 'src/Checks/Accounts/Test-LocalAdmins.ps1'
+        elseif ($result -is [pscustomobject]) {
+            foreach ($property in $result.PSObject.Properties) {
+                if ($property.Name -notin $displayFields) { continue }
+                if ($property.MemberType -ne [System.Management.Automation.PSMemberTypes]::NoteProperty) {
+                    throw 'Control display requires plain data properties.'
                 }
-                @{
-                    Key = 'GuestAccount'
-                    Name = 'Guest Account'
-                    File = 'src/Checks/Accounts/Test-GuestAccount.ps1'
-                }
-                @{
-                    Key = 'PasswordPolicy'
-                    Name = 'Password Policies'
-                    File = 'src/Checks/Policies/Test-PasswordPolicy.ps1'
-                }
-            )
+                $fields[$property.Name] = $property.Value
+            }
         }
+        else { throw 'Unsupported control result.' }
 
-        'LoggingAuditing' {
-            @(
-                @{
-                    Key = 'PowerShellLogging'
-                    Name = 'PowerShell Logging'
-                    File = 'src/Checks/System/Test-PowerShellLogging.ps1'
-                }
-                @{
-                    Key = 'AuditPolicy'
-                    Name = 'Windows Audit Policies'
-                    File = 'src/Checks/Policies/Test-AuditPolicy.ps1'
-                }
-            )
+        $matches = @()
+        if ($null -ne $fields.CheckId) {
+            if ($fields.CheckId -isnot [string]) { throw 'Invalid control identifier.' }
+            $matches = @($catalogChecks | Where-Object { $_.CheckId -ceq $fields.CheckId })
         }
-
-        'ServicesHardening' {
-            @(
-                @{
-                    Key = 'WindowsServices'
-                    Name = 'Windows Services'
-                    File = ''
-                }
-            )
+        elseif ($null -ne $fields.Key -or $null -ne $fields.ControlKey) {
+            $alias = $fields.Key
+            if ($null -eq $alias) { $alias = $fields.ControlKey }
+            if ($alias -isnot [string]) { throw 'Invalid control alias.' }
+            $matches = @($catalogChecks | Where-Object { $_.ControlKey -ceq $alias })
+        }
+        elseif ($fields.Name -is [string]) {
+            $matches = @($catalogChecks | Where-Object { $_.Name -ceq $fields.Name })
+        }
+        if ($matches.Count -ne 1) { throw 'Missing, unknown or ambiguous control identifier.' }
+        $definition = $matches[0]
+        foreach ($aliasName in @('Key','ControlKey')) {
+            if ($null -ne $fields[$aliasName] -and
+                ($fields[$aliasName] -isnot [string] -or $fields[$aliasName] -cne $definition.ControlKey)) {
+                throw 'Conflicting control identifiers.'
+            }
+        }
+        if ($null -ne $fields.SectionKey -and
+            ($fields.SectionKey -isnot [string] -or $fields.SectionKey -cne $definition.SectionKey)) {
+            throw 'Control result does not match its catalog section.'
+        }
+        if ($resultsById.ContainsKey($definition.CheckId)) { throw 'Duplicate control result.' }
+        if ($null -ne $fields.Score) { throw 'Security scoring is not authorized in Results.' }
+        foreach ($name in @('Status','ObservedStatus')) {
+            if ($null -ne $fields[$name] -and
+                ($fields[$name] -isnot [string] -or $fields[$name] -cnotin $allowedStatuses)) {
+                throw 'Invalid public control status.'
+            }
+        }
+        $resultsById[$definition.CheckId] = @{
+            Status = $fields.Status
+            ObservedStatus = $fields.ObservedStatus
         }
     }
 
-    # --------------------------------------------------------
-    # Normalize controls and assessment results
-    # --------------------------------------------------------
-
     $index = 0
-
     foreach ($definition in $definitions) {
-
         $index++
-
-        $score = '--/100'
-
-        $status = if ($definition.File) {
-            'PENDING'
+        $status = if ($definition.ImplementationStatus -ceq 'PLANNED') { 'PLANNED' } else { 'PENDING' }
+        $observed = $null
+        if ($resultsById.ContainsKey($definition.CheckId)) {
+            $result = $resultsById[$definition.CheckId]
+            if ($null -ne $result.Status) { $status = $result.Status }
+            $observed = $result.ObservedStatus
         }
-        else {
-            'PLANNED'
-        }
-
-        $checkId = ''
-
-        foreach ($result in $ControlResults) {
-
-            if ($null -eq $result) {
-                continue
-            }
-
-            $resultSection = Get-WinSecTableValue `
-                -Row $result -Key 'SectionKey'
-
-            $resultKey = Get-WinSecTableValue `
-                -Row $result -Key 'Key'
-
-            $resultName = Get-WinSecTableValue `
-                -Row $result -Key 'Name'
-
-            # Prevent matching another section's results
-            if (
-                $resultSection -and
-                $resultSection -ne $SectionKey
-            ) {
-                continue
-            }
-
-            if (
-                $resultKey -ne $definition.Key -and
-                $resultName -ne $definition.Name
-            ) {
-                continue
-            }
-
-            # Read actual assessment score
-            $rawScore = Get-WinSecTableValue `
-                -Row $result -Key 'Score'
-
-            if (
-                $rawScore -match
-                '^\s*(100|[1-9]?\d)\s*(?:/100)?\s*$'
-            ) {
-                $score = '{0}/100' -f [int]$Matches[1]
-            }
-
-            # Read actual assessment status
-            $rawStatus = Get-WinSecTableValue `
-                -Row $result -Key 'Status'
-
-            if ($rawStatus) {
-                $status = $rawStatus.Trim().ToUpperInvariant()
-            }
-            elseif ($score -ne '--/100') {
-                $status = 'UNKNOWN'
-            }
-
-            $checkId = Get-WinSecTableValue `
-                -Row $result -Key 'CheckId'
-
-            break
-        }
-
-        [PSCustomObject]@{
-            Id         = '{0:D2}' -f $index
-            Key        = $definition.Key
-            CheckId    = $checkId
-            SectionKey = $SectionKey
-            Name       = $definition.Name
-            Score      = $score
-            Status     = $status
-            CheckFile  = $definition.File
+        [pscustomobject]@{
+            Id = '{0:D2}' -f $index
+            Key = $definition.ControlKey
+            CheckId = $definition.CheckId
+            SectionKey = $definition.SectionKey
+            Name = $definition.Name
+            Score = if ($null -ne $ConfigurationAssessment) {Get-WinSecConfigurationScoreText $ConfigurationAssessment 'CONTROL' $definition.CheckId} else {'NOT_SCORED'}
+            Status = $status
+            ObservedStatus = $observed
+            CheckFile = $definition.Script
         }
     }
 }
 
+
+# ------------------------------------------------------------
+# Resolve independently sourced control rows
+# ------------------------------------------------------------
+
+function Get-WinSecResultsControlRows {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SectionKey,
+        [AllowNull()][psobject]$NavigationState,
+        [object[]]$ControlResults = @(),
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$ControlViews = @()
+    )
+
+    $rows = @(Get-WinSecSectionControls -SectionKey $SectionKey -ControlResults $ControlResults `
+        -ConfigurationAssessment $ConfigurationAssessment)
+    if ($ControlViews.Count -gt $rows.Count) { throw 'Too many control table sessions.' }
+    if ($ControlViews.Count -eq 0) { return $rows }
+    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../../Core/ResultModel.ps1')
+    }
+    $seen = @{}
+    $ownedViews = Copy-WinSecResultData $ControlViews
+    foreach ($view in $ownedViews) {
+        if ($view -isnot [pscustomobject] -or @($view.PSObject.Properties).Count -ne 7 -or
+            @($view.PSObject.Properties | Where-Object {$_.Name -cnotin @(
+                'CheckId','DeviceId','ScanId','ScopeType','ScopeKey','ControlResults','ConfigurationAssessment')}).Count -gt 0 -or
+            $view.CheckId -isnot [string] -or $seen.ContainsKey($view.CheckId) -or
+            $null -eq $NavigationState -or $view.DeviceId -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($view.DeviceId) -or $view.DeviceId -cne $NavigationState.SelectedDeviceId -or
+            $view.ScanId -isnot [string] -or [string]::IsNullOrWhiteSpace($view.ScanId)) {
+            throw 'Invalid control table session identity.'
+        }
+        $matches = @($rows | Where-Object {$_.CheckId -ceq $view.CheckId})
+        if ($matches.Count -ne 1) { throw 'Control table session belongs to another section.' }
+        $seen[$view.CheckId] = $true
+        # Null scope is supported only for legacy, unscored public records.
+        $legacy = $null -eq $view.ScopeType -and $null -eq $view.ScopeKey -and $null -eq $view.ConfigurationAssessment
+        if (-not $legacy -and ($view.ScopeType -isnot [string] -or $view.ScopeKey -isnot [string] -or -not (
+            ($view.ScopeType -ceq 'DEVICE' -and $view.ScopeKey -ceq 'ALL') -or
+            ($view.ScopeType -ceq 'SECTION' -and $view.ScopeKey -ceq $SectionKey) -or
+            ($view.ScopeType -ceq 'CONTROL' -and $view.ScopeKey -ceq $view.CheckId)))) {
+            throw 'Control table session scope mismatch.'
+        }
+        foreach ($record in @($view.ControlResults)) {
+            if ($null -eq $record -or $record.DeviceId -isnot [string] -or $record.ScanId -isnot [string] -or
+                $record.DeviceId -cne $view.DeviceId -or $record.ScanId -cne $view.ScanId) {
+                throw 'Foreign record in control table session.'
+            }
+        }
+        if ($null -ne $view.ConfigurationAssessment) {
+            Assert-WinSecConfigurationViewContext $view.ConfigurationAssessment $NavigationState $view.ScanId
+            if ($view.ConfigurationAssessment.ScopeType -cne $view.ScopeType -or
+                $view.ConfigurationAssessment.ScopeKey -cne $view.ScopeKey) { throw 'Foreign control configuration scope.' }
+        }
+        $sourceRows = @(Get-WinSecSectionControls -SectionKey $SectionKey -ControlResults $view.ControlResults `
+            -ConfigurationAssessment $view.ConfigurationAssessment)
+        $source = @($sourceRows | Where-Object {$_.CheckId -ceq $view.CheckId})[0]
+        $matches[0].Score = $source.Score
+        $matches[0].Status = $source.Status
+        $matches[0].ObservedStatus = $source.ObservedStatus
+        # Row provenance is kept separately; it is never used to aggregate scores.
+        $matches[0] | Add-Member -NotePropertyName DeviceId -NotePropertyValue $view.DeviceId
+        $matches[0] | Add-Member -NotePropertyName ScanId -NotePropertyValue $view.ScanId
+        $matches[0] | Add-Member -NotePropertyName SourceScopeType -NotePropertyValue $view.ScopeType
+        $matches[0] | Add-Member -NotePropertyName SourceScopeKey -NotePropertyValue $view.ScopeKey
+    }
+    # Do not publish any rows until every session has been validated.
+    return $rows
+}
 
 # ------------------------------------------------------------
 # Get current device information
@@ -289,46 +269,23 @@ function Show-WinSecResults {
         [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
-        [string]$Version = '0.9.0'
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$ControlViews = @(),
+        [string]$ScanId = '',
+        [string]$Version = '0.9.0',
+        [ValidateLength(0,256)][ValidatePattern('\A[^\p{C}]*\z')][string]$SystemLabel = '',
+        [switch]$EnableRescan,
+        [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
     )
-
-    # --------------------------------------------------------
-    # Get terminal layout
-    # --------------------------------------------------------
-
-    $layout = Get-WinSecLayout -Screen 'Section'
-
-    Clear-WinSecScreen
-
-    if ($layout.IsTooSmall) {
-
-        Write-WinSecText `
-            -Text 'WINSEC ANALYZER' `
-            -Color Cyan `
-            -Align Center
-
-        Write-Host ''
-
-        Write-WinSecText `
-            -Text 'Terminal window is too small.' `
-            -Color Yellow `
-            -Align Center
-
-        Write-WinSecText `
-            -Text "Minimum: $($layout.MinimumWidth) x $($layout.MinimumHeight)" `
-            -Color DarkGray `
-            -Align Center
-
-        return
-    }
 
     # --------------------------------------------------------
     # Resolve selected section
     # --------------------------------------------------------
 
+    if ($null -ne $ConfigurationAssessment) {Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId}
     $sections = @(
         Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
+            -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment
     )
 
     if ($sections.Count -eq 0) {
@@ -361,9 +318,10 @@ function Show-WinSecResults {
     # --------------------------------------------------------
 
     $controls = @(
-        Get-WinSecSectionControls `
+        Get-WinSecResultsControlRows `
             -SectionKey $section.Key `
-            -ControlResults $ControlResults
+            -ControlResults $ControlResults -ConfigurationAssessment $ConfigurationAssessment `
+            -NavigationState $NavigationState -ControlViews $ControlViews
     )
 
     if ($controls.Count -gt 0) {
@@ -386,6 +344,18 @@ function Show-WinSecResults {
 
     $device = Get-WinSecResultsDevice `
         -NavigationState $NavigationState
+
+    # Resolve/validate display data before clearing or drawing the screen.
+    $layout = Get-WinSecLayout -Screen 'Section'
+    Clear-WinSecScreen
+    if ($layout.IsTooSmall) {
+        Write-WinSecText -Text 'WINSEC ANALYZER' -Color Cyan -Align Center
+        Write-Host ''
+        Write-WinSecText -Text 'Terminal window is too small.' -Color Yellow -Align Center
+        Write-WinSecText -Text "Minimum: $($layout.MinimumWidth) x $($layout.MinimumHeight)" `
+            -Color DarkGray -Align Center
+        return
+    }
 
     # --------------------------------------------------------
     # Render project banner
@@ -418,6 +388,7 @@ function Show-WinSecResults {
     Write-WinSecText `
         -Text "DEVICE: $($device.Hostname)" `
         -Color Gray
+    if ($SystemLabel) { Write-WinSecText -Text ('CURRENT OS: ' + $SystemLabel) -Color Gray }
 
     $statusColor = Get-WinSecStatusColor `
         -Status $section.Status
@@ -430,7 +401,7 @@ function Show-WinSecResults {
         -Text $summary `
         -Color $statusColor
 
-    Write-Host ''
+    if ($layout.Height -ge 26) { Write-Host '' }
 
     # --------------------------------------------------------
     # Define adaptive security controls table
@@ -460,7 +431,7 @@ function Show-WinSecResults {
             Key      = 'Score'
             Header   = 'Score'
             Width    = 10
-            MinWidth = 7
+            MinWidth = 10
             MaxWidth = 12
             Priority = 2
             Align    = 'Right'
@@ -484,7 +455,7 @@ function Show-WinSecResults {
     $hiddenKeys = @()
 
     if ($controls.Count -eq 0) {
-        $hiddenKeys = @('UP/DOWN', 'H')
+        $hiddenKeys = @('UP/DOWN', 'F')
     }
 
     # Reserve actual space for heading, device,
@@ -494,7 +465,7 @@ function Show-WinSecResults {
         -Screen 'Section' `
         -BannerRows $layout.BannerRows `
         -HiddenKeys $hiddenKeys `
-        -ReservedRows 12
+        -ReservedRows (13 + [int][bool]$SystemLabel)
 
     $maxRows = [Math]::Max(
         1,
@@ -515,6 +486,8 @@ function Show-WinSecResults {
     # Render contextual keyboard help
     # --------------------------------------------------------
 
+    $scanText = if ($EnableRescan) { '[R] {0} Control' -f $ScanAction } else { '[R] {0} Control (unavailable)' -f $ScanAction }
+    Write-WinSecText -Text $scanText -Color Cyan
     Write-WinSecKeyboardHelp `
         -Screen 'Section' `
         -HiddenKeys $hiddenKeys

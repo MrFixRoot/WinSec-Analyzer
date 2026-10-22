@@ -30,6 +30,8 @@
 # PROPERTY HELPERS
 # ============================================================
 
+. (Join-Path $PSScriptRoot '../Core/CriterionApplicability.ps1')
+
 function Get-WinSecCriteriaField {
     [CmdletBinding()]
     param(
@@ -128,6 +130,14 @@ function Import-WinSecCriteriaCatalog {
     if ($null -eq $catalog -or $catalog -is [array]) {
         throw 'The catalog root must be a JSON object.'
     }
+    # PowerShell 7 may parse ISO timestamps as DateTime; 5.1 keeps strings.
+    # Preserve an explicitly UTC approval timestamp in the common data contract.
+    foreach ($criterion in @($catalog.Criteria)) {
+        $reviewed = Get-WinSecCriteriaField (Get-WinSecCriteriaField $criterion 'Verification') 'ReviewedAtUTC'
+        if ($reviewed -is [datetime] -and $reviewed.Kind -eq [DateTimeKind]::Utc) {
+            $criterion.Verification.ReviewedAtUTC = $reviewed.ToString('o')
+        }
+    }
 
     return $catalog
 }
@@ -201,6 +211,8 @@ function Test-WinSecCriteriaApprovalReady {
         }
     }
 
+    try {$null=Get-WinSecCriterionPlatformExclusion $Criterion}
+    catch {return $false}
     $dependencies = Get-WinSecCriteriaField $Criterion 'ActivationDependencies'
     if ($dependencies -isnot [array] -or $dependencies.Count -eq 0) {
         return $false
@@ -235,6 +247,7 @@ function Test-WinSecCriteriaCatalog {
     $version = Get-WinSecCriteriaField $Catalog 'CatalogVersion'
     $status = Get-WinSecCriteriaField $Catalog 'Status'
     $enabled = Get-WinSecCriteriaField $Catalog 'ScoringEnabled'
+    $evaluationEnabled = Get-WinSecCriteriaField $Catalog 'EvaluationEnabled'
     $allowChanges = Get-WinSecCriteriaField $Catalog 'DeviceChangesAllowed'
     $criteria = Get-WinSecCriteriaField $Catalog 'Criteria'
     $reviewOnly = Get-WinSecCriteriaField $Catalog 'ReviewOnly'
@@ -253,6 +266,12 @@ function Test-WinSecCriteriaCatalog {
     }
     if ($enabled -isnot [bool]) {
         $errors.Add('ScoringEnabled must be Boolean.')
+    }
+    if ($null -ne $evaluationEnabled -and $evaluationEnabled -isnot [bool]) {
+        $errors.Add('EvaluationEnabled must be Boolean when declared.')
+    }
+    if ($status -ceq 'DRAFT_UNAPPROVED' -and $evaluationEnabled -ceq $true) {
+        $errors.Add('A draft catalog cannot enable evaluation.')
     }
     if ($allowChanges -isnot [bool] -or $allowChanges) {
         $errors.Add('DeviceChangesAllowed must be Boolean false.')
@@ -315,6 +334,8 @@ function Test-WinSecCriteriaCatalog {
             }
         }
         $mapping = Get-WinSecCriteriaField $criterion 'FrameworkMappings'
+        try {$null=Get-WinSecCriterionPlatformExclusion $criterion}
+        catch {$errors.Add("$id has invalid platform exclusion metadata.")}
         foreach ($name in @('CISBenchmarks','CISControls','NISTCSF','MITREATTACK')) {
             if ((Get-WinSecCriteriaField $mapping $name) -isnot [array]) {
                 $errors.Add("$id has no FrameworkMappings.$name array.")
@@ -355,6 +376,8 @@ function Test-WinSecCriteriaCatalog {
         CheckId = $checkId
         Valid = $valid
         ReadyForScoring = $ready
+        ReadyForEvaluation = ($valid -and $status -ceq 'APPROVED' -and $allCriteriaReady -and
+            ($enabled -ceq $true -or $evaluationEnabled -ceq $true))
         Status = $status
         CriteriaCount = @($criteria | Where-Object { $null -ne $_ }).Count
         ReviewOnlyCount = @($reviewOnly | Where-Object { $null -ne $_ }).Count
@@ -383,7 +406,9 @@ function Get-WinSecApplicableCriteria {
         [string]$ProjectRoot,
 
         [AllowNull()]
-        [System.Collections.IDictionary]$DependencyEvidence = $null
+        [System.Collections.IDictionary]$DependencyEvidence = $null,
+
+        [switch]$ForEvaluation
     )
 
     $catalogId = Get-WinSecCriteriaField $Catalog 'CatalogId'
@@ -415,6 +440,7 @@ function Get-WinSecApplicableCriteria {
         ReviewOnly = $reviewEntries
         ValidationIssues = @($validation.Errors)
     }
+    if ($ForEvaluation) { $output|Add-Member -NotePropertyName EvaluationEligible -NotePropertyValue $false }
 
     if (-not $validation.Valid) {
         $output.Reason = 'Catalog structure is invalid.'
@@ -424,10 +450,11 @@ function Get-WinSecApplicableCriteria {
     # Draft or disabled catalogs are blocked before selection.
     # For APPROVED-labeled catalogs with individually unapproved rules,
     # retain per-rule diagnostic selection but NEVER release a partial set.
-    if ($validation.Status -cne 'APPROVED' -or
-        (Get-WinSecCriteriaField $Catalog 'ScoringEnabled') -cne $true) {
+    $catalogEnabled = (Get-WinSecCriteriaField $Catalog 'ScoringEnabled') -ceq $true
+    if ($ForEvaluation) { $catalogEnabled = $catalogEnabled -or ((Get-WinSecCriteriaField $Catalog 'EvaluationEnabled') -ceq $true) }
+    if ($validation.Status -cne 'APPROVED' -or -not $catalogEnabled) {
         $output.Status = 'DRAFT_BLOCKED'
-        $output.Reason = 'The catalog is not approved for scoring.'
+        $output.Reason = if($ForEvaluation){'The catalog is not approved for evaluation.'}else{'The catalog is not approved for scoring.'}
         return $output
     }
 
@@ -522,6 +549,12 @@ function Get-WinSecApplicableCriteria {
             continue
         }
 
+        # An approved exact-platform exclusion is resolved without requiring
+        # telemetry/prerequisites for a feature that does not apply there.
+        if($null -ne (Get-WinSecCriterionPlatformExclusion $criterion $TargetContext)) {
+            $selected.Add($criterion)
+            continue
+        }
         $dependencies = Get-WinSecCriteriaField $criterion 'ActivationDependencies'
         if ($dependencies -isnot [array] -or $dependencies.Count -eq 0) {
             $blocked = $true
@@ -562,8 +595,8 @@ function Get-WinSecApplicableCriteria {
         $output.Reason = 'No approved, applicable criteria with confirmed prerequisites.'
         return $output
     }
-    if ($blocked -or $excluded.Count -gt 0 -or
-        -not $validation.ReadyForScoring) {
+    $readyForPurpose = if($ForEvaluation){$validation.ReadyForEvaluation}else{$validation.ReadyForScoring}
+    if ($blocked -or $excluded.Count -gt 0 -or -not $readyForPurpose) {
         $output.Status = 'PARTIAL_SELECTION_BLOCKED'
         $output.Reason = 'Full coverage is not confirmed; no criteria released for scoring.'
         return $output
@@ -571,7 +604,8 @@ function Get-WinSecApplicableCriteria {
 
     $output.Status = 'READY'
     $output.Reason = 'All catalog criteria are approved, applicable and supported by prerequisite evidence.'
-    $output.ScoringEligible = $true
+    $output.ScoringEligible = -not $ForEvaluation
+    if ($ForEvaluation) { $output.EvaluationEligible = $true }
     $output.EligibleCriteria = @($selected.ToArray())
     return $output
 }

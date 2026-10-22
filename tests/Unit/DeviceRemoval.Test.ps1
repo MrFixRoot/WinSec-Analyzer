@@ -5,6 +5,7 @@ $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/Core/ScanCoordinator.ps1')
 . (Join-Path $root 'src/Services/DeviceManagementService.ps1')
+. (Join-Path $root 'src/Services/ExportService.ps1')
 . (Join-Path $root 'src/CLI/Invoke-WinSecCLI.ps1')
 . (Join-Path $root 'src/UI/Core/NavigationController.ps1')
 . (Join-Path $root 'src/UI/Core/KeyboardController.ps1')
@@ -25,6 +26,7 @@ function Test-WinSecRemovalCase {
     }
     $script:dialogAnswer=$true
     $script:dialogAction=$null
+    $script:dialogCalls=0
     try {
         $null=& $Action
         Assert-WinSecRemoval (-not $script:inventoryMemory.LeaseHeld -and $script:inventoryMemory.UnexpectedWrites -eq 0 -and
@@ -33,15 +35,73 @@ function Test-WinSecRemovalCase {
     }
     catch { $script:failed++; Write-Host "[FAIL] $Name : $($_.Exception.Message)" }
 }
-function Invoke-WinSecRemovalFixture {
-    param([scriptblock]$Confirm={ $true },[string]$DeviceId='local:OLD-FIXTURE')
-    Remove-WinSecManagedDevice -ProjectRoot $root -DeviceId $DeviceId -Coordinator $script:coordinator -Devices $script:devices -ConfirmAction $Confirm
+function Invoke-WinSecReportRemovalPlanFixture {
+    param([switch]$Corrupt,[switch]$Linked,[switch]$Foreign)
+    $script:reportRemovalRoot=Join-Path $root ('reports/exports/' + (Get-WinSecEvidenceHash 'local:OLD-FIXTURE'))
+    $script:reportRemovalFile=Join-Path $script:reportRemovalRoot 'synthetic.md'
+    $script:reportRemovalLinked=[bool]$Linked
+    $body="# Public report`n"
+    $meta=[ordered]@{SchemaVersion='1.0.0';DeviceId=if($Foreign){'local:OTHER'}else{'local:OLD-FIXTURE'};
+        ScanId='scan-1';ContentSha256=(Get-WinSecReportTextHash $body)}
+    $script:reportRemovalText="<!-- WinSec public report`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
+    if($Corrupt){$script:reportRemovalText+='corrupt'}
+    $script:reportRemovalTestPath=(Get-Command Test-Path).ScriptBlock
+    $script:reportRemovalGetItem=(Get-Command Get-Item).ScriptBlock
+    $script:reportRemovalGetContent=(Get-Command Get-Content).ScriptBlock
+    function Test-Path {
+        [CmdletBinding()]param($LiteralPath,$Path,$PathType)
+        if($LiteralPath -in @($script:reportRemovalRoot,$script:reportRemovalFile)){return $true}
+        & $script:reportRemovalTestPath @PSBoundParameters
+    }
+    function Get-Item {
+        [CmdletBinding()]param($LiteralPath,[switch]$Force)
+        if($LiteralPath -in @($script:reportRemovalRoot,$script:reportRemovalFile)){
+            return [pscustomobject]@{FullName=$LiteralPath;PSIsContainer=($LiteralPath -eq $script:reportRemovalRoot);
+                Length=[Text.Encoding]::UTF8.GetByteCount($script:reportRemovalText);
+                Attributes=if($script:reportRemovalLinked){[IO.FileAttributes]::ReparsePoint}else{[IO.FileAttributes]::Normal}}
+        }
+        & $script:reportRemovalGetItem @PSBoundParameters
+    }
+    function Get-ChildItem {
+        [CmdletBinding()]param($LiteralPath,[switch]$Force)
+        if($LiteralPath -eq $script:reportRemovalRoot){return Get-Item $script:reportRemovalFile}
+        throw 'Unexpected fixture enumeration.'
+    }
+    function Get-Content {
+        [CmdletBinding()]param($LiteralPath,[switch]$Raw,$Encoding)
+        if($LiteralPath -eq $script:reportRemovalFile){return $script:reportRemovalText}
+        & $script:reportRemovalGetContent @PSBoundParameters
+    }
+    function Get-FileHash {
+        [CmdletBinding()]param($LiteralPath,$Algorithm)
+        if($LiteralPath -eq $script:reportRemovalFile){return [pscustomobject]@{Hash=(Get-WinSecReportTextHash $script:reportRemovalText)}}
+        throw 'Unexpected fixture hash.'
+    }
+    Get-WinSecDeviceRemovalPlan -ProjectRoot $root -DeviceId 'local:OLD-FIXTURE' -Coordinator $script:coordinator -Devices $script:devices
 }
 function Assert-WinSecRemovalThrows {
     param([scriptblock]$Action)
     $caught=$false
     try { $null=& $Action } catch { $caught=$true }
     Assert-WinSecRemoval $caught
+}
+Test-WinSecRemovalCase 'Removal plan includes owned Markdown exports with integrity checked' {
+    $plan=Invoke-WinSecReportRemovalPlanFixture
+    Assert-WinSecRemoval ($plan.Files.Count -eq 1 -and $plan.Files[0].Path -ceq $script:reportRemovalFile -and
+        $plan.Roots -contains $script:reportRemovalRoot -and $script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Corrupt or foreign Markdown prevents removal before confirmation' {
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Corrupt}
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Foreign}
+    Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Linked Markdown export storage rejects removal without traversing it' {
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Linked}
+    Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
+}
+function Invoke-WinSecRemovalFixture {
+    param([scriptblock]$Confirm={ $true },[string]$DeviceId='local:OLD-FIXTURE')
+    Remove-WinSecManagedDevice -ProjectRoot $root -DeviceId $DeviceId -Coordinator $script:coordinator -Devices $script:devices -ConfirmAction $Confirm
 }
 Test-WinSecRemovalCase 'No confirmation handler rejects before mutation' {
     $before=$script:inventoryMemory.Json
@@ -73,7 +133,7 @@ Test-WinSecRemovalCase 'Confirmed deletion preserves other device metadata and s
     $before=ConvertTo-Json -InputObject $script:devices[1] -Depth 8 -Compress
     $result=Invoke-WinSecRemovalFixture
     $saved=Import-WinSecDeviceInventory -ProjectRoot $root
-    Assert-WinSecRemoval ($result.Status -ceq 'REMOVED' -and $saved.schemaVersion -ceq '1.1.0' -and $saved.targets.Count -eq 1 -and
+    Assert-WinSecRemoval ($result.Status -ceq 'REMOVED' -and $saved.schemaVersion -ceq '1.2.0' -and $saved.targets.Count -eq 1 -and
         (ConvertTo-Json -InputObject $saved.targets[0] -Depth 8 -Compress) -ceq $before -and $script:coordinator.Sessions.Count -eq 1)
     Assert-WinSecRemoval (Test-WinSecDeviceInventoryRemoval $saved 'local:old-fixture')
 }
@@ -170,7 +230,8 @@ Test-WinSecRemovalCase 'Delete/Supr only requests deletion from a nonempty Devic
 }
 function Show-WinSecDeviceRemovalConfirmation {
     param($Request)
-    if ($null -ne $script:dialogAction) { return (& $script:dialogAction) }
+    $script:dialogCalls++
+    if ($null -ne $script:dialogAction) { return (& $script:dialogAction $Request) }
     return $script:dialogAnswer
 }
 function New-WinSecRemovalCLIContext {
@@ -178,7 +239,8 @@ function New-WinSecRemovalCLIContext {
         PublicScans=@{}; ActiveScanByDevice=@{}; SectionResults=@(); ControlResults=@(); Findings=@(); ScanId='scan-1'; LastDeviceMessage=''}
     foreach ($device in $script:devices) {
         $id=$device.DeviceId
-        $context.PublicScans[(Get-WinSecScanSessionKey $id 'scan-1')]=[pscustomobject]@{DeviceId=$id; ScanId='scan-1'}
+        $publicKey='{0}:{1}{2}:{3}' -f $id.Length,$id,'scan-1'.Length,'scan-1'
+        $context.PublicScans[$publicKey]=[pscustomobject]@{DeviceId=$id; ScanId='scan-1'}
         $context.ActiveScanByDevice[$id]='scan-1'
         $context.Findings+= [pscustomobject]@{DeviceId=$id; ScanId='scan-1'; FindingId='synthetic'}
     }
@@ -201,6 +263,24 @@ Test-WinSecRemovalCase 'CLI removes only selected rows maps findings and navigat
         $context.ActiveScanByDevice.Count -eq 1 -and $context.Findings.Count -eq 1 -and
         $context.Findings[0].DeviceId -ceq 'local:CURRENT-FIXTURE' -and $context.ScanId -ceq 'scan-1' -and $state.History.Count -eq 0)
 }
+Test-WinSecRemovalCase 'Coordinator session keys cannot authorize a public CLI record or open confirmation' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $id='local:OLD-FIXTURE';$scan='scan-1';$publicKey='{0}:{1}{2}:{3}' -f $id.Length,$id,$scan.Length,$scan
+    $context.PublicScans[(Get-WinSecScanSessionKey $id $scan)]=$context.PublicScans[$publicKey]
+    $context.PublicScans.Remove($publicKey)
+    Assert-WinSecRemovalThrows {Invoke-WinSecCLIDeviceRemoval $state $context}
+    Assert-WinSecRemoval ($script:dialogCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 2 -and
+        (Import-WinSecDeviceInventory $root).targets.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Multiple valid public scans reach confirmation and only the selected device is removed' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $id='local:OLD-FIXTURE';$scan='scan-2';$publicKey='{0}:{1}{2}:{3}' -f $id.Length,$id,$scan.Length,$scan
+    $context.PublicScans[$publicKey]=[pscustomobject]@{DeviceId=$id;ScanId=$scan}
+    $script:coordinator.Sessions[(Get-WinSecScanSessionKey $id $scan)]=[pscustomobject]@{DeviceId=$id;ScanId=$scan}
+    $r=Invoke-WinSecCLIDeviceRemoval $state $context
+    Assert-WinSecRemoval ($r.Status -ceq 'REMOVED' -and $script:dialogCalls -eq 1 -and $context.PublicScans.Count -eq 1 -and
+        $script:coordinator.Sessions.Count -eq 1 -and $context.Devices[0].DeviceId -ceq 'local:CURRENT-FIXTURE')
+}
 Test-WinSecRemovalCase 'Deleting the last row leaves an empty Devices screen without registering implicitly' {
     $context=New-WinSecRemovalCLIContext; $state=New-WinSecNavigationState
     $null=Invoke-WinSecCLIDeviceRemoval -State $state -Context $context
@@ -214,7 +294,7 @@ Test-WinSecRemovalCase 'CLI rejects ambiguous legacy data and corrupt public own
     $context.Findings=@([pscustomobject]@{FindingId='unowned'})
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
     $context=New-WinSecRemovalCLIContext
-    $context.PublicScans['local:OLD-FIXTURE|scan-1'].DeviceId='local:OTHER'
+    ($context.PublicScans.Values|Where-Object DeviceId -CEQ 'local:OLD-FIXTURE').DeviceId='local:OTHER'
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
     Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
 }
@@ -229,7 +309,9 @@ Test-WinSecRemovalCase 'A changing public view invalidates CLI consent before an
     $context=New-WinSecRemovalCLIContext; $state=New-WinSecNavigationState
     $script:changingContext=$context
     $script:dialogAction={
-        $script:changingContext.PublicScans['local:OLD-FIXTURE|scan-2']=[pscustomobject]@{DeviceId='local:OLD-FIXTURE'; ScanId='scan-2'}
+        $id='local:OLD-FIXTURE';$scan='scan-2'
+        $key='{0}:{1}{2}:{3}' -f $id.Length,$id,$scan.Length,$scan
+        $script:changingContext.PublicScans[$key]=[pscustomobject]@{DeviceId=$id; ScanId=$scan}
         return $true
     }
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
@@ -243,6 +325,62 @@ Test-WinSecRemovalCase 'A hash table key named Keys cannot hide inconsistent ses
     $context.PublicScans['Keys']=@()
     Assert-WinSecRemovalThrows { Invoke-WinSecCLIDeviceRemoval -State $state -Context $context }
     Assert-WinSecRemoval ((Import-WinSecDeviceInventory $root).targets.Count -eq 2 -and $script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Device removal clears only its scoped selections and preserves other devices' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $oldKey=Get-WinSecCLIScopeKey 'local:OLD-FIXTURE' SECTION SystemSecurity
+    $otherKey=Get-WinSecCLIScopeKey 'local:CURRENT-FIXTURE' CONTROL WSA-SYS-001
+    $context|Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue @{$oldKey='scan-1';$otherKey='scan-1'}
+    $null=Invoke-WinSecCLIDeviceRemoval -State $state -Context $context
+    Assert-WinSecRemoval ($context.ActiveScanByScope.Count -eq 1 -and $context.ActiveScanByScope.ContainsKey($otherKey))
+}
+Test-WinSecRemovalCase 'Scope selection changes during deletion confirmation require fresh consent' {
+    $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+    $context|Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue @{}
+    $script:scopeChangeContext=$context
+    $script:dialogAction={ $script:scopeChangeContext.ActiveScanByScope['changed']='scan-2';$true }
+    Assert-WinSecRemovalThrows {Invoke-WinSecCLIDeviceRemoval -State $state -Context $context}
+    Assert-WinSecRemoval ((Import-WinSecDeviceInventory $root).targets.Count -eq 2)
+}
+# Exercise the actual dialog against the existing in-memory removal backend.
+function Get-WinSecTerminalSize {[pscustomobject]@{Width=100;ContentWidth=99;Height=40}}
+function Clear-WinSecScreen {}
+function Write-WinSecText {param($Text,$Color)}
+function New-WinSecResizeState {[pscustomobject]@{}}
+function Invoke-WinSecResizeHandler {param($ResizeState,$RenderAction)}
+function Read-WinSecResizeAwareKey {param($ResizeState,$RenderAction);$script:dialogKeys.Dequeue()}
+foreach($keyCode in @(13,27,78)){
+    Test-WinSecRemovalCase ('Real confirmation key reaches only the memory backend: '+$keyCode) {
+        $script:dialogKeys=New-Object 'System.Collections.Generic.Queue[object]'
+        $script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$keyCode;Character=if($keyCode -eq 78){'N'}else{''};
+            ControlKeyState=0;KeyDown=$true})
+        if($keyCode -eq 78){$script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';ControlKeyState=0;KeyDown=$true})}
+        $before=ConvertTo-Json -InputObject @($script:coordinator.Sessions,$script:inventoryMemory.Json) -Depth 20 -Compress
+        $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+        $script:dialogAction={param($request); & $script:realDialog -Request $request}
+        $result=Invoke-WinSecCLIDeviceRemoval $state $context
+        if($keyCode -eq 13){
+            Assert-WinSecRemoval ($null -ne $result -and (Import-WinSecDeviceInventory $root).targets.Count -eq 1 -and
+                $script:coordinator.Sessions.Count -eq 1)
+        }
+        else {
+            Assert-WinSecRemoval ($null -eq $result -and $before -ceq
+                (ConvertTo-Json -InputObject @($script:coordinator.Sessions,$script:inventoryMemory.Json) -Depth 20 -Compress))
+        }
+    }
+}
+foreach($spec in @(@{Keys=@(39,13);Accept=$false},@{Keys=@(39,37,13);Accept=$true})) {
+    Test-WinSecRemovalCase ('Real CLI confirmation selects Accept or Cancel with arrows and Enter: '+$spec.Accept) {
+        $script:dialogKeys=New-Object 'System.Collections.Generic.Queue[object]'
+        foreach($code in $spec.Keys){$script:dialogKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$code;Character='';ControlKeyState=0;KeyDown=$true})}
+        $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState
+        $before=ConvertTo-Json $context -Depth 20 -Compress
+        $script:dialogAction={param($request); & $script:realDialog -Request $request}
+        $result=Invoke-WinSecCLIDeviceRemoval $state $context
+        if($spec.Accept){Assert-WinSecRemoval ($result.Status -ceq 'REMOVED' -and $context.Devices.Count -eq 1)}
+        else{Assert-WinSecRemoval ($null -eq $result -and $before -ceq (ConvertTo-Json $context -Depth 20 -Compress))}
+        Assert-WinSecRemoval ($script:dialogCalls -eq 1 -and $script:dialogKeys.Count -eq 0)
+    }
 }
 Write-Host "Passed: $script:passed; Failed: $script:failed"
 if ($script:failed -gt 0) { throw 'Device removal unit tests failed.' }

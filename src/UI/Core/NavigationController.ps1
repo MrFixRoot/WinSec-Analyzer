@@ -396,9 +396,11 @@ function Invoke-WinSecNavigationAction {
                         break
                     }
 
-                    $hostname = Get-WinSecNavigationDeviceValue `
+                    $hostname = Get-WinSecNavigationDeviceValue -Device $device -Property 'DisplayName'
+                    if (-not $hostname) { $hostname = Get-WinSecNavigationDeviceValue `
                         -Device $device `
                         -Property 'Hostname'
+                    }
 
                     if (-not $hostname) {
                         $hostname = Get-WinSecNavigationDeviceValue `
@@ -526,6 +528,12 @@ function Invoke-WinSecNavigationAction {
         # Export security report
         # ----------------------------------------------------
 
+        'ExportMD' {
+            if ($State.Screen -ceq 'Findings') {
+                $State.PendingCommand = 'ExportMD'
+                $State.PendingScope = $State.FindingsScope
+            }
+        }
         'ExportTXT' {
 
             switch ($State.Screen) {
@@ -569,6 +577,12 @@ function Invoke-WinSecNavigationAction {
         # Request security rescan
         # ----------------------------------------------------
 
+        'RenameDevice' {
+            if ($State.Screen -ceq 'Devices' -and $State.DeviceIndex -is [int] -and
+                $State.DeviceIndex -ge 0 -and $State.DeviceIndex -lt $deviceCount) {
+                $State.PendingCommand='RenameDevice';$State.PendingScope='Device'
+            }
+        }
         'DeleteDevice' {
             if ($State.Screen -ceq 'Devices' -and $deviceCount -gt 0 -and
                 $State.DeviceIndex -ge 0 -and $State.DeviceIndex -lt $deviceCount) {
@@ -580,12 +594,15 @@ function Invoke-WinSecNavigationAction {
         'Rescan' {
 
             if (
-                $State.Screen -eq 'MainMenu' -and
-                $State.SelectedDeviceId
+                $State.Screen -in @('Devices','MainMenu','Section','Results')
             ) {
 
                 $State.PendingCommand = 'Rescan'
-                $State.PendingScope = 'Device'
+                $State.PendingScope = switch ($State.Screen) {
+                    'Devices' {'Device'}
+                    'MainMenu' {'Section'}
+                    default {'Control'}
+                }
             }
         }
 

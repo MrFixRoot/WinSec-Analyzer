@@ -1,0 +1,45 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogVersion": "0.2.0",
+  "Status": "APPROVED",
+  "ApprovalReference": "D-045: project owner extends the existing four local-policy criteria to the listed Windows 11 editions and releases, including 26H1. No native validation implied.",
+  "ReviewedAtUTC": "2026-10-22T06:36:50Z",
+  "TemplateSha256": "12F3BAC36CFCBAE46FFC890FC5AD50F6721096EB4E1E8446BAA4DBB28712BC6E",
+  "Sources": [
+    "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information",
+    "https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getproductinfo",
+    "https://learn.microsoft.com/en-us/intune/fundamentals/filters/ref-device-properties",
+    "https://learn.microsoft.com/en-us/windows/whats-new/ltsc/whats-new-windows-11-2024",
+    "https://learn.microsoft.com/en-us/windows/iot/iot-enterprise/whats-new/windows-11-iot-enterprise-ltsc-2024",
+    "https://learn.microsoft.com/en-us/windows/iot/iot-enterprise/faq",
+    "https://learn.microsoft.com/en-us/defender-endpoint/microsoft-defender-antivirus-windows"
+  ],
+  "Releases": [
+    { "Name": "21H2", "Build": 22000 },
+    { "Name": "22H2", "Build": 22621 },
+    { "Name": "23H2", "Build": 22631 },
+    { "Name": "24H2", "Build": 26100 },
+    { "Name": "25H2", "Build": 26200 },
+    { "Name": "26H1", "Build": 28000 },
+    { "Name": "26H2", "Build": 26300 }
+  ],
+  "Editions": [
+    { "Key": "PRO", "Name": "Pro", "Sku": 48, "Releases": ["24H2", "21H2", "22H2", "23H2", "25H2", "26H1", "26H2"] },
+    { "Key": "ENT", "Name": "Enterprise", "Sku": 4, "Releases": ["25H2", "21H2", "22H2", "23H2", "24H2", "26H1", "26H2"] },
+    { "Key": "HOME", "Name": "Home", "Sku": 101, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "HOME-N", "Name": "Home N", "Sku": 98, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "HOME-SL", "Name": "Home Single Language", "Sku": 100, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "HOME-CHINA", "Name": "Home China", "Sku": 99, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "PRO-N", "Name": "Pro N", "Sku": 49, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "PRO-WORKSTATION", "Name": "Pro for Workstations", "Sku": 161, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "PRO-WORKSTATION-N", "Name": "Pro for Workstations N", "Sku": 162, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "PRO-EDU", "Name": "Pro Education", "Sku": 164, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "PRO-EDU-N", "Name": "Pro Education N", "Sku": 165, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "ENT-N", "Name": "Enterprise N", "Sku": 27, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "EDU", "Name": "Education", "Sku": 121, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "EDU-N", "Name": "Education N", "Sku": 122, "Releases": ["21H2", "22H2", "23H2", "24H2", "25H2", "26H1", "26H2"] },
+    { "Key": "ENT-LTSC", "Name": "Enterprise LTSC 2024", "Sku": 125, "Releases": ["24H2"] },
+    { "Key": "ENT-LTSC-N", "Name": "Enterprise N LTSC 2024", "Sku": 126, "Releases": ["24H2"] },
+    { "Key": "IOT-ENT-LTSC", "Name": "IoT Enterprise LTSC 2024", "Sku": 191, "Releases": ["24H2"] }
+  ]
+}

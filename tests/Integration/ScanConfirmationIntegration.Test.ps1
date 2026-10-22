@@ -88,7 +88,7 @@ function Add-WinSecConfirmationIntegrationKey {
 function New-WinSecConfirmationIntegrationContext {
     $target = New-WinSecLocalTarget
     return [pscustomobject]@{
-        State = [pscustomobject]@{ Screen = 'MainMenu'; SelectedDeviceId = $target.DeviceId }
+        State = [pscustomobject]@{ Screen = 'Devices'; DeviceIndex=0; SelectedDeviceId = $target.DeviceId }
         Context = [pscustomobject]@{
             Devices = @($target)
             ScanCoordinator = New-WinSecScanCoordinator
@@ -99,9 +99,9 @@ function New-WinSecConfirmationIntegrationContext {
     }
 }
 
-Test-WinSecConfirmationIntegrationCase 'Explicit Y connects the real CLI dialog to the coordinator' {
+Test-WinSecConfirmationIntegrationCase 'Explicit Enter connects the real CLI dialog to the coordinator' {
     $fixture = New-WinSecConfirmationIntegrationContext
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
+    Add-WinSecConfirmationIntegrationKey -Code 13
     $public = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($script:auditCalls -eq 1 -and $public.PublicProjection -ceq $true)
     Assert-WinSecConfirmationIntegration ($fixture.Context.PublicScans.Count -eq 1 -and
@@ -110,27 +110,33 @@ Test-WinSecConfirmationIntegrationCase 'Explicit Y connects the real CLI dialog 
 }
 Test-WinSecConfirmationIntegrationCase 'Escape preserves the existing public result and coordinator history' {
     $fixture = New-WinSecConfirmationIntegrationContext
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
+    Add-WinSecConfirmationIntegrationKey -Code 13
     $first = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
-    $before = ConvertTo-Json -InputObject $fixture -Depth 20 -Compress
+    # Keep every state field except the two user-facing notices. Avoid a JSON
+    # round trip here: it can reinterpret timestamps in the previous session.
+    $before = ConvertTo-Json -InputObject @($fixture.State,
+        ($fixture.Context | Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 20 -Compress
     Add-WinSecConfirmationIntegrationKey -Code 27
     $cancelled = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($null -eq $cancelled -and $script:auditCalls -eq 1)
     Assert-WinSecConfirmationIntegration (
-        (ConvertTo-Json -InputObject $fixture -Depth 20 -Compress) -ceq $before
+        (ConvertTo-Json -InputObject @($fixture.State,
+            ($fixture.Context | Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 20 -Compress) -ceq $before -and
+        $fixture.Context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.' -and
+        $fixture.Context.LastDeviceMessage -ceq $fixture.Context.LastScanMessage
     ) 'Cancellation changed the selected assessment or its prior state.'
 }
-Test-WinSecConfirmationIntegrationCase 'A small resized terminal cannot approve with Y' {
+Test-WinSecConfirmationIntegrationCase 'A small resized terminal cannot approve with Enter' {
     $fixture = New-WinSecConfirmationIntegrationContext
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89 -Small
+    Add-WinSecConfirmationIntegrationKey -Code 13 -Small
     Add-WinSecConfirmationIntegrationKey -Code 27
     $cancelled = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($null -eq $cancelled -and $script:auditCalls -eq 0 -and
-        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.LastScanMessage -ceq 'PREVIOUS-MESSAGE')
+        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.')
 }
 Test-WinSecConfirmationIntegrationCase 'Catalog changes while the dialog is open abort before collection' {
     $fixture = New-WinSecConfirmationIntegrationContext
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89 -CatalogChange
+    Add-WinSecConfirmationIntegrationKey -Code 13 -CatalogChange
     $caught = $false
     try { $null = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context }
     catch { $caught = $true }
@@ -139,19 +145,24 @@ Test-WinSecConfirmationIntegrationCase 'Catalog changes while the dialog is open
 }
 Test-WinSecConfirmationIntegrationCase 'A second accepted operation gets its own confirmation and session' {
     $fixture = New-WinSecConfirmationIntegrationContext
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
+    Add-WinSecConfirmationIntegrationKey -Code 13
     $first = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
-    Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
+    Add-WinSecConfirmationIntegrationKey -Code 13
     $second = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($first.ScanId -cne $second.ScanId -and $script:auditCalls -eq 2 -and
         $fixture.Context.PublicScans.Count -eq 2 -and $fixture.Context.ScanCoordinator.Sessions.Count -eq 2)
 }
-Test-WinSecConfirmationIntegrationCase 'The actual disabled catalog reports NO_EXECUTABLE_CHECKS without an audit' {
+Test-WinSecConfirmationIntegrationCase 'An explicitly disabled registry reports NO_EXECUTABLE_CHECKS without an audit' {
     $fakeRegistry = (Get-Command Get-WinSecCheckRegistry).ScriptBlock
     try {
-        Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $script:realRegistry
+        Set-Item -Path Function:\Get-WinSecCheckRegistry -Value {
+            param($ProjectRoot)
+            $registry=& $script:realRegistry -ProjectRoot $ProjectRoot
+            foreach($check in $registry.Checks){$check.ExecutionEnabled=$false;$check.ExecutionReady=$false}
+            return $registry
+        }
         $fixture = New-WinSecConfirmationIntegrationContext
-        Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
+        Add-WinSecConfirmationIntegrationKey -Code 13
         Add-WinSecConfirmationIntegrationKey -Code 27
         $result = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
         Assert-WinSecConfirmationIntegration ($null -eq $result -and $script:auditCalls -eq 0 -and
@@ -161,6 +172,15 @@ Test-WinSecConfirmationIntegrationCase 'The actual disabled catalog reports NO_E
     finally { Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $fakeRegistry }
 }
 
+Test-WinSecConfirmationIntegrationCase 'Selecting Cancel with arrows and Enter cannot collect or publish' {
+    $fixture = New-WinSecConfirmationIntegrationContext
+    Add-WinSecConfirmationIntegrationKey -Code 39
+    Add-WinSecConfirmationIntegrationKey -Code 13
+    $result = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
+    Assert-WinSecConfirmationIntegration ($null -eq $result -and $script:auditCalls -eq 0 -and
+        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.ScanCoordinator.Sessions.Count -eq 0 -and
+        $fixture.Context.LastDeviceMessage -ceq 'Scan cancelled. Previous results were preserved.')
+}
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"
 if ($script:failed -gt 0) { throw "$script:failed confirmation integration test(s) failed." }

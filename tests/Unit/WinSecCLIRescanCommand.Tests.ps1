@@ -222,7 +222,8 @@ function Invoke-WinSecCLILocalRescan {
     [CmdletBinding()]
     param(
         [psobject]$State,
-        [psobject]$Context
+        [psobject]$Context,
+        [switch]$ShowProgress
     )
 
     $script:mockCalls++

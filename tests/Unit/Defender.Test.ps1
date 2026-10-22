@@ -55,6 +55,8 @@ if (-not (
 
 . $script:Collector
 
+$script:LocalDeviceId = 'local:hw1-' + ('a' * 64)
+
 
 # ============================================================
 # ASSERTION HELPERS
@@ -125,6 +127,8 @@ function Assert-Contains {
 
 function Reset-DefenderMock {
     $script:M = @{
+        IdentityMode = 'OK'
+        IdentityCalls = 0
         StatusMode = 'OK'
         PreferenceMode = 'OK'
 
@@ -289,6 +293,22 @@ function New-MockPreference {
 # MOCK DEFENDER COMMANDS
 # ============================================================
 
+function Get-WinSecLocalHardwareDeviceId {
+    [CmdletBinding()]
+    param()
+
+    $script:M.IdentityCalls++
+    switch ($script:M.IdentityMode) {
+        'Throw' { throw 'PRIVATE-HARDWARE-IDENTITY-ERROR' }
+        'Empty' { return }
+        'Multiple' { return @($script:LocalDeviceId, $script:LocalDeviceId) }
+        'Malformed' { return 'local:unverified' }
+        'NonText' { return [pscustomobject]@{ DeviceId = $script:LocalDeviceId } }
+        'Uppercase' { return $script:LocalDeviceId.ToUpperInvariant() }
+        default { return $script:LocalDeviceId }
+    }
+}
+
 function Get-MpComputerStatus {
     [CmdletBinding()]
     param()
@@ -451,7 +471,7 @@ function Get-CimInstance {
 
 function Invoke-MockedDefender {
     return Test-WinSecDefender `
-        -DeviceId ('local:{0}' -f $env:COMPUTERNAME) `
+        -DeviceId $script:LocalDeviceId `
         -ScanId 'DEFENDER-UNIT-001' `
         -CheckId 'WSA-SYS-001'
 }
@@ -561,7 +581,7 @@ Test-Case 'Device identity' {
 
     Assert-Equal `
         $r.DeviceId `
-        ('local:{0}' -f $env:COMPUTERNAME)
+        $script:LocalDeviceId
 
     Assert-Equal $r.Evidence.DeviceId $r.DeviceId
 }
@@ -673,13 +693,44 @@ Test-Case 'Remote identity rejected' {
     }
 }
 
-Test-Case 'Local host accepted' {
+Test-Case 'Current hardware identity accepted' {
     $r = Test-WinSecDefender `
-        -DeviceId $env:COMPUTERNAME `
+        -DeviceId $script:LocalDeviceId `
         -ScanId 'ID' `
         -CheckId 'WSA-SYS-001'
 
-    Assert-Equal $r.DeviceId $env:COMPUTERNAME
+    Assert-Equal $r.DeviceId $script:LocalDeviceId
+    Assert-Equal $r.Evidence.DeviceId $script:LocalDeviceId
+    Assert-Equal $script:M.IdentityCalls 1
+}
+
+foreach ($rejectedId in @(
+    $env:COMPUTERNAME,
+    ('local:{0}' -f $env:COMPUTERNAME),
+    ('local:hw1-' + ('b' * 64)),
+    $script:LocalDeviceId.ToUpperInvariant()
+)) {
+    Test-Case 'Legacy, foreign or noncanonical identity cannot collect' {
+        Assert-Throws {
+            Test-WinSecDefender -DeviceId $rejectedId -ScanId 'ID' -CheckId 'WSA-SYS-001'
+        }
+        Assert-Equal $script:M.StatusCalls 0
+        Assert-Equal $script:M.PreferenceCalls 0
+        Assert-Equal $script:M.CimRequests.Count 0
+    }
+}
+
+foreach ($identityMode in @('Throw', 'Empty', 'Multiple', 'Malformed', 'NonText', 'Uppercase')) {
+    Test-Case ('Invalid hardware identity provider aborts before collection: ' + $identityMode) {
+        $script:M.IdentityMode = $identityMode
+        $message = ''
+        try { $null = Invoke-MockedDefender }
+        catch { $message = $_.Exception.Message }
+        Assert-Equal $message 'Unable to validate local hardware identity for Microsoft Defender.'
+        Assert-Equal $script:M.StatusCalls 0
+        Assert-Equal $script:M.PreferenceCalls 0
+        Assert-Equal $script:M.CimRequests.Count 0
+    }
 }
 
 Test-Case 'Blank scan ID rejected' {
@@ -1354,6 +1405,53 @@ Test-Case 'ASR mismatched arrays are incomplete' {
     Assert-Equal $a.Complete $false
 
     Assert-True (@($a.Issues).Count -gt 0)
+}
+
+Test-Case 'ASR nulls at different positions never shift an action to another rule' {
+    $script:M.ASRIds = @($script:M.ASRIds[0], $null, $script:M.ASRIds[1])
+    $script:M.ASRActions = @(1, 2, $null)
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $false
+    Assert-Equal $a.ConfiguredRuleCount 2
+    Assert-Equal $a.Rules[0].Mode 'BLOCK'
+    Assert-Equal $a.Rules[1].Mode 'UNKNOWN'
+    Assert-Equal $a.Modes.AUDIT 0
+    Assert-Equal $a.Modes.UNKNOWN 1
+    Assert-True (@($a.Issues).Count -gt 0)
+}
+
+Test-Case 'ASR null action preserves later rule positions' {
+    $script:M.ASRIds += '01443614-cd74-433a-b99e-2ecdc07bfc25'
+    $script:M.ASRActions = @(1, $null, 0)
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $false
+    Assert-Equal $a.Rules[1].Mode 'UNKNOWN'
+    Assert-Equal $a.Rules[2].Mode 'DISABLED'
+}
+
+Test-Case 'ASR entirely null arrays are unavailable as complete evidence' {
+    $script:M.ASRIds = $null
+    $script:M.ASRActions = $null
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $false
+    Assert-Equal $a.ConfiguredRuleCount 0
+    Assert-True (@($a.Issues).Count -gt 0)
+}
+
+Test-Case 'ASR explicit empty arrays describe an empty configured inventory' {
+    $script:M.ASRIds = @()
+    $script:M.ASRActions = @()
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $true
+    Assert-Equal $a.ConfiguredRuleCount 0
+    Assert-Equal $a.UnlistedRulesAssessed $false
+}
+
+Test-Case 'ASR action capacity is checked even when identifier list is short' {
+    $script:M.ASRActions = @(1) * 129
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $false
+    Assert-True (($a.Issues -join '|') -match 'safety limit')
 }
 
 Test-Case 'ASR duplicate IDs are not double counted' {

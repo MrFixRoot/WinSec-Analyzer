@@ -9,7 +9,6 @@
 # Loads and validates cybersecurity framework catalogs.
 #
 # Supported:
-# - CIS Benchmarks
 # - CIS Controls v8.1
 # - NIST CSF 2.0
 # - MITRE ATT&CK Enterprise
@@ -36,11 +35,6 @@ function Get-WinSecFrameworkDefinitions {
     param()
 
     return @(
-        [PSCustomObject]@{
-            Id       = 'cis-benchmarks'
-            FileName = 'cis-benchmarks.json'
-        }
-
         [PSCustomObject]@{
             Id       = 'cis-controls'
             FileName = 'cis-controls.json'
@@ -72,6 +66,10 @@ function Test-WinSecFrameworkDocument {
         [Parameter(Mandatory)]
         [string]$ExpectedId
     )
+
+    if ($ExpectedId -cnotin @(Get-WinSecFrameworkDefinitions | ForEach-Object { $_.Id })) {
+        throw "Unsupported framework: $ExpectedId"
+    }
 
     if ($Document -isnot [PSCustomObject]) {
         throw "Invalid JSON root for framework: $ExpectedId"
@@ -107,13 +105,6 @@ function Test-WinSecFrameworkDocument {
 
     # Framework-specific validation
     switch ($ExpectedId) {
-
-        'cis-benchmarks' {
-
-            if ($Document.benchmarks -isnot [array]) {
-                throw 'CIS Benchmarks catalog is invalid.'
-            }
-        }
 
         'cis-controls' {
 
@@ -171,6 +162,18 @@ function Test-WinSecFrameworkDocument {
         }
 
         foreach ($reference in $mapping.references) {
+            foreach ($field in @('description','recommendation')) {
+                $value=$reference.$field
+                if ($null -ne $value -and ($value -isnot [string] -or $value.Length -gt 4096 -or $value -match '[\p{C}]')) { throw 'Invalid framework guidance text.' }
+            }
+            if ($null -ne $reference.criterionIds) {
+                if ($reference.criterionIds -isnot [array] -or $reference.criterionIds.Count -eq 0 -or $reference.criterionIds.Count -gt 128) {throw 'Invalid framework criterion mapping.'}
+                $seenCriteria=@{}
+                foreach ($id in $reference.criterionIds) {
+                    if ($id -isnot [string] -or $id -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z' -or $seenCriteria.ContainsKey($id)) {throw 'Invalid or duplicate mapped criterion.'}
+                    $seenCriteria[$id]=$true
+                }
+            }
 
             if (
                 $reference -isnot [PSCustomObject] -or

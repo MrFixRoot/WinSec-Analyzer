@@ -7,7 +7,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         $Request.DeviceId -isnot [string] -or $Request.Hostname -isnot [string]) {
         throw 'Invalid device removal confirmation.'
     }
-    $display = [pscustomobject]@{CanConfirm=$false}
+    $display = [pscustomobject]@{CanConfirm=$false;Choice=0}
     $render = {
         param($UnusedState)
         $display.CanConfirm = $false
@@ -23,7 +23,7 @@ function Show-WinSecDeviceRemovalConfirmation {
         if ($Request.RegistersAgainOnStartup) {
             $lines += 'This computer will register again on next startup, with no history.'
         }
-        $lines += '[Y] Delete device and history | [Esc / N / Enter] Cancel'
+        $lines += @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Esc] Cancel')
         $wrapped = @(
             foreach ($line in $lines) {
                 for ($offset=0; $offset -lt $line.Length; $offset+=$width) {
@@ -32,11 +32,20 @@ function Show-WinSecDeviceRemovalConfirmation {
             }
         )
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count+1)) {
-            Write-WinSecText -Text 'Resize to view the complete deletion request.' -Color Yellow
-            Write-WinSecText -Text '[Esc / N / Enter] Cancel'
+            $hints = @('Resize to view the complete deletion request.','[Esc] Cancel')
+            foreach ($hint in @($hints | Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
+                Write-WinSecText -Text $hint.Substring(0,[Math]::Min($width,$hint.Length)) -Color Yellow
+            }
             return
         }
-        foreach ($line in $wrapped) { Write-WinSecText -Text $line }
+        foreach ($line in $wrapped) {
+            $color = if ($line -match '^This permanently deletes|^This computer will register') {'Yellow'} else {'Gray'}
+            if (($line -ceq '  [ Accept ]' -and $display.Choice -eq 0) -or
+                ($line -ceq '  [ Cancel ]' -and $display.Choice -eq 1)) {
+                $line = '> ' + $line.Substring(2);$color='Cyan'
+            }
+            Write-WinSecText -Text $line -Color $color
+        }
         $display.CanConfirm = $true
     }
     $resizeState = New-WinSecResizeState
@@ -45,7 +54,13 @@ function Show-WinSecDeviceRemovalConfirmation {
         $key = Read-WinSecResizeAwareKey -ResizeState $resizeState -RenderAction $render
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
-        if ($key.VirtualKeyCode -in @(27,13) -or [string]$key.Character -ieq 'N') { return $false }
-        if ($display.CanConfirm -and [string]$key.Character -ieq 'Y') { return $true }
+        if ($key.VirtualKeyCode -eq 27) { return $false }
+        if ($key.VirtualKeyCode -in @(37,38,39,40)) {
+            $display.Choice=1-$display.Choice
+            $null=& $render $null
+            continue
+        }
+        if ($key.VirtualKeyCode -eq 13 -and $display.Choice -eq 1) { return $false }
+        if ($display.CanConfirm -and $key.VirtualKeyCode -eq 13) { return $true }
     }
 }

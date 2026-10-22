@@ -170,10 +170,10 @@ Invoke-WinSecTest 'ESC returns from Findings' {
         "Expected Back, received $action"
 }
 
-Invoke-WinSecTest 'H opens security findings' {
+Invoke-WinSecTest 'F opens security findings' {
 
     $key = New-WinSecTestKey `
-        -Code 72 -Character 'H'
+        -Code 70 -Character 'F'
 
     $action = ConvertTo-WinSecKeyboardAction `
         -KeyInfo $key -Screen 'Section'
@@ -217,13 +217,13 @@ Invoke-WinSecTest 'P and R remain disabled' {
 Invoke-WinSecTest 'Ctrl shortcuts are ignored' {
 
     $key = New-WinSecTestKey `
-        -Code 72 -Character 'H' -Modifiers 8
+        -Code 70 -Character 'F' -Modifiers 8
 
     $action = ConvertTo-WinSecKeyboardAction `
         -KeyInfo $key -Screen 'Section'
 
     Assert-WinSecTest ($action -eq 'None') `
-        'Ctrl+H should not trigger findings.'
+        'Ctrl+F should not trigger findings.'
 }
 
 Write-Host ''
