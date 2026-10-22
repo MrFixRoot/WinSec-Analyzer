@@ -1,10 +1,9 @@
-
 {
     "schemaVersion": "1.0.0",
     "frameworkId": "mitre-attack",
     "name": "MITRE ATT&CK",
     "knowledgeBase": "Enterprise ATT&CK",
-    "frameworkVersion": null,
+    "frameworkVersion": "20.0",
     "organization": "MITRE",
     "description": "Adversary tactics, techniques, subtechniques and defensive mitigation mappings for WinSec Analyzer.",
     "enabled": true,
@@ -43,7 +42,11 @@
         },
         {
             "id": "TA0005",
-            "name": "Defense Evasion"
+            "name": "Stealth"
+        },
+        {
+            "id": "TA0112",
+            "name": "Defense Impairment"
         },
         {
             "id": "TA0006",
@@ -74,10 +77,35 @@
             "name": "Impact"
         }
     ],
-    "techniques": [],
+    "techniques": [
+        {
+            "id": "T1685",
+            "name": "Disable or Modify Tools"
+        }
+    ],
     "subtechniques": [],
     "mitigations": [],
-    "mappings": [],
+    "mappings": [
+        {
+            "checkId": "WSA-SYS-001",
+            "references": [
+                {
+                    "id": "T1685",
+                    "techniqueId": "T1685",
+                    "title": "Disable or Modify Tools",
+                    "url": "https://attack.mitre.org/versions/v20/techniques/T1685/",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-001",
+                        "WSA-DEF-BASE-002",
+                        "WSA-DEF-BASE-003",
+                        "WSA-DEF-BASE-004"
+                    ],
+                    "description": "Adversaries can interfere with defensive tools. A disabled protection alone does not prove an attack, malicious intent or this technique occurring.",
+                    "recommendation": "Establish whether the disabled protection was authorized, review relevant security records, and have the authorized administrator restore the approved protections. Repeat the WinSec read-only assessment; investigate suspected tampering through the normal incident response process."
+                }
+            ]
+        }
+    ],
     "mappingRules": {
         "matchBy": "checkId",
         "requireTechniqueId": true,

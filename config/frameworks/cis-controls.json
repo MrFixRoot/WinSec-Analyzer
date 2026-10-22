@@ -1,4 +1,3 @@
-
 {
     "schemaVersion": "1.0.0",
     "frameworkId": "cis-controls",
@@ -11,9 +10,52 @@
         "name": "CIS Critical Security Controls",
         "url": "https://www.cisecurity.org/controls"
     },
-    "controls": [],
-    "safeguards": [],
-    "mappings": [],
+    "controls": [
+        {
+            "id": "10",
+            "name": "Malware defenses"
+        }
+    ],
+    "safeguards": [
+        {
+            "id": "10.1",
+            "name": "Deploy and Maintain Anti-Malware Software"
+        },
+        {
+            "id": "10.7",
+            "name": "Use Behavior-Based Anti-Malware Software"
+        }
+    ],
+    "mappings": [
+        {
+            "checkId": "WSA-SYS-001",
+            "references": [
+                {
+                    "id": "10.1",
+                    "title": "Deploy and Maintain Anti-Malware Software",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls10/",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-001",
+                        "WSA-DEF-BASE-002",
+                        "WSA-DEF-BASE-003",
+                        "WSA-DEF-BASE-004"
+                    ],
+                    "description": "Authorized anti-malware and its configuration standard provide context for these four local Defender rules. These observations do not assess the complete safeguard.",
+                    "recommendation": "Confirm the authorized primary anti-malware product, review its approved configuration and any documented exceptions, then restore the reviewed protections through authorized administration and repeat the WinSec assessment."
+                },
+                {
+                    "id": "10.7",
+                    "title": "Use Behavior-Based Anti-Malware Software",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls10/",
+                    "criterionIds": [
+                        "WSA-DEF-BASE-004"
+                    ],
+                    "description": "Behavior-based anti-malware capabilities and an approved configuration standard provide context for the behavior-monitoring rule.",
+                    "recommendation": "Confirm that behavior-based protection is required for this device, review temporary exceptions, and have the authorized administrator restore the approved behavior-monitoring configuration before repeating the read-only assessment."
+                }
+            ]
+        }
+    ],
     "mappingRules": {
         "matchBy": "checkId",
         "requireFrameworkVersion": true,

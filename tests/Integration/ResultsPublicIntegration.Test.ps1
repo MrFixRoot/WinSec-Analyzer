@@ -34,7 +34,8 @@ function Set-WinSecResultsTestTerminal {
     $script:terminal=[pscustomobject]@{Width=$Width;Height=$Height;ContentWidth=$Width-1}
 }
 $catalog=Get-Content -LiteralPath (Join-Path $root 'config/checks.json') -Raw|ConvertFrom-Json
-if(@($catalog.checks|Where-Object{$_.execution.enabled -eq $true}).Count -gt 0){throw 'Production checks must remain disabled.'}
+$enabled=@($catalog.checks|Where-Object {$_.execution.enabled -eq $true})
+if($enabled.Count -ne 1 -or $enabled[0].checkId -cne 'WSA-SYS-001' -or $enabled[0].implementationStatus -cne 'VALIDATED'){throw 'Only validated Defender may be enabled in production.'}
 $deviceId='local:RESULTS-PUBLIC';$scanId='results-public-1'
 $collectors=@(foreach($check in $catalog.checks){
     $status=switch($check.checkId){'WSA-SYS-001'{'INFORMATIONAL'};'WSA-SYS-002'{'ERROR'};default{'NOT_SELECTED'}}

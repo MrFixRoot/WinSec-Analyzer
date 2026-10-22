@@ -9,7 +9,8 @@ $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/UI/Core/ResizeHandler.ps1')
 . (Join-Path $root 'src/UI/Screens/ScanConfirmation.ps1')
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
-if(@($script:catalog.Checks|Where-Object{$_.ExecutionEnabled}).Count -ne 0){throw 'Production checks must remain disabled.'}
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 $script:passed=0;$script:failed=0
 function Get-CimInstance {[pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}}
 function Assert-WinSecScopeIntegration {param([bool]$Condition);if(-not $Condition){throw 'Scope integration assertion failed.'}}
@@ -29,6 +30,7 @@ function Get-WinSecCheckRegistry {
     $registry=Copy-WinSecResultData -Value $script:catalog
     # Only the in-memory fixture is executable; production remains unchanged.
     foreach($check in $registry.Checks){
+        $check.ExecutionEnabled=$false;$check.ExecutionReady=$false
         if($check.CheckId -cin $script:readyIds){
             $check.ExecutionEnabled=$true;$check.ExecutionReady=$true
             $check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
@@ -131,7 +133,7 @@ Test-WinSecScopeIntegration 'Resize alone never confirms; a fresh Y approves the
         ($script:lines -join ' ') -match 'Control: WSA-SYS-001' -and
         @($script:lines|Where-Object{$_.Length -gt 79}).Count -eq 0 -and $script:lines.Count -lt 30)
 }
-Test-WinSecScopeIntegration 'Actual disabled catalog cannot create a scoped session even when Y is pressed' {
+Test-WinSecScopeIntegration 'Explicitly disabled catalog fixture cannot create a scoped session even when Y is pressed' {
     $coordinator=New-WinSecScanCoordinator;$script:readyIds=@()
     Add-WinSecScopeKey Y;Add-WinSecScopeKey -Code 13;Add-WinSecScopeKey -Code 27
     $result=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -ScopeType SECTION -ScopeKey SystemSecurity -ConfirmAction $confirm

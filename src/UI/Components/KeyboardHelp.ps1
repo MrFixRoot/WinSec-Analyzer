@@ -152,7 +152,7 @@ function Get-WinSecKeyboardShortcuts {
             if ($EnableExport) {
                 $items += @{
                     Key    = 'P'
-                    Action = 'Export MD'
+                    Action = 'Print report'
                 }
             }
 

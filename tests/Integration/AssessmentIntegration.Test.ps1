@@ -12,7 +12,9 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/Services/ReportService.ps1','src/Services/ExportService.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
-if(@($script:catalog.Checks|Where-Object ExecutionEnabled).Count){throw 'Production checks must stay disabled.'}
+function Get-WinSecInstalledAssessmentProfiles { @() } # Production profiles are covered separately.
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 $script:passed=0;$script:failed=0
 function Assert-WinSecAssessmentIntegration {param([bool]$Value);if(-not $Value){throw 'Assessment integration assertion failed.'}}
 function Get-CimInstance {
@@ -438,7 +440,12 @@ Test-WinSecAssessmentIntegration 'The next rescan asks again and a collection-on
         $second.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and ($script:allLines -join '|').Contains('CONFIRM RESCAN'))
 }
 Test-WinSecAssessmentIntegration 'An empty executable selection skips the picker and cannot start an audit' {
-    function Get-WinSecCheckRegistry {param($ProjectRoot);Copy-WinSecResultData $script:catalog}
+    function Get-WinSecCheckRegistry {
+        param($ProjectRoot)
+        $copy=Copy-WinSecResultData $script:catalog
+        foreach($check in $copy.Checks){$check.ExecutionEnabled=$false;$check.ExecutionReady=$false}
+        $copy
+    }
     Add-WinSecAssessmentPickerKey 27
     $p=Invoke-WinSecAssessmentPickerIntegrationScan
     Assert-WinSecAssessmentIntegration ($null -eq $p -and $script:reads -eq 0 -and $script:osReads -eq 0 -and

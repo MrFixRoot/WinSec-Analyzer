@@ -1,9 +1,24 @@
 # Read-only evaluation orchestration. Catalogs are data; no scripts/remediation.
+function Get-WinSecInstalledAssessmentProfiles {
+    [CmdletBinding()]
+    param()
+    @(
+        [pscustomobject]@{Profile='WSA-W11-24H2-PRO-DEF-BASE';FileName='defender-win11-24h2-pro.json'}
+        [pscustomobject]@{Profile='WSA-W11-25H2-ENT-DEF-BASE';FileName='defender-win11-25h2-enterprise.json'}
+    )
+}
+
 function Get-WinSecAssessmentCatalog {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$CheckId)
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$CheckId,
+        [string]$Profile)
     if ($CheckId -cne 'WSA-SYS-001') { return $null }
     $path = Join-Path $ProjectRoot 'config/criteria/defender.json'
+    if ($PSBoundParameters.ContainsKey('Profile')) {
+        $definition=@(Get-WinSecInstalledAssessmentProfiles|Where-Object {$_.Profile -ceq $Profile})
+        if ($definition.Count -ne 1) { throw 'Unknown installed assessment profile.' }
+        $path=Join-Path $ProjectRoot ('config/criteria/profiles/' + $definition[0].FileName)
+    }
     Assert-WinSecDeviceRemovalPath -ProjectRoot $ProjectRoot -Path $path
     $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop
     if ($file.PSIsContainer -or $file.Length -gt 1048576) { throw 'Invalid assessment catalog file.' }
@@ -18,6 +33,9 @@ function Get-WinSecAssessmentCatalog {
     if ($before -cne (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash -or
         $catalog.CheckId -cne $CheckId -or -not (Test-WinSecCriteriaCatalog $catalog).Valid) {
         throw 'Invalid or changed assessment catalog.'
+    }
+    if ($PSBoundParameters.ContainsKey('Profile') -and @($catalog.Criteria|Where-Object {$_.Applicability.Profile -cne $Profile}).Count) {
+        throw 'Installed profile does not match its catalog.'
     }
     [pscustomobject]@{Catalog=$catalog;Sha256=$before}
 }
@@ -70,6 +88,9 @@ function Get-WinSecAssessmentProfilePlan {
             throw 'Invalid assessment profile control selection.'
         }
         $snapshot = Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId)
+        if ($checkId -ceq 'WSA-SYS-001' -and @((Get-WinSecInstalledAssessmentProfiles)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
+            $snapshot=Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId -Profile $Profile)
+        }
         $snapshots[$checkId] = $snapshot
         if ($null -eq $snapshot -or -not (Test-WinSecCriteriaCatalog $snapshot.Catalog).ReadyForEvaluation) { continue }
         $rules = @($snapshot.Catalog.Criteria)
@@ -111,6 +132,12 @@ function Get-WinSecAssessmentProfileOptions {
     foreach ($name in @($names|Sort-Object -CaseSensitive)) {
         # Reuse the exact approval and metadata contract of the coordinator.
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
+    }
+    if ($CheckIds -ccontains 'WSA-SYS-001') {
+        foreach ($definition in @(Get-WinSecInstalledAssessmentProfiles)) {
+            if ($names.Contains($definition.Profile)) { continue }
+            (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
+        }
     }
 }
 

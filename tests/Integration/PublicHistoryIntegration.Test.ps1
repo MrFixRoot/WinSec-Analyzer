@@ -7,7 +7,8 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Screens/Devices.ps1','src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1',
     'src/UI/Screens/ScanConfirmation.ps1','src/UI/Screens/ScanProgress.ps1','src/UI/Screens/DeviceName.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
-if(@($script:catalog.Checks|Where-Object{$_.ExecutionEnabled}).Count){throw 'Production checks must remain disabled.'}
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 . (Join-Path $PSScriptRoot '../Fixtures/DeviceInventoryMemoryStore.ps1')
 # La fixture bloquea auditorías por defecto; esta integración usa el motor real
 # con Import-WinSecAuditDependencies e Invoke-WinSecAuditCheck simulados abajo.

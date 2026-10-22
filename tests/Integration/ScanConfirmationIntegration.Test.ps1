@@ -146,10 +146,15 @@ Test-WinSecConfirmationIntegrationCase 'A second accepted operation gets its own
     Assert-WinSecConfirmationIntegration ($first.ScanId -cne $second.ScanId -and $script:auditCalls -eq 2 -and
         $fixture.Context.PublicScans.Count -eq 2 -and $fixture.Context.ScanCoordinator.Sessions.Count -eq 2)
 }
-Test-WinSecConfirmationIntegrationCase 'The actual disabled catalog reports NO_EXECUTABLE_CHECKS without an audit' {
+Test-WinSecConfirmationIntegrationCase 'An explicitly disabled registry reports NO_EXECUTABLE_CHECKS without an audit' {
     $fakeRegistry = (Get-Command Get-WinSecCheckRegistry).ScriptBlock
     try {
-        Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $script:realRegistry
+        Set-Item -Path Function:\Get-WinSecCheckRegistry -Value {
+            param($ProjectRoot)
+            $registry=& $script:realRegistry -ProjectRoot $ProjectRoot
+            foreach($check in $registry.Checks){$check.ExecutionEnabled=$false;$check.ExecutionReady=$false}
+            return $registry
+        }
         $fixture = New-WinSecConfirmationIntegrationContext
         Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
         Add-WinSecConfirmationIntegrationKey -Code 27

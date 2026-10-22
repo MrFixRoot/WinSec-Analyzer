@@ -6,6 +6,7 @@
 function Show-WinSecScanConfirmation {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Request)
+    $Request=Copy-WinSecResultData $Request
 
     if ($Request.Operation -cne 'SCAN' -or $Request.ReadOnly -cne $true -or
         $Request.Checks -isnot [array] -or
@@ -106,7 +107,17 @@ function Show-WinSecScanConfirmation {
             $profileLines += 'Criteria SHA256: ' + $policy.CatalogSha256
             $profileLines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
         }
-        $profileLines += 'Applicability checked during scan. Score: NOT_SCORED.'
+        $profileLines += 'Applicability checked during scan. Overall score: NOT_SCORED.'
+    }
+    if ($null -ne $Request.ConfigurationScoring) {
+        if ($profileCount -ne 1) {throw 'Configuration scoring requires a confirmed evaluation profile.'}
+        $policy=$Request.ConfigurationScoring
+        Assert-WinSecConfigurationFields $policy @('MethodologyId','MethodologyVersion','PolicySha256')
+        if ($policy.MethodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or $policy.MethodologyVersion -cne '1.0.0' -or
+            $policy.PolicySha256 -isnot [string] -or $policy.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z') { throw 'Invalid configuration scoring preview.' }
+        $profileLines+='Control scoring: verified criteria percentage; sections: equal control mean.'
+        $profileLines+='Method: ' + $policy.MethodologyId + ' / ' + $policy.MethodologyVersion
+        $profileLines+='Scoring policy SHA256: ' + $policy.PolicySha256
     }
 
     $display = [pscustomobject]@{ CanConfirm = $false }

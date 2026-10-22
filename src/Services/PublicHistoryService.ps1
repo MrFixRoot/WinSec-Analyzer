@@ -35,6 +35,9 @@ function ConvertFrom-WinSecPublicHistoryRecord {
         $r.CatalogVersion -isnot [string] -or $r.CatalogVersion.Length -gt 128 -or $r.CatalogVersion -match '[\p{C}]' -or
         $r.ExpectedCheckIds -isnot [array] -or $r.PublicResult -isnot [pscustomobject]){throw 'Invalid public history schema.'}
     $p=$r.PublicResult
+    if ($null -ne (Get-WinSecResultField $p 'ConfigurationAssessment')) {
+        $p.ConfigurationAssessment=ConvertTo-WinSecPublicConfigurationAssessment $p.ConfigurationAssessment $p
+    }
     foreach ($finding in @($p.Findings)) {
         if ($null -ne (Get-WinSecResultField $finding 'Guidance')) {
             $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
@@ -58,7 +61,8 @@ function ConvertFrom-WinSecPublicHistoryRecord {
         $session=New-WinSecResultSession -DeviceId $r.DeviceId -ScanId $r.ScanId -CollectionMode LOCAL `
             -StartedAtUTC $p.StartedAtUTC -CompletedAtUTC $p.CompletedAtUTC -ExecutionStatus $p.ExecutionStatus `
             -ScopeType $r.ScopeType -ScopeKey $r.ScopeKey -ExpectedCheckIds $r.ExpectedCheckIds `
-            -ControlResults $p.ControlResults -Findings $p.Findings -ReviewItems $p.ReviewItems -CatalogVersion $r.CatalogVersion
+            -ControlResults $p.ControlResults -Findings $p.Findings -ReviewItems $p.ReviewItems -CatalogVersion $r.CatalogVersion `
+            -ConfigurationAssessment (Get-WinSecResultField $p 'ConfigurationAssessment')
     } catch { throw 'Public history failed ResultModel validation.' }
     $canonical=ConvertTo-WinSecPublicScanResult -Session $session
     if((Get-WinSecPublicHistoryJson $p) -cne (Get-WinSecPublicHistoryJson $canonical)){throw 'History contains nonpublic or inconsistent result data.'}

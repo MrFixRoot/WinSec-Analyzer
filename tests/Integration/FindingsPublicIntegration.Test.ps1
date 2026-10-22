@@ -232,11 +232,11 @@ Test-WinSecFindingIntegration 'Export shortcut and status fit a small terminal w
     Set-WinSecFindingTestTerminal -Width 40 -Height 20
     $writes=$script:exportWrites
     Show-WinSecCLICurrentScreen -State $state -Context $exportContext
-    Assert-WinSecFindingIntegration (($script:lines -join '|') -match '\[P\] Export MD' -and
+    Assert-WinSecFindingIntegration (($script:lines -join '|') -match '\[P\] Print report' -and
         ($script:lines -join '|') -notmatch '\[R\]' -and $script:lines.Count -le 20 -and
         @($script:lines|Where-Object{$_.Length -gt 39}).Count -eq 0 -and $writes -eq $script:exportWrites -and $script:scanCalls -eq 0)
 }
-foreach($id in @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+foreach($id in @('cis-controls','nist-csf','mitre-attack')) {
     Test-WinSecFindingIntegration ('The real picker exports only the chosen framework and retains history: '+$id) {
         $exportContext=New-WinSecExportContext;$writes=$script:exportWrites;$reads=$script:frameworkReads
         $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
@@ -271,6 +271,7 @@ Test-WinSecFindingIntegration 'Changing the selected control while choosing a fr
 foreach($invalid in @(
     [pscustomobject]@{Confirmed='true';FrameworkId='cis-controls'},
     [pscustomobject]@{Confirmed=$true;FrameworkId='unknown'},
+    [pscustomobject]@{Confirmed=$true;FrameworkId='cis-benchmarks'},
     [pscustomobject]@{Confirmed=$true;FrameworkId=@('cis-controls')},
     [pscustomobject]@{Confirmed=$false;FrameworkId='cis-controls'},
     [pscustomobject]@{Confirmed=$true;FrameworkId='cis-controls';Extra='PRIVATE'},

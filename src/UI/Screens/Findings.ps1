@@ -316,7 +316,8 @@ function Get-WinSecSelectedFindings {
         [AllowEmptyCollection()][object[]]$ControlResults = @(),
         [AllowEmptyCollection()][object[]]$Findings = @(),
         [string]$ScanId = '',
-        [string]$Platform = 'Windows'
+        [string]$Platform = 'Windows',
+        [AllowNull()][object]$ConfigurationAssessment = $null
     )
 
     $context = Get-WinSecFindingsContext -NavigationState $NavigationState
@@ -515,6 +516,12 @@ function Get-WinSecSelectedFindings {
     # Classification remains owned by Core. Do not run the priority engine or
     # generate extra findings, scores, recommendations or synthetic compliance.
     $view.Findings = $matched
+    if ($null -ne $ConfigurationAssessment) {
+        Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId
+        $scoreScope=if ($context.Scope -ceq 'Control') {'CONTROL'} else {'SECTION'}
+        $scoreKey=if ($scoreScope -ceq 'CONTROL' -and $null -ne $control) {$control.CheckId} else {$section.Key}
+        $view.Score=Get-WinSecConfigurationScoreText $ConfigurationAssessment $scoreScope $scoreKey
+    }
     return $view
 }
 
@@ -843,6 +850,7 @@ function Show-WinSecFindings {
 
         [string]$ScanId = '',
 
+        [AllowNull()][object]$ConfigurationAssessment = $null,
         [string]$Platform = 'Windows',
 
         [string]$Version = '0.9.0',
@@ -862,7 +870,7 @@ function Show-WinSecFindings {
         -ControlResults $ControlResults `
         -Findings $Findings `
         -ScanId $ScanId `
-        -Platform $Platform
+        -Platform $Platform -ConfigurationAssessment $ConfigurationAssessment
 
     # --------------------------------------------------------
     # Get adaptive layout

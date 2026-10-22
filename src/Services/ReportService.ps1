@@ -16,14 +16,14 @@ function New-WinSecFindingsMarkdown {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object]$Selection,
-        [ValidateSet('cis-benchmarks','cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
+        [ValidateSet('cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
     )
     $selectedFramework=$PSBoundParameters.ContainsKey('FrameworkId')
-    if ($selectedFramework -and $FrameworkId -cnotin @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+    if ($selectedFramework -and $FrameworkId -cnotin @('cis-controls','nist-csf','mitre-attack')) {
         throw 'Invalid report framework.'
     }
     $copy = Copy-WinSecResultData -Value $Selection
-    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings')
+    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings','ConfigurationAssessment')
     if ($copy -isnot [pscustomobject]) { throw 'Invalid report selection.' }
     foreach ($p in $copy.PSObject.Properties) {
         if ($p.Name -cnotin $allowed) { throw 'Unexpected report field.' }
@@ -65,6 +65,16 @@ function New-WinSecFindingsMarkdown {
             $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
         }
     }
+    $configuration=$null
+    if ($null -ne $copy.ConfigurationAssessment) {
+        $owner=[pscustomobject]@{DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;ScopeType=$copy.SourceScopeType;ScopeKey=$copy.SourceScopeKey;CatalogVersion=$copy.CatalogVersion}
+        $configuration=ConvertTo-WinSecPublicConfigurationAssessment $copy.ConfigurationAssessment $owner
+        $visibleConfiguration=[pscustomobject]@{Controls=@($configuration.Controls|Where-Object {
+            ($copy.ScopeType -ceq 'SECTION' -and $_.SectionKey -ceq $copy.ScopeKey) -or
+            ($copy.ScopeType -ceq 'CONTROL' -and $_.CheckId -ceq $copy.ScopeKey)
+        })}
+        Assert-WinSecConfigurationProvenance ([pscustomobject]@{Findings=$copy.Findings;EvaluationResults=@();CriteriaSelections=@()}) $visibleConfiguration
+    }
     # Leer sólo el marco elegido; el API anterior conserva la vista de los cuatro.
     $frameworks = @()
     $hashes = @()
@@ -87,7 +97,7 @@ function New-WinSecFindingsMarkdown {
         # Diagnostics cannot imply a missing framework control.
         $refs=@()
         if ($finding.Kind -ceq 'CONFIGURATION_DEVIATION' -and $finding.EvaluationStatus -ceq 'FAIL' -and $null -ne $finding.Guidance) {
-            $refs=@(Get-WinSecFrameworkMappings -CheckId $finding.CheckId -Platform Windows -Frameworks @($frameworks|Where-Object {$_.mappingRules.includeInReports -eq $true}))
+            $refs=@(Get-WinSecFrameworkMappings -CheckId $finding.CheckId -CriterionId $finding.Guidance.CriterionId -Platform Windows -Frameworks @($frameworks|Where-Object {$_.mappingRules.includeInReports -eq $true}))
         }
         $referencesByFinding[$finding.FindingId]=$refs
     }
@@ -99,13 +109,25 @@ function New-WinSecFindingsMarkdown {
         ('Exported selection: ' + $copy.ScopeType + ' / ' + (ConvertTo-WinSecMarkdownText $copy.ScopeKey)),
         ('Check catalog: ' + (ConvertTo-WinSecMarkdownText $copy.CatalogVersion)),
         ('Exported at UTC: ' + [DateTime]::UtcNow.ToString('o')),
-        'Score: NOT_SCORED',
+        $(if ($null -ne $configuration) {'Overall device score: NOT_SCORED; individual configuration scores are recorded below.'} else {'Score: NOT_SCORED'}),
         $(if (@($copy.Findings|Where-Object {$null -ne $_.Guidance}).Count -gt 0) {
             'Criteria: original verified criterion snapshots are recorded per finding.'
         } else {'Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
         'Public results only. Framework references provide context; they do not certify compliance.',
         'A partial selection does not replace a complete assessment.','', '## Configured frameworks','')) { $lines.Add($line) }
     if ($selectedFramework) { $lines.Add('Selected export framework: ' + $FrameworkId) }
+    if ($null -ne $configuration) {
+        $lines.Add('Configuration selection score: ' + (Get-WinSecConfigurationScoreText $configuration $copy.ScopeType $copy.ScopeKey))
+        $lines.Add('Configuration methodology: ' + $configuration.MethodologyId + ' / ' + $configuration.MethodologyVersion)
+        $lines.Add('Original scoring policy SHA256: ' + $configuration.PolicySha256)
+        $lines.Add('Coverage and recorded criteria:')
+        foreach ($control in @($configuration.Controls|Where-Object {$copy.ScopeType -ceq 'SECTION' -and $_.SectionKey -ceq $copy.ScopeKey -or $copy.ScopeType -ceq 'CONTROL' -and $_.CheckId -ceq $copy.ScopeKey})) {
+            $lines.Add(('- {0}; score: {1}; criterion coverage: {2}/{3}' -f $control.CheckId,(Get-WinSecConfigurationScoreText $configuration 'CONTROL' $control.CheckId),$control.EvaluatedCriteria,$control.TotalCriteria))
+            foreach ($criterion in $control.Criteria) {
+                $lines.Add((ConvertTo-WinSecMarkdownText ('  Criterion: ' + $criterion.CriterionId + '; ' + $criterion.Status + '; catalog: ' + $criterion.CatalogId + ' / ' + $criterion.CatalogVersion + '; SHA256: ' + $criterion.CatalogSha256)))
+            }
+        }
+    }
     for ($i=0; $i -lt $frameworks.Count; $i++) {
         $fw=$frameworks[$i]
         $lines.Add(('- {0}; version: {1}; schema: {2}; SHA256: {3}' -f
@@ -146,6 +168,8 @@ function New-WinSecFindingsMarkdown {
                 (ConvertTo-WinSecMarkdownText $ref.FrameworkName),(ConvertTo-WinSecMarkdownText $ref.FrameworkVersion),
                 (ConvertTo-WinSecMarkdownText $ref.ReferenceId),(ConvertTo-WinSecMarkdownText $ref.Title)))
             if ($ref.Url) { $lines.Add('  Source: ' + (ConvertTo-WinSecMarkdownText $ref.Url)) }
+            if ($ref.Description) { $lines.Add('  Control context: ' + (ConvertTo-WinSecMarkdownText $ref.Description)) }
+            if ($ref.Recommendation) { $lines.Add('  Framework-oriented manual guidance: ' + (ConvertTo-WinSecMarkdownText $ref.Recommendation)) }
         }
         $lines.Add('')
         if ($null -ne $finding.Guidance) {

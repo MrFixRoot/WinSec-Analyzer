@@ -77,7 +77,7 @@ function Export-WinSecFindingsMarkdown {
     param(
         [Parameter(Mandatory)][string]$ProjectRoot,
         [Parameter(Mandatory)][object]$Selection,
-        [ValidateSet('cis-benchmarks','cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
+        [ValidateSet('cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
     )
     $installation=Get-WinSecReportInstallation -ProjectRoot $ProjectRoot
     $reportArguments=@{Selection=$Selection}

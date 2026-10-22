@@ -269,5 +269,16 @@
       "title": "Measurement Guide for Information Security",
       "url": "https://csrc.nist.gov/pubs/sp/800/55/v1/final"
     }
-  ]
+  ],
+  "configurationScoring": {
+    "schemaVersion": "1.0.0",
+    "enabled": true,
+    "methodologyId": "WSA_CONTROL_CRITERIA_MEAN",
+    "methodologyVersion": "1.0.0",
+    "controlMethod": "PASS_CRITERIA_FRACTION",
+    "sectionMethod": "EQUAL_CONTROL_MEAN",
+    "requireCompleteControl": true,
+    "requireCompleteSection": true,
+    "globalDeviceScore": false
+  }
 }

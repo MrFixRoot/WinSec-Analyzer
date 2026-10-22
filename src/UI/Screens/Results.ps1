@@ -30,7 +30,8 @@ function Get-WinSecSectionControls {
         [string]$SectionKey,
 
         [AllowEmptyCollection()]
-        [object[]]$ControlResults = @()
+        [object[]]$ControlResults = @(),
+        [AllowNull()][object]$ConfigurationAssessment = $null
     )
 
     # Use the validated catalog for display identities, never execution rights.
@@ -133,7 +134,7 @@ function Get-WinSecSectionControls {
             CheckId = $definition.CheckId
             SectionKey = $definition.SectionKey
             Name = $definition.Name
-            Score = 'NOT_SCORED'
+            Score = if ($null -ne $ConfigurationAssessment) {Get-WinSecConfigurationScoreText $ConfigurationAssessment 'CONTROL' $definition.CheckId} else {'NOT_SCORED'}
             Status = $status
             ObservedStatus = $observed
             CheckFile = $definition.Script
@@ -197,6 +198,8 @@ function Show-WinSecResults {
         [AllowEmptyCollection()]
         [object[]]$ControlResults = @(),
 
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [string]$ScanId = '',
         [string]$Version = '0.9.0',
         [switch]$EnableRescan,
         [ValidateSet('Scan','Rescan')][string]$ScanAction = 'Scan'
@@ -206,9 +209,10 @@ function Show-WinSecResults {
     # Resolve selected section
     # --------------------------------------------------------
 
+    if ($null -ne $ConfigurationAssessment) {Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId}
     $sections = @(
         Get-WinSecMainMenuSections `
-            -SectionResults $SectionResults
+            -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment
     )
 
     if ($sections.Count -eq 0) {
@@ -243,7 +247,7 @@ function Show-WinSecResults {
     $controls = @(
         Get-WinSecSectionControls `
             -SectionKey $section.Key `
-            -ControlResults $ControlResults
+            -ControlResults $ControlResults -ConfigurationAssessment $ConfigurationAssessment
     )
 
     if ($controls.Count -gt 0) {

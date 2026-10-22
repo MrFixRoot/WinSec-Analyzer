@@ -11,9 +11,8 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/UI/Screens/ScanConfirmation.ps1')
 . (Join-Path $root 'src/UI/Screens/ScanProgress.ps1')
 $script:catalog = Get-WinSecCheckRegistry -ProjectRoot $root
-if (@($script:catalog.Checks | Where-Object ExecutionEnabled).Count -ne 0) {
-    throw 'Production controls must remain disabled.'
-}
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 $script:passed = 0
 $script:failed = 0
 $script:statusCalls = 0
@@ -89,6 +88,7 @@ function Import-WinSecDeviceInventory {
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $registry = Copy-WinSecResultData $script:catalog
+    foreach($item in $registry.Checks){$item.ExecutionEnabled=$false;$item.ExecutionReady=$false}
     if ($script:ready) {
         $check = $registry.Checks | Where-Object CheckId -CEQ 'WSA-SYS-001'
         # Eligibility belongs only to this in-memory fixture.
@@ -207,7 +207,7 @@ Test-WinSecDefenderIntegration 'Cancellation never collects or publishes a sessi
         $script:preferenceCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 0)
 }
 
-Test-WinSecDefenderIntegration 'Production disabled catalog cannot execute Defender' {
+Test-WinSecDefenderIntegration 'An explicitly disabled Defender fixture cannot execute' {
     $script:ready = $false
     $rejected = $false
     try {

@@ -8,6 +8,7 @@ $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/UI/Screens/AssessmentProfileSelection.ps1')
 $script:registry=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
+function Get-WinSecInstalledAssessmentProfiles { @() } # This suite isolates synthetic profiles and draft fallback.
 $script:passed=0;$script:failed=0
 function Assert-WinSecProfile {param([bool]$Value);if(-not $Value){throw 'Assessment profile assertion failed.'}}
 function Assert-WinSecProfileRejected {param([scriptblock]$Action);$caught=$false;try{$null=& $Action}catch{$caught=$true};Assert-WinSecProfile $caught}

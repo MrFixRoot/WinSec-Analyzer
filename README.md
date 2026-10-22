@@ -88,7 +88,6 @@ The workflow above is the approved design; availability of each step must be con
 
 The project's framework catalogues cover:
 
-- **CIS Benchmarks** — Windows configuration guidance.
 - **CIS Controls** — prioritized security safeguards.
 - **NIST Cybersecurity Framework (CSF)** — risk-management context.
 - **MITRE ATT&CK** — adversary behavior and defensive context.

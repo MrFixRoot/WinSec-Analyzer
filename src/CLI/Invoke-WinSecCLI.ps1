@@ -353,6 +353,11 @@ function Get-WinSecCLIActiveAssessment {
         # safe. Inspect the whole snapshot, including aliases and collections
         # not currently rendered. The copier already enforces depth/node
         # limits, data-only properties and absence of cycles.
+        $configurationAssessment=$null
+        if ($null -ne (Get-WinSecCLIValue $publicResult 'ConfigurationAssessment')) {
+            $configurationAssessment=ConvertTo-WinSecPublicConfigurationAssessment $publicResult.ConfigurationAssessment $publicResult
+            Assert-WinSecConfigurationProvenance ([pscustomobject]@{Findings=$publicResult.Findings;EvaluationResults=@();CriteriaSelections=@()}) $configurationAssessment
+        }
         $publicValues = New-Object 'System.Collections.Generic.Stack[object]'
         $publicValues.Push($publicResult)
         while ($publicValues.Count -gt 0) {
@@ -463,6 +468,7 @@ function Get-WinSecCLIActiveAssessment {
             SourceScopeType = Get-WinSecCLIValue $publicResult 'ScopeType'
             SourceScopeKey = Get-WinSecCLIValue $publicResult 'ScopeKey'
             CatalogVersion = Get-WinSecCLIValue $publicResult 'CatalogVersion'
+            ConfigurationAssessment = $configurationAssessment
         }
     }
 
@@ -819,6 +825,7 @@ function Show-WinSecCLICurrentScreen {
                 -SectionResults $assessment.SectionResults `
                 -OverallScore $assessment.OverallScore `
                 -OverallStatus $assessment.OverallStatus `
+                -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -Version $Context.Version `
                 @scanPresentation
 
@@ -850,6 +857,7 @@ function Show-WinSecCLICurrentScreen {
             $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
             Show-WinSecResults `
                 -NavigationState $State `
+                -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
                 -Version $Context.Version @scanPresentation
@@ -859,6 +867,7 @@ function Show-WinSecCLICurrentScreen {
             $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
             Show-WinSecResults `
                 -NavigationState $State `
+                -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
                 -Version $Context.Version @scanPresentation
@@ -872,6 +881,7 @@ function Show-WinSecCLICurrentScreen {
                 -ControlResults $assessment.ControlResults `
                 -Findings $assessment.Findings `
                 -ScanId $assessment.ScanId `
+                -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') `
                 -Version $Context.Version -EnableExport:$enableExport -Message ([string](Get-WinSecCLIValue $Context 'LastExportMessage'))
         }
 
@@ -1027,7 +1037,7 @@ function Get-WinSecCLIFindingsExportSelection {
         -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $assessment.ScanId
     if ($view.Warning -or @($view.Findings).Count -eq 0 -or $view.DeviceId -cne $State.SelectedDeviceId -or
         $view.ScanId -cne $assessment.ScanId) { throw 'No verified findings to export.' }
-    return [pscustomobject]@{DeviceId=$view.DeviceId;ScanId=$view.ScanId;SourceScopeType=$assessment.SourceScopeType;
+    $selection=[pscustomobject]@{DeviceId=$view.DeviceId;ScanId=$view.ScanId;SourceScopeType=$assessment.SourceScopeType;
         SourceScopeKey=$assessment.SourceScopeKey;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey;
         CatalogVersion=$assessment.CatalogVersion;Findings=@(foreach($f in $view.Findings){
             $exportFinding=[pscustomobject]@{FindingId=$f.FindingId;CheckId=$f.CheckId;DeviceId=$f.DeviceId;ScanId=$f.ScanId;
@@ -1035,6 +1045,9 @@ function Get-WinSecCLIFindingsExportSelection {
             if ($null -ne $f.Guidance) {$exportFinding|Add-Member -NotePropertyName Guidance -NotePropertyValue (Copy-WinSecResultData $f.Guidance)}
             $exportFinding
         })}
+    $configuration=Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
+    if ($null -ne $configuration) {$selection|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue (Copy-WinSecResultData $configuration)}
+    return $selection
 }
 
 function Test-WinSecCLIFindingsExportEligibility {
@@ -1060,7 +1073,7 @@ function Invoke-WinSecCLIFindingsExport {
         $Context | Add-Member -NotePropertyName LastExportMessage -NotePropertyValue 'Export cancelled.' -Force
         return $null
     }
-    if ($answer.FrameworkId -isnot [string] -or $answer.FrameworkId -cnotin @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+    if ($answer.FrameworkId -isnot [string] -or $answer.FrameworkId -cnotin @('cis-controls','nist-csf','mitre-attack')) {
         throw 'Invalid export framework.'
     }
     $current=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
@@ -1100,6 +1113,9 @@ function Get-WinSecCLIViewScope {
     $sections = @(Get-WinSecMainMenuSections)
     if ($State.SectionIndex -isnot [int] -or $State.SectionIndex -lt 0 -or $State.SectionIndex -ge $sections.Count) {
         throw 'Invalid assessment section selection.'
+    }
+    if ($State.Screen -cin @('Section','Results')) {
+        return Get-WinSecCLIScanScope -State $State
     }
     if ($State.Screen -ceq 'Findings') {
         if ($State.FindingsScope -cnotin @('Section','Control')) { throw 'Invalid findings scope.' }
@@ -1537,6 +1553,11 @@ function Invoke-WinSecCLILocalRescan {
         }
     }
 
+    $configuration=Get-WinSecCLIValue $publicResult 'ConfigurationAssessment'
+    if ($null -ne $configuration) {
+        if ($scope.ScopeType -ceq 'DEVICE') {$Context.LastScanMessage='Device scan completed. Configuration results recorded; overall device score: NOT_SCORED.'}
+        else {$Context.LastScanMessage='{0} scan completed. Configuration score: {1}.' -f $scope.Label,(Get-WinSecConfigurationScoreText $configuration $scope.ScopeType $scope.ScopeKey)}
+    }
     # Return only an owned copy of the validated public projection.
     if ($State.Screen -ceq 'Devices') {
         $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force

@@ -26,7 +26,8 @@ function Get-WinSecMainMenuSections {
     [CmdletBinding()]
     param(
         [AllowEmptyCollection()]
-        [object[]]$SectionResults = @()
+        [object[]]$SectionResults = @(),
+        [AllowNull()][object]$ConfigurationAssessment = $null
     )
 
     # Main security categories
@@ -134,7 +135,7 @@ function Get-WinSecMainMenuSections {
             Id     = $definition.Id
             Key    = $definition.Key
             Name   = $definition.Name
-            Score  = 'NOT_SCORED'
+            Score  = if ($null -ne $ConfigurationAssessment) {Get-WinSecConfigurationScoreText $ConfigurationAssessment 'SECTION' $definition.Key} else {'NOT_SCORED'}
             Status = $status
         }
     }
@@ -265,6 +266,8 @@ function Show-WinSecMainMenu {
         [AllowEmptyCollection()]
         [object[]]$SectionResults = @(),
 
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [string]$ScanId = '',
         [Nullable[int]]$OverallScore = $null,
 
         [string]$OverallStatus = 'PENDING',
@@ -283,8 +286,9 @@ function Show-WinSecMainMenu {
     if ($null -ne $OverallScore -or $OverallStatus -cnotin @('PENDING','NOT_SCORED')) {
         throw 'Invalid unscored MainMenu summary.'
     }
+    if ($null -ne $ConfigurationAssessment) {Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId}
     $sections = @(
-        Get-WinSecMainMenuSections -SectionResults $SectionResults
+        Get-WinSecMainMenuSections -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment
     )
 
     # --------------------------------------------------------

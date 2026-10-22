@@ -435,6 +435,9 @@ function ConvertTo-WinSecCoordinatedSession {
         $scopeArguments.EvaluationResults = @($Assessment.EvaluationResults)
         $scopeArguments.CriteriaSelections = @($Assessment.CriteriaSelections)
         $scopeArguments.Findings = @($Assessment.Findings)
+        if ($null -ne (Get-WinSecResultField $Assessment 'ConfigurationAssessment')) {
+            $scopeArguments.ConfigurationAssessment=$Assessment.ConfigurationAssessment
+        }
     }
     if ($PSBoundParameters.ContainsKey('ScopeType') -or $PSBoundParameters.ContainsKey('ScopeKey')) {
         $scopeArguments.ScopeType = $ScopeType
@@ -724,6 +727,14 @@ function Get-WinSecScanConfirmationPlan {
             -CheckIds @($checks|ForEach-Object {$_.CheckId}) -Profile $AssessmentProfile
         $request | Add-Member -NotePropertyName EvaluationProfile -NotePropertyValue $profilePlan.Preview
     }
+    $configurationPolicy=$null
+    if ($null -ne $profilePlan -and @($profilePlan.Catalogs.Values|Where-Object {$null -ne $_ -and $_.Catalog.ScoringEnabled -ceq $true}).Count) {
+        $configurationPolicy=Get-WinSecConfigurationScoringPolicy $Coordinator.ProjectRoot
+        if ($null -ne $configurationPolicy -and $configurationPolicy.Policy.enabled) {
+            $request|Add-Member -NotePropertyName ConfigurationScoring -NotePropertyValue ([pscustomobject]@{
+                MethodologyId=$configurationPolicy.Policy.methodologyId;MethodologyVersion=$configurationPolicy.Policy.methodologyVersion;PolicySha256=$configurationPolicy.Sha256})
+        }
+    }
     $requestJson = ConvertTo-Json -InputObject $request -Depth 8 -Compress
     return [pscustomobject]@{
         Target = $target
@@ -732,6 +743,7 @@ function Get-WinSecScanConfirmationPlan {
         ScopeType = if ($hasScope) { $ScopeType } else { $null }
         ScopeKey = if ($hasScope) { $ScopeKey } else { $null }
         AssessmentCatalogs = if ($null -ne $profilePlan) { $profilePlan.Catalogs } else { $null }
+        ConfigurationPolicy = $configurationPolicy
         RequestJson = $requestJson
         Fingerprint = [System.IO.Path]::GetFullPath($Coordinator.ProjectRoot) +
             '|' + $catalogHash + '|' + ($sources -join '|') + '|' + $requestJson
@@ -1012,6 +1024,12 @@ function Invoke-WinSecCoordinatedScan {
         $scopeArguments.Assessment = Invoke-WinSecScanAssessment -AuditResult $audit -ProjectRoot $Coordinator.ProjectRoot `
             -TargetContext $assessmentInputs.TargetContext -DependencyEvidence $assessmentInputs.DependencyEvidence `
             -CatalogSnapshots $assessmentCatalogs
+        if ($null -ne $approvedPlan.ConfigurationPolicy) {
+            $summary=New-WinSecConfigurationAssessment -Audit $audit -Assessment $scopeArguments.Assessment `
+                -Context $assessmentInputs.TargetContext -Registry $approvedPlan.Registry -Catalogs $assessmentCatalogs `
+                -PolicySnapshot $approvedPlan.ConfigurationPolicy -ScopeType $approvedPlan.ScopeType -ScopeKey $approvedPlan.ScopeKey -ProjectRoot $Coordinator.ProjectRoot
+            if ($null -ne $summary) {$scopeArguments.Assessment|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue $summary}
+        }
     }
     $session = ConvertTo-WinSecCoordinatedSession @scopeArguments `
         -AuditResult $audit

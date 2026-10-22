@@ -26,7 +26,7 @@
 # ============================================================
 
 [CmdletBinding()]
-param()
+param([switch]$SkipLive)
 
 $ErrorActionPreference = 'Stop'
 $script:Passed = 0
@@ -336,7 +336,7 @@ Test-Case 'Section result preserves DeviceId and ScanId' {
 # GROUP 3 - REAL DEFENDER, NEVER GRADED
 # ============================================================
 
-if ($env:OS -eq 'Windows_NT') {
+if ($env:OS -eq 'Windows_NT' -and -not $SkipLive) {
     $device = 'local:{0}' -f $env:COMPUTERNAME
     $scan = 'SCORE-LIVE-{0}' -f ([guid]::NewGuid().ToString('N'))
     $script:LiveCollector = $null
@@ -383,9 +383,9 @@ if ($env:OS -eq 'Windows_NT') {
     }
 }
 else {
-    Skip-Case 'Real Defender collector returns one read-only result' 'Windows is required.'
-    Skip-Case 'Real draft criteria remain blocked for live evidence' 'Windows is required.'
-    Skip-Case 'Real Defender produces NOT_SCORED without approved criteria' 'Windows is required.'
+    Skip-Case 'Real Defender collector returns one read-only result' 'Native collection skipped (-SkipLive) or Windows unavailable.'
+    Skip-Case 'Real draft criteria remain blocked for live evidence' 'Native collection skipped (-SkipLive) or Windows unavailable.'
+    Skip-Case 'Real Defender produces NOT_SCORED without approved criteria' 'Native collection skipped (-SkipLive) or Windows unavailable.'
 }
 
 # ============================================================

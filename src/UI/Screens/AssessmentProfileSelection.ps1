@@ -51,7 +51,7 @@ function Show-WinSecAssessmentProfileSelection {
         $lines = @('WINSEC ANALYZER - ASSESSMENT PROFILE',
             ('Device: ' + $requestCopy.Hostname),('DeviceId: ' + $requestCopy.DeviceId),
             ('Scope: {0} / {1}' -f $requestCopy.ScopeType,$requestCopy.ScopeKey),
-            'Mode: READ ONLY | Score: NOT_SCORED',
+            'Mode: READ ONLY | Overall score: NOT_SCORED',
             ('Approved profiles available: ' + $options.Count),
             ('Choice {0} / {1}' -f ($display.Index+1),($options.Count+1)))
         if ($display.Index -eq 0) {

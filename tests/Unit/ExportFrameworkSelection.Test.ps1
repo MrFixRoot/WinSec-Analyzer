@@ -34,7 +34,11 @@ function Test-WinSecExportChoice {
     try {$null=& $Action;$script:passed++;Write-Host ('[PASS] '+$Name)}
     catch {$script:failed++;Write-Host ('[FAIL] '+$Name+' : '+$_.Exception.Message)}
 }
-foreach($index in 0..3) {
+Test-WinSecExportChoice 'Only the three supported frameworks are offered' {
+    $options=@(Get-WinSecExportFrameworkOptions)
+    Assert-WinSecExportChoice ($options.Count -eq 3 -and ($options.Id -join ',') -ceq 'cis-controls,nist-csf,mitre-attack')
+}
+foreach($index in 0..2) {
     foreach($code in @(13,89)) {
         Test-WinSecExportChoice ('Each framework shows its benefit and requires Y/Enter: '+$index+' / '+$code) {
             $options=@(Get-WinSecExportFrameworkOptions);$before=ConvertTo-Json $script:selection -Compress
@@ -79,7 +83,7 @@ Test-WinSecExportChoice 'Resize preserves selection and still requires a fresh c
     $script:keys.Enqueue((New-WinSecExportChoiceKey 0 '' ([pscustomobject]@{Width=100;ContentWidth=99;Height=35})))
     $script:keys.Enqueue((New-WinSecExportChoiceKey 13))
     $answer=Show-WinSecExportFrameworkSelection $script:selection
-    Assert-WinSecExportChoice ($answer.FrameworkId -ceq 'cis-controls' -and $script:keys.Count -eq 0)
+    Assert-WinSecExportChoice ($answer.FrameworkId -ceq 'nist-csf' -and $script:keys.Count -eq 0)
 }
 Test-WinSecExportChoice 'Unsafe identity and calculated properties fail before display' {
     $script:selection.DeviceId="bad`nID";$rejected=$false

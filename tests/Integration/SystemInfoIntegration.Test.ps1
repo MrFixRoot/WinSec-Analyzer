@@ -8,7 +8,8 @@ $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
 $script:assessment=(Get-Command Invoke-WinSecScanAssessment).ScriptBlock
-if (@($script:catalog.Checks|Where-Object ExecutionEnabled).Count) { throw 'Production checks must remain disabled.' }
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 $script:passed=0; $script:failed=0
 function Assert-WinSecSystemInfoIntegration {param([bool]$Value);if(-not $Value){throw 'SystemInfo integration assertion failed.'}}
 function Get-CimInstance {
@@ -43,6 +44,7 @@ function Import-WinSecDeviceInventory {
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $copy=Copy-WinSecResultData $script:catalog
+    foreach($item in $copy.Checks){$item.ExecutionEnabled=$false;$item.ExecutionReady=$false}
     if ($script:ready) {
         $check=$copy.Checks|Where-Object CheckId -CEQ WSA-SYS-001
         $check.ExecutionEnabled=$true; $check.ExecutionReady=$true

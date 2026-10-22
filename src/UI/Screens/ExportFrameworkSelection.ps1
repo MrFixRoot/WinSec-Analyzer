@@ -3,7 +3,6 @@ function Get-WinSecExportFrameworkOptions {
     [CmdletBinding()]
     param()
     @(
-        [pscustomobject]@{Id='cis-benchmarks';Name='CIS Benchmarks';Benefit='Detailed configuration guidance for a specific product, version and profile.'}
         [pscustomobject]@{Id='cis-controls';Name='CIS Controls';Benefit='Prioritized safeguards to organize practical security improvements.'}
         [pscustomobject]@{Id='nist-csf';Name='NIST CSF';Benefit='Risk management outcomes to communicate protection and detection needs.'}
         [pscustomobject]@{Id='mitre-attack';Name='MITRE ATT&CK';Benefit='Adversary techniques and defensive context to explain the threat addressed.'}

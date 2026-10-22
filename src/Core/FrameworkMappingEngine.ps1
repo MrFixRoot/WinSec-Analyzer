@@ -10,7 +10,6 @@
 # framework references using configured JSON mappings.
 #
 # Supported frameworks:
-# - CIS Benchmarks
 # - CIS Controls
 # - NIST CSF
 # - MITRE ATT&CK
@@ -225,24 +224,6 @@ function Test-WinSecFrameworkReference {
 
     switch ($FrameworkId) {
 
-        'cis-benchmarks' {
-
-            $benchmarkId = Get-WinSecFrameworkString `
-                -InputObject $Mapping -Name 'benchmarkId'
-
-            $benchmarkVersion = Get-WinSecFrameworkString `
-                -InputObject $Mapping -Name 'benchmarkVersion'
-
-            if (
-                [string]::IsNullOrWhiteSpace($benchmarkId) -or
-                [string]::IsNullOrWhiteSpace($benchmarkVersion)
-            ) {
-                return $false
-            }
-
-            return $true
-        }
-
         'cis-controls' {
 
             if ([string]::IsNullOrWhiteSpace($version)) {
@@ -342,7 +323,8 @@ function Get-WinSecFrameworkMappings {
         [AllowEmptyCollection()]
         [object[]]$Frameworks = @(),
 
-        [string]$Platform = ''
+        [string]$Platform = '',
+        [string]$CriterionId = ''
     )
 
     # Prevent duplicate framework references
@@ -373,7 +355,6 @@ function Get-WinSecFrameworkMappings {
         }
 
         if ($frameworkId -notin @(
-            'cis-benchmarks',
             'cis-controls',
             'nist-csf',
             'mitre-attack'
@@ -442,6 +423,9 @@ function Get-WinSecFrameworkMappings {
                 if ($null -eq $reference) {
                     continue
                 }
+                $criterionIds=Get-WinSecFrameworkField $reference 'criterionIds'
+                if ($null -ne $criterionIds -and
+                    ($criterionIds -isnot [array] -or $criterionIds.Count -eq 0 -or $criterionIds -cnotcontains $CriterionId)) { continue }
 
                 # Validate framework-specific requirements
                 $valid = Test-WinSecFrameworkReference `
@@ -492,7 +476,6 @@ function Get-WinSecFrameworkMappings {
                 if (-not $referenceType) {
 
                     $referenceType = switch ($frameworkId) {
-                        'cis-benchmarks' { 'Benchmark' }
                         'cis-controls'   { 'Safeguard' }
                         'nist-csf'       { 'Subcategory' }
                         'mitre-attack'   { 'Technique' }
@@ -537,6 +520,8 @@ function Get-WinSecFrameworkMappings {
                     ReferenceType    = $referenceType
                     Title            = $title
                     Url              = $url
+                    Description      = Get-WinSecFrameworkString -InputObject $reference -Name 'description'
+                    Recommendation   = Get-WinSecFrameworkString -InputObject $reference -Name 'recommendation'
 
                     BenchmarkId      = $benchmarkId
                     BenchmarkVersion = $benchmarkVersion

@@ -10,14 +10,15 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Components/Table.ps1','src/UI/Components/KeyboardHelp.ps1','src/UI/Screens/MainMenu.ps1',
     'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/Devices.ps1','src/UI/Screens/ScanConfirmation.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
-if(@($script:catalog.Checks|Where-Object{$_.ExecutionEnabled}).Count){throw 'Production checks must remain disabled.'}
+$enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
+if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
 $script:passed=0;$script:failed=0
 function Get-CimInstance {[pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}}
 function Assert-WinSecNavigationScan {param([bool]$Condition);if(-not $Condition){throw 'Scoped navigation assertion failed.'}}
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $registry=Copy-WinSecResultData -Value $script:catalog
-    foreach($check in $registry.Checks){if($check.CheckId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-NET-001') -and $check.CheckId -cne $script:disabledCheck){
+    foreach($check in $registry.Checks){$check.ExecutionEnabled=$false;$check.ExecutionReady=$false;if($check.CheckId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-NET-001') -and $check.CheckId -cne $script:disabledCheck){
         $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
     }}
     return $registry
@@ -120,7 +121,11 @@ Test-WinSecScopedNavigation 'Partial scans append separate sessions and never re
     Show-WinSecCLICurrentScreen -State $script:state -Context $script:context
     Assert-WinSecNavigationScan (($script:lines -join '|') -notmatch '\[R\]' -and $script:collected.Count -eq 6)
     Invoke-WinSecNavigationKey 27
-    Assert-WinSecNavigationScan ((Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $section.ScanId)
+    # The controls screen presents the selected control's exact session when
+    # available; this does not replace the independently stored section scan.
+    Assert-WinSecNavigationScan ((Get-WinSecCLIActiveAssessment $script:state $script:context).ScanId -ceq $control.ScanId)
+    $sectionView=[pscustomobject]@{Screen='Findings';FindingsScope='Section';SelectedDeviceId=$deviceId;SectionIndex=$script:state.SectionIndex;ControlIndex=0}
+    Assert-WinSecNavigationScan ((Get-WinSecCLIActiveAssessment $sectionView $script:context).ScanId -ceq $section.ScanId)
     Invoke-WinSecNavigationKey 27
     $read=Get-WinSecCLIActiveAssessment $script:state $script:context
     Assert-WinSecNavigationScan ($read.ScanId -ceq $full.ScanId -and $script:context.ActiveScanByDevice[$deviceId] -ceq $full.ScanId -and

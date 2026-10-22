@@ -27,6 +27,8 @@
 # A result model is NOT an authorization or scoring engine.
 # ============================================================
 
+. (Join-Path $PSScriptRoot 'ConfigurationScore.ps1')
+
 function Get-WinSecResultField {
     [CmdletBinding()]
     param(
@@ -398,6 +400,7 @@ function New-WinSecResultSession {
         [AllowEmptyCollection()][object[]]$ReviewItems = @(),
         [AllowNull()][object]$ScoreResult = $null,
         [AllowNull()][object]$ScoringPolicy = $null,
+        [AllowNull()][object]$ConfigurationAssessment = $null,
         [string]$CatalogVersion = '',
         [AllowNull()][object]$ScopeType = $null,
         [AllowNull()][object]$ScopeKey = $null
@@ -601,6 +604,10 @@ function New-WinSecResultSession {
     if ($hasScope) {
         $session | Add-Member -NotePropertyName ScopeType -NotePropertyValue $ScopeType
         $session | Add-Member -NotePropertyName ScopeKey -NotePropertyValue $ScopeKey
+    }
+    if ($null -ne $ConfigurationAssessment) {
+        $session|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue `
+            (ConvertTo-WinSecPublicConfigurationAssessment $ConfigurationAssessment $session)
     }
     return $session
 }
@@ -883,6 +890,12 @@ function ConvertTo-WinSecPublicScanResult {
     if ($null -ne $scopeType) {
         $public | Add-Member -NotePropertyName ScopeType -NotePropertyValue $scopeType
         $public | Add-Member -NotePropertyName ScopeKey -NotePropertyValue (Get-WinSecResultField $Session 'ScopeKey')
+    }
+    if ($null -ne (Get-WinSecResultField $Session 'ConfigurationAssessment')) {
+        Assert-WinSecConfigurationProvenance $Session $Session.ConfigurationAssessment
+        $public|Add-Member -NotePropertyName CatalogVersion -NotePropertyValue $Session.CatalogVersion
+        $public|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue `
+            (ConvertTo-WinSecPublicConfigurationAssessment $Session.ConfigurationAssessment $Session)
     }
     return $public
 }

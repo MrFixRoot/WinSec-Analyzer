@@ -366,7 +366,7 @@ try {
 
 
     Invoke-WinSecRegistryTest `
-        -Name 'Initial controls remain disabled' `
+        -Name 'Only individually validated Defender is executable' `
         -Test {
 
             $summary = Get-WinSecCheckRegistrySummary `
@@ -378,15 +378,18 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 12
+                -Expected 11
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `
-                -Expected 0
+                -Expected 1
 
             Assert-WinSecEqual `
                 -Actual $summary.Ready `
-                -Expected 0
+                -Expected 1
+            $executable=@($script:BaseRegistry.Checks|Where-Object ExecutionEnabled)
+            Assert-WinSecEqual -Actual $executable[0].CheckId -Expected 'WSA-SYS-001'
+            Assert-WinSecEqual -Actual $executable[0].ImplementationStatus -Expected 'VALIDATED'
         }
 
 
@@ -450,7 +453,8 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $ready.Count `
-                -Expected 0
+                -Expected 1
+            Assert-WinSecEqual -Actual $ready[0].CheckId -Expected 'WSA-SYS-001'
         }
 
 
@@ -617,6 +621,7 @@ try {
             $copy = Copy-WinSecTestCatalog
 
             $copy.checks[0].execution.enabled = $true
+            $copy.checks[0].implementationStatus = 'PENDING_VALIDATION'
 
             Assert-WinSecInvalidCatalog `
                 -Catalog $copy `
