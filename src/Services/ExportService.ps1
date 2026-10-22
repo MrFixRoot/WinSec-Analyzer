@@ -74,8 +74,14 @@ function Write-WinSecMarkdownArtifact {
 
 function Export-WinSecFindingsMarkdown {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][object]$Selection)
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][object]$Selection,
+        [ValidateSet('cis-benchmarks','cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
+    )
     $installation=Get-WinSecReportInstallation -ProjectRoot $ProjectRoot
-    $report=New-WinSecFindingsMarkdown -Selection $Selection
+    $reportArguments=@{Selection=$Selection}
+    if ($PSBoundParameters.ContainsKey('FrameworkId')) { $reportArguments.FrameworkId=$FrameworkId }
+    $report=New-WinSecFindingsMarkdown @reportArguments
     return Write-WinSecMarkdownArtifact -ProjectRoot $installation -Report $report
 }

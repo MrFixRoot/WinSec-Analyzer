@@ -441,6 +441,7 @@ function Get-WinSecSelectedFindings {
         }
         $row = [pscustomobject]@{
             Id=$id; FindingId=$id; Finding=$title; Description=$description
+            ConfigurationState=if ($null -ne $guidance -and $kind -ceq 'CONFIGURATION_DEVIATION' -and $evaluation -ceq 'FAIL') {'MISCONFIGURED'} else {$evaluation}
             Kind=$kind; EvaluationStatus=$evaluation; Severity='UNASSIGNED'; Priority='UNASSIGNED'
             Evidence=''; Recommendation=if ($null -ne $guidance) {$guidance.Recommendation} else {$finding.Recommendation}
             Reference=if ($null -ne $guidance) {'{0} {1} / {2}: {3}' -f $guidance.Framework,$guidance.FrameworkVersion,$guidance.ReferenceId,$guidance.ReferenceUrl} else {''}
@@ -1038,26 +1039,17 @@ function Show-WinSecFindings {
         }
 
         @{
-            Key      = 'Priority'
-            Header   = 'Priority'
-            Width    = 10
-            MinWidth = 10
-            MaxWidth = 10
+            Key      = 'ConfigurationState'
+            Header   = 'State'
+            Width    = 14
+            MinWidth = 7
+            MaxWidth = 14
             Priority = 2
         }
 
         @{
-            Key      = 'Severity'
-            Header   = 'Severity'
-            Width    = 10
-            MinWidth = 10
-            MaxWidth = 10
-            Priority = 3
-        }
-
-        @{
             Key      = 'Finding'
-            Header   = 'Finding / diagnostic'
+            Header   = 'Configuration / diagnostic'
             Width    = 46
             MinWidth = 14
             MaxWidth = 72

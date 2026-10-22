@@ -58,7 +58,7 @@ Test-WinSecFindingIntegration 'Real pending evaluations reach the public view wi
     $assessment=Get-WinSecCLIActiveAssessment -State $state -Context $context
     $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $scan
     Assert-WinSecFindingIntegration ($public.Findings.Count -eq 4 -and $view.Findings.Count -eq 3 -and
-        @($view.Findings|Where-Object{$_.Priority -cne 'UNASSIGNED' -or $_.Severity -cne 'UNASSIGNED' -or $_.Kind -cne 'EVALUATION_PENDING'}).Count -eq 0 -and
+        @($view.Findings|Where-Object{$_.Priority -cne 'UNASSIGNED' -or $_.Severity -cne 'UNASSIGNED' -or $_.Kind -cne 'EVALUATION_PENDING' -or $_.ConfigurationState -cne 'NOT_EVALUATED'}).Count -eq 0 -and
         @($view.Findings|Where-Object{$_.FindingId -cnotin $public.Findings.FindingId}).Count -eq 0 -and $view.Score -ceq 'NOT_SCORED')
 }
 Test-WinSecFindingIntegration 'CLI counts use the same CheckId routing as section and control views' {
@@ -133,8 +133,18 @@ Test-WinSecFindingIntegration 'A nested private field prevents both counting and
 }
 # Exportación conectada al informe real; el único escritor se sustituye en memoria.
 foreach($file in @('src/Core/TargetRegistry.ps1','src/Core/DeviceInventory.ps1',
-    'src/Services/DeviceManagementService.ps1','src/Services/ReportService.ps1','src/Services/ExportService.ps1')) { . (Join-Path $root $file) }
+    'src/Services/DeviceManagementService.ps1','src/Services/ReportService.ps1','src/Services/ExportService.ps1',
+    'src/UI/Screens/ExportFrameworkSelection.ps1')) { . (Join-Path $root $file) }
 $script:exportWrites=0;$script:exportFailure=$false;$script:exportedReport=$null
+$script:frameworkKeys=New-Object 'System.Collections.Generic.Queue[object]'
+$script:frameworkReads=0;$script:exportSelectionMutation=$null
+function Read-WinSecResizeAwareKey {
+    param($ResizeState,$RenderAction)
+    $script:frameworkReads++
+    if($null -ne $script:exportSelectionMutation){$action=$script:exportSelectionMutation;$script:exportSelectionMutation=$null;& $action}
+    if($script:frameworkKeys.Count){return $script:frameworkKeys.Dequeue()}
+    [pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0}
+}
 function Write-WinSecMarkdownArtifact {
     param($ProjectRoot,$Report)
     if($script:exportFailure){throw 'SYNTHETIC-FINDINGS-RAW'}
@@ -142,6 +152,7 @@ function Write-WinSecMarkdownArtifact {
     [pscustomobject]@{FileName='synthetic.md';RelativePath='reports/exports/synthetic/synthetic.md'}
 }
 function New-WinSecExportContext {
+    Set-WinSecFindingTestTerminal -Width 120 -Height 55
     $copy=Copy-WinSecResultData -Value $context
     $copy | Add-Member -NotePropertyName ProjectRoot -NotePropertyValue $root
     $copy.PublicScans[$key] | Add-Member -NotePropertyName ScopeType -NotePropertyValue DEVICE
@@ -184,7 +195,8 @@ Test-WinSecFindingIntegration 'P exports only the visible control findings with 
 Test-WinSecFindingIntegration 'Section export includes matching findings and excludes another section' {
     $exportContext=New-WinSecExportContext
     $null=Invoke-WinSecCLIFindingsExport -State $state -Context $exportContext
-    Assert-WinSecFindingIntegration (@([regex]::Matches($script:exportedReport.Markdown,'(?m)^## ')).Count -eq 4 -and
+    Assert-WinSecFindingIntegration (@([regex]::Matches($script:exportedReport.Markdown,'(?m)^## ')).Count -eq 6 -and
+        @([regex]::Matches($script:exportedReport.Markdown,'(?m)^Control: WSA\\-SYS\\-00[123]$')).Count -eq 3 -and
         $script:exportedReport.Markdown.Contains('Exported selection: SECTION / SystemSecurity') -and
         $script:exportedReport.Markdown.Contains('WSA\-SYS\-001') -and $script:exportedReport.Markdown.Contains('WSA\-SYS\-003') -and
         -not $script:exportedReport.Markdown.Contains('WSA\-NET\-001'))
@@ -223,6 +235,55 @@ Test-WinSecFindingIntegration 'Export shortcut and status fit a small terminal w
     Assert-WinSecFindingIntegration (($script:lines -join '|') -match '\[P\] Export MD' -and
         ($script:lines -join '|') -notmatch '\[R\]' -and $script:lines.Count -le 20 -and
         @($script:lines|Where-Object{$_.Length -gt 39}).Count -eq 0 -and $writes -eq $script:exportWrites -and $script:scanCalls -eq 0)
+}
+foreach($id in @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+    Test-WinSecFindingIntegration ('The real picker exports only the chosen framework and retains history: '+$id) {
+        $exportContext=New-WinSecExportContext;$writes=$script:exportWrites;$reads=$script:frameworkReads
+        $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
+        $options=@(Get-WinSecExportFrameworkOptions);$index=[array]::IndexOf(@($options.Id),$id)
+        for($i=0;$i -lt $index;$i++){$script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=40;Character='';KeyDown=$true;ControlKeyState=0})}
+        $script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=89;Character='y';KeyDown=$true;ControlKeyState=0})
+        $null=Invoke-WinSecCLIFindingsExport $state $exportContext
+        Assert-WinSecFindingIntegration ($script:exportWrites -eq ($writes+1) -and $script:frameworkReads -gt $reads -and
+            $script:exportedReport.Markdown.Contains('Selected export framework: '+$id) -and
+            @([regex]::Matches($script:exportedReport.Markdown,'SHA256: [A-F0-9]{64}')).Count -eq 1 -and
+            $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress) -and $script:scanCalls -eq 0)
+    }
+}
+foreach($code in @(78,27)) {
+    Test-WinSecFindingIntegration 'Cancelling framework selection writes nothing and keeps the previous results' {
+        $exportContext=New-WinSecExportContext;$writes=$script:exportWrites
+        $snapshot=ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress
+        $script:frameworkKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$code;Character=$(if($code -eq 78){'n'}else{''});KeyDown=$true;ControlKeyState=0})
+        $r=Invoke-WinSecCLIFindingsExport $state $exportContext
+        Assert-WinSecFindingIntegration ($null -eq $r -and $script:exportWrites -eq $writes -and
+            $exportContext.LastExportMessage -ceq 'Export cancelled.' -and
+            $snapshot -ceq (ConvertTo-Json $exportContext.PublicScans -Depth 25 -Compress))
+    }
+}
+Test-WinSecFindingIntegration 'Changing the selected control while choosing a framework aborts before writing' {
+    $exportContext=New-WinSecExportContext;$script:changingExportState=Copy-WinSecResultData $state
+    $script:changingExportState.FindingsScope='Control';$writes=$script:exportWrites;$caught=$false
+    $script:exportSelectionMutation={$script:changingExportState.ControlIndex=1}
+    try{$null=Invoke-WinSecCLIFindingsExport $script:changingExportState $exportContext}catch{$caught=$true}
+    Assert-WinSecFindingIntegration ($caught -and $script:exportWrites -eq $writes -and $script:scanCalls -eq 0)
+}
+foreach($invalid in @(
+    [pscustomobject]@{Confirmed='true';FrameworkId='cis-controls'},
+    [pscustomobject]@{Confirmed=$true;FrameworkId='unknown'},
+    [pscustomobject]@{Confirmed=$true;FrameworkId=@('cis-controls')},
+    [pscustomobject]@{Confirmed=$false;FrameworkId='cis-controls'},
+    [pscustomobject]@{Confirmed=$true;FrameworkId='cis-controls';Extra='PRIVATE'},
+    $true,$null
+)) {
+    Test-WinSecFindingIntegration 'Malformed framework decisions cannot authorize an export' {
+        $exportContext=New-WinSecExportContext;$writes=$script:exportWrites;$caught=$false
+        $picker=(Get-Command Show-WinSecExportFrameworkSelection).ScriptBlock;$script:invalidExportAnswer=$invalid
+        function Show-WinSecExportFrameworkSelection {param($Selection);$script:invalidExportAnswer}
+        try {try {$null=Invoke-WinSecCLIFindingsExport $state $exportContext}catch{$caught=$true}}
+        finally {Set-Item -LiteralPath Function:Show-WinSecExportFrameworkSelection -Value $picker}
+        Assert-WinSecFindingIntegration ($caught -and $script:exportWrites -eq $writes -and $script:scanCalls -eq 0)
+    }
 }
 [Console]::WriteLine('Passed: '+$script:passed)
 [Console]::WriteLine('Failed: '+$script:failed)

@@ -14,7 +14,14 @@ function ConvertTo-WinSecMarkdownText {
 
 function New-WinSecFindingsMarkdown {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Selection)
+    param(
+        [Parameter(Mandatory)][object]$Selection,
+        [ValidateSet('cis-benchmarks','cis-controls','nist-csf','mitre-attack')][string]$FrameworkId
+    )
+    $selectedFramework=$PSBoundParameters.ContainsKey('FrameworkId')
+    if ($selectedFramework -and $FrameworkId -cnotin @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+        throw 'Invalid report framework.'
+    }
     $copy = Copy-WinSecResultData -Value $Selection
     $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings')
     if ($copy -isnot [pscustomobject]) { throw 'Invalid report selection.' }
@@ -58,11 +65,12 @@ function New-WinSecFindingsMarkdown {
             $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance
         }
     }
-    # Cargar los cuatro catálogos estrictamente, sin interpretar borradores como aprobación.
+    # Leer sólo el marco elegido; el API anterior conserva la vista de los cuatro.
     $frameworks = @()
     $hashes = @()
     $installation=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
     foreach ($definition in @(Get-WinSecFrameworkDefinitions)) {
+        if ($selectedFramework -and $definition.Id -cne $FrameworkId) { continue }
         $path = Join-Path $script:WinSecFrameworkDirectory $definition.FileName
         Assert-WinSecDeviceRemovalPath -ProjectRoot $installation -Path $path
         $file=Get-Item -LiteralPath $path -Force -ErrorAction Stop
@@ -72,6 +80,16 @@ function New-WinSecFindingsMarkdown {
         $null = Test-WinSecFrameworkDocument $document $definition.Id
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash -cne $before) { throw 'Framework changed during export.' }
         if ($document.enabled) { $frameworks += $document; $hashes += $before }
+    }
+    if ($selectedFramework -and $frameworks.Count -ne 1) { throw 'Selected framework is unavailable.' }
+    $referencesByFinding=@{}
+    foreach ($finding in $copy.Findings) {
+        # Diagnostics cannot imply a missing framework control.
+        $refs=@()
+        if ($finding.Kind -ceq 'CONFIGURATION_DEVIATION' -and $finding.EvaluationStatus -ceq 'FAIL' -and $null -ne $finding.Guidance) {
+            $refs=@(Get-WinSecFrameworkMappings -CheckId $finding.CheckId -Platform Windows -Frameworks @($frameworks|Where-Object {$_.mappingRules.includeInReports -eq $true}))
+        }
+        $referencesByFinding[$finding.FindingId]=$refs
     }
     $lines = New-Object 'System.Collections.Generic.List[string]'
     foreach ($line in @('# WinSec Analyzer - Findings','',
@@ -87,24 +105,47 @@ function New-WinSecFindingsMarkdown {
         } else {'Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
         'Public results only. Framework references provide context; they do not certify compliance.',
         'A partial selection does not replace a complete assessment.','', '## Configured frameworks','')) { $lines.Add($line) }
+    if ($selectedFramework) { $lines.Add('Selected export framework: ' + $FrameworkId) }
     for ($i=0; $i -lt $frameworks.Count; $i++) {
         $fw=$frameworks[$i]
         $lines.Add(('- {0}; version: {1}; schema: {2}; SHA256: {3}' -f
             (ConvertTo-WinSecMarkdownText $fw.name),(ConvertTo-WinSecMarkdownText $fw.frameworkVersion),
             (ConvertTo-WinSecMarkdownText $fw.schemaVersion),$hashes[$i]))
     }
+    $lines.Add(''); $lines.Add('## Configuration deviations'); $lines.Add('')
+    $lines.Add('| Finding | Configuration | Status | Original policy control | Referenced framework control |')
+    $lines.Add('| --- | --- | --- | --- | --- |')
+    $deviations=@($copy.Findings|Where-Object {$_.Kind -ceq 'CONFIGURATION_DEVIATION' -and $_.EvaluationStatus -ceq 'FAIL' -and $null -ne $_.Guidance})
+    foreach ($finding in $deviations) {
+        $refs=@($referencesByFinding[$finding.FindingId])
+        $referenceText=if ($refs.Count) {($refs|ForEach-Object {$_.FrameworkName + ' / ' + $_.ReferenceId}) -join '; '} else {'PENDING: no validated mapping'}
+        $values=@($finding.FindingId,$finding.Guidance.CriterionTitle,'MISCONFIGURED',
+            ($finding.Guidance.Framework + ' / ' + $finding.Guidance.ReferenceId),$referenceText)
+        $lines.Add('| ' + ((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ') + ' |')
+    }
+    if ($deviations.Count -eq 0) { $lines.Add(''); $lines.Add('No verified configuration deviations in this selection. This does not confirm a successful audit.') }
+    $diagnostics=@($copy.Findings|Where-Object {$_.Kind -cne 'CONFIGURATION_DEVIATION' -or $_.EvaluationStatus -cne 'FAIL' -or $null -eq $_.Guidance})
+    if ($diagnostics.Count) {
+        $lines.Add(''); $lines.Add('## Diagnostics - not confirmed misconfigurations'); $lines.Add('')
+        $lines.Add('| Finding | Check | Kind | Evaluation |'); $lines.Add('| --- | --- | --- | --- |')
+        foreach ($finding in $diagnostics) {
+            $values=@($finding.FindingId,$finding.CheckId,$finding.Kind,$finding.EvaluationStatus)
+            $lines.Add('| ' + ((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ') + ' |')
+        }
+    }
     foreach ($finding in $copy.Findings) {
         $lines.Add(''); $lines.Add('## ' + (ConvertTo-WinSecMarkdownText $finding.FindingId))
         $lines.Add('Control: ' + (ConvertTo-WinSecMarkdownText $finding.CheckId))
         $lines.Add('Kind: ' + $finding.Kind + '; evaluation: ' + $finding.EvaluationStatus)
         $lines.Add('Severity: UNASSIGNED; priority: UNASSIGNED')
-        $refs = @(Get-WinSecFrameworkMappings -CheckId $finding.CheckId -Platform Windows -Frameworks @($frameworks | Where-Object { $_.mappingRules.includeInReports -eq $true }))
+        $refs = @($referencesByFinding[$finding.FindingId])
         $lines.Add(''); $lines.Add('Framework references:')
         if ($refs.Count -eq 0) { $lines.Add('- PENDING: no validated framework references configured for this control.') }
         foreach ($ref in $refs) {
             $lines.Add(('- {0}; version: {1}; reference: {2}; {3}' -f
                 (ConvertTo-WinSecMarkdownText $ref.FrameworkName),(ConvertTo-WinSecMarkdownText $ref.FrameworkVersion),
                 (ConvertTo-WinSecMarkdownText $ref.ReferenceId),(ConvertTo-WinSecMarkdownText $ref.Title)))
+            if ($ref.Url) { $lines.Add('  Source: ' + (ConvertTo-WinSecMarkdownText $ref.Url)) }
         }
         $lines.Add('')
         if ($null -ne $finding.Guidance) {

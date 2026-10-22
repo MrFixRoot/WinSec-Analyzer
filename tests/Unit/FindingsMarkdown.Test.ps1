@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 foreach($file in @('src/Core/TargetRegistry.ps1','src/Core/DeviceInventory.ps1','src/Core/ResultModel.ps1',
-    'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/Services/FrameworkService.ps1',
+    'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/Services/FrameworkService.ps1',
     'src/Core/FrameworkMappingEngine.ps1','src/Services/DeviceManagementService.ps1',
     'src/Services/ReportService.ps1','src/Services/ExportService.ps1')) { . (Join-Path $root $file) }
 $script:passed=0;$script:failed=0
@@ -88,6 +88,64 @@ Test-WinSecReportCase 'Report envelope rejects duplicate metadata and invalid sc
 }
 Test-WinSecReportCase 'External export root is rejected before reaching native I/O' {
     Assert-WinSecReportRejects {Export-WinSecFindingsMarkdown -ProjectRoot (Join-Path $root 'external') -Selection (New-WinSecReportFixture)}
+}
+foreach($id in @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+    Test-WinSecReportCase ('Explicit framework is the only export context: '+$id) {
+        $report=New-WinSecFindingsMarkdown -Selection (New-WinSecReportFixture) -FrameworkId $id
+        Assert-WinSecReport ($report.Markdown.Contains('Selected export framework: '+$id) -and
+            @([regex]::Matches($report.Markdown,'SHA256: [A-F0-9]{64}')).Count -eq 1 -and
+            $report.Markdown.Contains('Diagnostics - not confirmed misconfigurations') -and
+            $report.Markdown.Contains('No verified configuration deviations'))
+        foreach($other in @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')|Where-Object {$_ -cne $id}) {
+            Assert-WinSecReport (-not $report.Markdown.Contains('Selected export framework: '+$other))
+        }
+    }
+}
+Test-WinSecReportCase 'Unknown and case-spoofed frameworks cannot silently export another context' {
+    foreach($id in @('unknown','CIS-CONTROLS','')) {
+        Assert-WinSecReportRejects {New-WinSecFindingsMarkdown -Selection (New-WinSecReportFixture) -FrameworkId $id}
+    }
+}
+Test-WinSecReportCase 'Configuration table retains original criterion and safe remediation without inventing a framework control' {
+    $selection=New-WinSecReportFixture;$finding=$selection.Findings[0]
+    $finding.Kind='CONFIGURATION_DEVIATION';$finding.EvaluationStatus='FAIL'
+    $guidance=[pscustomobject]@{
+        SchemaVersion='1.0.0';CheckId='WSA-SYS-001';CatalogId='SYNTHETIC';CatalogVersion='test-1';CatalogSha256=('A'*64)
+        CriterionId='SYNTHETIC-RT';CriterionTitle='SYNTHETIC real-time | protection';Recommendation='SYNTHETIC manual review, no automatic changes.'
+        Framework='LOCAL_POLICY';FrameworkVersion='test-1';ReferenceId='SYNTHETIC-POLICY-RT';ReferenceTitle='SYNTHETIC policy'
+        ReferenceUrl='https://example.invalid/synthetic';VerifiedAtUTC='2026-10-16T00:00:00Z'
+        OSFamily='Windows';OSRelease='Windows 11 TEST';Edition='TEST';Profile='TEST'
+    }
+    $finding|Add-Member -NotePropertyName Guidance -NotePropertyValue $guidance
+    $before=ConvertTo-Json $selection -Depth 25 -Compress
+    $state=[pscustomobject]@{SelectedDeviceId=$selection.DeviceId;FindingsScope='Control';SectionIndex=0;ControlIndex=0;FindingsOffset=0}
+    $control=[pscustomobject]@{DeviceId=$selection.DeviceId;ScanId=$selection.ScanId;CheckId='WSA-SYS-001';Status='NOT_EVALUATED'}
+    $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults @($control) -Findings $selection.Findings -ScanId $selection.ScanId
+    Assert-WinSecReport ($view.Findings.Count -eq 1 -and $view.Findings[0].ConfigurationState -ceq 'MISCONFIGURED' -and
+        $view.Findings[0].Finding -ceq $guidance.CriterionTitle)
+    $report=New-WinSecFindingsMarkdown -Selection $selection -FrameworkId cis-controls
+    Assert-WinSecReport ($report.Markdown.Contains('| Finding | Configuration | Status | Original policy control | Referenced framework control |') -and
+        $report.Markdown.Contains('MISCONFIGURED') -and $report.Markdown.Contains('SYNTHETIC real\-time \| protection') -and
+        $report.Markdown.Contains('PENDING: no validated mapping') -and $report.Markdown.Contains('SYNTHETIC\-POLICY\-RT') -and
+        $report.Markdown.Contains('SYNTHETIC manual review, no automatic changes\.') -and
+        -not $report.Markdown.Contains('## Diagnostics') -and $before -ceq (ConvertTo-Json $selection -Depth 25 -Compress))
+    $reader=(Get-Command Get-WinSecFrameworkMappings).ScriptBlock
+    function Get-WinSecFrameworkMappings {
+        param($CheckId,$Platform,$Frameworks)
+        Assert-WinSecReport ($Frameworks.Count -eq 1 -and $Frameworks[0].frameworkId -ceq 'cis-controls')
+        [pscustomobject]@{FrameworkName='SYNTHETIC framework';FrameworkVersion='test-1';ReferenceId='TEST.1';
+            Title='SYNTHETIC control description';Url='https://example.invalid/synthetic-control'}
+    }
+    try {
+        $mapped=New-WinSecFindingsMarkdown -Selection $selection -FrameworkId cis-controls
+        Assert-WinSecReport ($mapped.Markdown.Contains('SYNTHETIC framework / TEST\.1') -and
+            $mapped.Markdown.Contains('SYNTHETIC control description') -and $mapped.Markdown.Contains('synthetic\-control') -and
+            $mapped.Markdown.Contains('SYNTHETIC manual review, no automatic changes\.'))
+        # The same resolver must never attach a missing-control claim to a diagnostic.
+        $diagnostic=New-WinSecFindingsMarkdown -Selection (New-WinSecReportFixture) -FrameworkId cis-controls
+        Assert-WinSecReport (-not $diagnostic.Markdown.Contains('TEST\.1'))
+    }
+    finally {Set-Item -LiteralPath Function:Get-WinSecFrameworkMappings -Value $reader}
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

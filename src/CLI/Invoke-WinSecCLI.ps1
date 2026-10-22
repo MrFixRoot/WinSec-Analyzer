@@ -1048,7 +1048,26 @@ function Invoke-WinSecCLIFindingsExport {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
     $selection=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
-    $result=Export-WinSecFindingsMarkdown -ProjectRoot $Context.ProjectRoot -Selection $selection
+    $before=ConvertTo-Json -InputObject $selection -Depth 30 -Compress
+    $decision=@(Show-WinSecExportFrameworkSelection -Selection (Copy-WinSecResultData $selection))
+    if ($decision.Count -ne 1) { throw 'Invalid framework selection decision.' }
+    $answer=Copy-WinSecResultData $decision[0]
+    if ($answer -isnot [pscustomobject] -or @($answer.PSObject.Properties).Count -ne 2 -or
+        @($answer.PSObject.Properties|Where-Object {$_.Name -cnotin @('Confirmed','FrameworkId')}).Count -ne 0 -or
+        $answer.Confirmed -isnot [bool]) { throw 'Invalid framework selection decision.' }
+    if (-not $answer.Confirmed) {
+        if ($null -ne $answer.FrameworkId) { throw 'Contradictory framework cancellation.' }
+        $Context | Add-Member -NotePropertyName LastExportMessage -NotePropertyValue 'Export cancelled.' -Force
+        return $null
+    }
+    if ($answer.FrameworkId -isnot [string] -or $answer.FrameworkId -cnotin @('cis-benchmarks','cis-controls','nist-csf','mitre-attack')) {
+        throw 'Invalid export framework.'
+    }
+    $current=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
+    if ((ConvertTo-Json -InputObject $current -Depth 30 -Compress) -cne $before) {
+        throw 'Findings selection changed during framework selection.'
+    }
+    $result=Export-WinSecFindingsMarkdown -ProjectRoot $Context.ProjectRoot -Selection $selection -FrameworkId $answer.FrameworkId
     $Context | Add-Member -NotePropertyName LastExportMessage -NotePropertyValue ('Exported: ' + $result.RelativePath) -Force
     return $result
 }
@@ -1678,6 +1697,7 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Findings.ps1'
         'src/UI/Screens/ScanConfirmation.ps1'
         'src/UI/Screens/AssessmentProfileSelection.ps1'
+        'src/UI/Screens/ExportFrameworkSelection.ps1'
         'src/UI/Screens/ScanProgress.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
         'src/UI/Screens/DeviceName.ps1'
@@ -1719,6 +1739,7 @@ function Invoke-WinSecCLI {
         'Show-WinSecFindings'
         'Show-WinSecScanConfirmation'
         'Show-WinSecAssessmentProfileSelection'
+        'Show-WinSecExportFrameworkSelection'
         'New-WinSecScanProgressState'
         'Show-WinSecScanProgress'
         'Test-WinSecScanProgressCancellation'
