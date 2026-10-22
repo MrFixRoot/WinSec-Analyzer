@@ -81,6 +81,10 @@
         {
             "id": "T1685",
             "name": "Disable or Modify Tools"
+        },
+        {
+            "id": "T1068",
+            "name": "Exploitation for Privilege Escalation"
         }
     ],
     "subtechniques": [],
@@ -98,10 +102,24 @@
                         "WSA-DEF-BASE-001",
                         "WSA-DEF-BASE-002",
                         "WSA-DEF-BASE-003",
-                        "WSA-DEF-BASE-004"
+                        "WSA-DEF-BASE-004",
+                        "WSA-DEF-ADD-001",
+                        "WSA-DEF-ADD-002",
+                        "WSA-DEF-ADD-003"
                     ],
                     "description": "Adversaries can interfere with defensive tools. A disabled protection alone does not prove an attack, malicious intent or this technique occurring.",
                     "recommendation": "Establish whether the disabled protection was authorized, review relevant security records, and have the authorized administrator restore the approved protections. Repeat the WinSec read-only assessment; investigate suspected tampering through the normal incident response process."
+                },
+                {
+                    "id": "T1068",
+                    "techniqueId": "T1068",
+                    "title": "Exploitation for Privilege Escalation",
+                    "url": "https://attack.mitre.org/techniques/T1068/",
+                    "criterionIds": [
+                        "WSA-DEF-ADD-004"
+                    ],
+                    "description": "Vulnerable signed drivers can support privilege escalation. A missing ASR setting is a local configuration deviation, not evidence that exploitation occurred; this rule does not prevent loading existing vulnerable drivers.",
+                    "recommendation": "Review exposure to vulnerable drivers and approved execution protections. Have the authorized administrator configure this specific ASR rule, assess driver allow/block policy separately and review relevant events if exploitation is suspected. Repeat a read-only assessment."
                 }
             ]
         }

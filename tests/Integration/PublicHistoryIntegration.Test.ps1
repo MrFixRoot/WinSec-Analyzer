@@ -112,9 +112,10 @@ foreach($cancel in @(@{Code=27;Char=''},@{Code=78;Char='N'})){
     Test-WinSecHistoryIntegration 'Name cancellation preserves the inventory and never scans' {
         foreach($character in 'Cancelado'.ToCharArray()){Add-WinSecHistoryKey 0 ([string]$character)}
         Add-WinSecHistoryKey;Add-WinSecHistoryKey $cancel.Code $cancel.Char
+        if($cancel.Code -eq 78){Add-WinSecHistoryKey 27}
         $before=$script:inventoryMemory.Json
         $null=Invoke-WinSecCLIDeviceRename $script:state $script:context
-        Assert-WinSecHistoryIntegration ($script:inventoryMemory.Json -ceq $before -and $script:collected.Count -eq 0)
+        Assert-WinSecHistoryIntegration ($script:inventoryMemory.Json -ceq $before -and $script:collected.Count -eq 0 -and $script:keys.Count -eq 0)
     }
 }
 Test-WinSecHistoryIntegration 'Confirmed device section and control scans persist separately and survive restart' {
@@ -137,10 +138,11 @@ Test-WinSecHistoryIntegration 'Confirmed device section and control scans persis
 }
 Test-WinSecHistoryIntegration 'Cancelled scan preserves persistent and active results without collection' {
     Invoke-WinSecHistoryIntegrationScan
-    $before=ConvertTo-Json $script:context -Depth 40 -Compress;$calls=$script:collected.Count
-    Invoke-WinSecHistoryIntegrationScan -Confirm 78 -Character N
+    $before=ConvertTo-Json ($script:context|Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage) -Depth 40 -Compress;$calls=$script:collected.Count
+    Invoke-WinSecHistoryIntegrationScan -Confirm 27
     Assert-WinSecHistoryIntegration ($script:stored.Count -eq 1 -and $calls -eq $script:collected.Count -and
-        $before -ceq (ConvertTo-Json $script:context -Depth 40 -Compress))
+        $before -ceq (ConvertTo-Json ($script:context|Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage) -Depth 40 -Compress) -and
+        $script:context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.')
 }
 Test-WinSecHistoryIntegration 'Storage failure does not publish a new session or leak diagnostics' {
     Invoke-WinSecHistoryIntegrationScan;$script:failHistory=$true

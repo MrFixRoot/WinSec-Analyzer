@@ -255,7 +255,7 @@ try {
     }
     Test-WinSecRemovalIntegrationCase 'Real Delete/Supr navigation and CLI branch delete the last row without auto-registration' {
         $context=$script:startup
-        $id=$script:first.DeviceId; $key=Get-WinSecScanSessionKey $id 'scan-fixture'
+        $id=$script:first.DeviceId; $key='{0}:{1}{2}:{3}' -f $id.Length,$id,'scan-fixture'.Length,'scan-fixture'
         $context.PublicScans[$key]=[pscustomobject]@{DeviceId=$id;ScanId='scan-fixture'}
         $context.ActiveScanByDevice[$id]='scan-fixture'
         $navigationState=New-WinSecNavigationState

@@ -24,6 +24,10 @@
         {
             "id": "10.7",
             "name": "Use Behavior-Based Anti-Malware Software"
+        },
+        {
+            "id": "10.5",
+            "name": "Enable Anti-Exploitation Features"
         }
     ],
     "mappings": [
@@ -38,9 +42,12 @@
                         "WSA-DEF-BASE-001",
                         "WSA-DEF-BASE-002",
                         "WSA-DEF-BASE-003",
-                        "WSA-DEF-BASE-004"
+                        "WSA-DEF-BASE-004",
+                        "WSA-DEF-ADD-001",
+                        "WSA-DEF-ADD-002",
+                        "WSA-DEF-ADD-003"
                     ],
-                    "description": "Authorized anti-malware and its configuration standard provide context for these four local Defender rules. These observations do not assess the complete safeguard.",
+                    "description": "Authorized anti-malware and its approved configuration provide context for core Defender, PUA, cloud and tamper settings. These checks do not assess the complete safeguard.",
                     "recommendation": "Confirm the authorized primary anti-malware product, review its approved configuration and any documented exceptions, then restore the reviewed protections through authorized administration and repeat the WinSec assessment."
                 },
                 {
@@ -52,6 +59,16 @@
                     ],
                     "description": "Behavior-based anti-malware capabilities and an approved configuration standard provide context for the behavior-monitoring rule.",
                     "recommendation": "Confirm that behavior-based protection is required for this device, review temporary exceptions, and have the authorized administrator restore the approved behavior-monitoring configuration before repeating the read-only assessment."
+                },
+                {
+                    "id": "10.5",
+                    "title": "Enable Anti-Exploitation Features",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls10/",
+                    "criterionIds": [
+                        "WSA-DEF-ADD-004"
+                    ],
+                    "description": "ASR vulnerable signed driver blocking is one anti-exploitation configuration. Existing driver loading and other exploit protections are not tested.",
+                    "recommendation": "Review the approved anti-exploitation baseline and application compatibility. Have the authorized administrator configure the specific vulnerable-driver ASR rule in Block mode, document exceptions and repeat the read-only scan. Do not enable all ASR rules indiscriminately."
                 }
             ]
         }

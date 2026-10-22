@@ -454,6 +454,7 @@ function ConvertTo-WinSecCoordinatedSession {
         -ExecutionStatus $AuditResult.ExecutionStatus `
         -ExpectedCheckIds $expectedIds `
         -ControlResults @($AuditResult.ControlResults) `
+        -ReviewItems @(foreach ($control in $AuditResult.ControlResults) { New-WinSecDefenderReviewItems -ControlResult $control }) `
         -CatalogVersion ([string]$AuditResult.CatalogVersion)
 
     if (-not (

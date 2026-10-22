@@ -143,8 +143,12 @@ Test-WinSecHistoryCase 'Restart restores full and partial scope caches independe
         $context.ActiveScanByDevice['local:CURRENT-FIXTURE'] -ceq 'scan-1' -and $context.ActiveScanByScope.Count -eq 3 -and
         (Get-WinSecScanAction $context.ScanCoordinator 'local:CURRENT-FIXTURE' CONTROL WSA-SYS-001) -ceq 'Rescan')
     $state=New-WinSecNavigationState;$state.SelectedDeviceId='local:CURRENT-FIXTURE';$state.Screen='Section'
+    # D-043/D-049: the selected control resolves its own session; the section
+    # source is queried explicitly and is never replaced by that partial scan.
+    Assert-WinSecHistory ((Get-WinSecCLIActiveAssessment $state $context).ScanId -ceq 'scan-3')
+    $state.Screen='Findings';$state.FindingsScope='Section'
     Assert-WinSecHistory ((Get-WinSecCLIActiveAssessment $state $context).ScanId -ceq 'scan-2')
-    $state.Screen='Findings';$state.FindingsScope='Control'
+    $state.FindingsScope='Control'
     Assert-WinSecHistory ((Get-WinSecCLIActiveAssessment $state $context).ScanId -ceq 'scan-3')
     $context.PublicScans.Values|Select-Object -First 1|ForEach-Object{$_.ControlResults[0].Status='ERROR'}
     Assert-WinSecHistory (($script:historyMemory.Values -join '') -notmatch '"Status":"ERROR"')

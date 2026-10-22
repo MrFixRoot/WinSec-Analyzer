@@ -30,6 +30,8 @@
 # PROPERTY HELPERS
 # ============================================================
 
+. (Join-Path $PSScriptRoot '../Core/CriterionApplicability.ps1')
+
 function Get-WinSecCriteriaField {
     [CmdletBinding()]
     param(
@@ -209,6 +211,8 @@ function Test-WinSecCriteriaApprovalReady {
         }
     }
 
+    try {$null=Get-WinSecCriterionPlatformExclusion $Criterion}
+    catch {return $false}
     $dependencies = Get-WinSecCriteriaField $Criterion 'ActivationDependencies'
     if ($dependencies -isnot [array] -or $dependencies.Count -eq 0) {
         return $false
@@ -330,6 +334,8 @@ function Test-WinSecCriteriaCatalog {
             }
         }
         $mapping = Get-WinSecCriteriaField $criterion 'FrameworkMappings'
+        try {$null=Get-WinSecCriterionPlatformExclusion $criterion}
+        catch {$errors.Add("$id has invalid platform exclusion metadata.")}
         foreach ($name in @('CISBenchmarks','CISControls','NISTCSF','MITREATTACK')) {
             if ((Get-WinSecCriteriaField $mapping $name) -isnot [array]) {
                 $errors.Add("$id has no FrameworkMappings.$name array.")
@@ -543,6 +549,12 @@ function Get-WinSecApplicableCriteria {
             continue
         }
 
+        # An approved exact-platform exclusion is resolved without requiring
+        # telemetry/prerequisites for a feature that does not apply there.
+        if($null -ne (Get-WinSecCriterionPlatformExclusion $criterion $TargetContext)) {
+            $selected.Add($criterion)
+            continue
+        }
         $dependencies = Get-WinSecCriteriaField $criterion 'ActivationDependencies'
         if ($dependencies -isnot [array] -or $dependencies.Count -eq 0) {
             $blocked = $true

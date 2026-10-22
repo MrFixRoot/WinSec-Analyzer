@@ -28,6 +28,7 @@
 # ============================================================
 
 . (Join-Path $PSScriptRoot 'ConfigurationScore.ps1')
+. (Join-Path $PSScriptRoot 'DefenderReviewModel.ps1')
 
 function Get-WinSecResultField {
     [CmdletBinding()]
@@ -848,7 +849,7 @@ function ConvertTo-WinSecPublicScanResult {
     )
     $reviews = @(
         foreach ($item in $Session.ReviewItems) {
-            [pscustomobject]@{
+            $safeReview = [pscustomobject]@{
                 ReviewId = $item.ReviewId
                 CheckId = $item.CheckId
                 DeviceId = $Session.DeviceId
@@ -858,6 +859,10 @@ function ConvertTo-WinSecPublicScanResult {
                     $item.Status
                 } else { 'UNKNOWN' }
             }
+            if ($null -ne (Get-WinSecResultField $item 'DefenderSetting')) {
+                $safeReview = ConvertTo-WinSecDefenderReviewItem -Item $item -Owner $Session
+            }
+            $safeReview
         }
     )
     $public = [pscustomobject]@{

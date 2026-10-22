@@ -78,7 +78,11 @@
                         "WSA-DEF-BASE-001",
                         "WSA-DEF-BASE-002",
                         "WSA-DEF-BASE-003",
-                        "WSA-DEF-BASE-004"
+                        "WSA-DEF-BASE-004",
+                        "WSA-DEF-ADD-001",
+                        "WSA-DEF-ADD-002",
+                        "WSA-DEF-ADD-003",
+                        "WSA-DEF-ADD-004"
                     ],
                     "description": "The outcome concerns prevention of unauthorized software. Defender protection is one contributing safeguard, not complete evidence of this CSF outcome.",
                     "recommendation": "Document the approved protection baseline and exceptions, review the disabled protection against that baseline, and have the authorized administrator restore the approved configuration. Confirm it with another read-only assessment."

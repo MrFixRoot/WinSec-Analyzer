@@ -506,6 +506,31 @@ function Get-WinSecDefenderASRSummary {
 # SECURITY INDICATOR MODEL
 # ============================================================
 
+function Get-WinSecDefenderConfigurationModes {
+    [CmdletBinding()]
+    param([object]$Status,[object]$Preferences,[object]$Pua,[object]$Asr)
+    $puaMode=Get-WinSecDefenderProperty $Pua 'Mode'
+    if($puaMode -isnot [string] -or $puaMode -cnotin @('BLOCK','AUDIT','DISABLED')){$puaMode=$null}
+    $cloud=Get-WinSecDefenderProperty $Preferences 'MAPSReporting';$cloudMode=$null
+    if($null -ne $cloud -and ($cloud -is [string] -or $cloud.GetType().IsEnum -or
+        $cloud.GetType() -in @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64]))) {
+        if([string]$cloud -in @('1','2','Basic','Advanced')){$cloudMode='ENABLED'}
+        elseif([string]$cloud -in @('0','Disabled')){$cloudMode='DISABLED'}
+    }
+    $tamper=Get-WinSecDefenderProperty $Status 'IsTamperProtected';$tamperMode=$null
+    if($tamper -is [bool]){$tamperMode=if($tamper){'ENABLED'}else{'DISABLED'}}
+    $driverMode=$null
+    if((Get-WinSecDefenderProperty $Asr 'Available') -is [bool] -and $Asr.Available -and
+        (Get-WinSecDefenderProperty $Asr 'Complete') -is [bool] -and $Asr.Complete -and $Asr.Rules -is [array]) {
+        $matches=@($Asr.Rules|Where-Object {$_.RuleId -ceq '56a863a9-875e-4185-98a7-b882c64b5ce5'})
+        if($matches.Count -eq 0){$driverMode='NOT_CONFIGURED'}
+        elseif($matches.Count -eq 1 -and $matches[0].Mode -is [string] -and
+            $matches[0].Mode -cin @('BLOCK','AUDIT','WARN','DISABLED','NOT_CONFIGURED')){$driverMode=$matches[0].Mode}
+    }
+    # Null is deliberate: an unknown state must never compare as a failed value.
+    [pscustomobject]@{Pua=$puaMode;Cloud=$cloudMode;Tamper=$tamperMode;AsrVulnerableDriver=$driverMode}
+}
+
 function Add-WinSecDefenderIndicator {
     [CmdletBinding()]
     param(
@@ -1585,6 +1610,7 @@ function Test-WinSecDefender {
 
         ExclusionCounts = $exclusions
         AttackSurfaceReduction = $asr
+        ConfigurationModes = Get-WinSecDefenderConfigurationModes -Status $status -Preferences $preferences -Pua $pua -Asr $asr
 
         Analysis = [pscustomobject]@{
             Areas = [pscustomobject]$areas

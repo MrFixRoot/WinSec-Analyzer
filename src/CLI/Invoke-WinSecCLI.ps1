@@ -223,6 +223,7 @@ function Get-WinSecCLIActiveAssessment {
         SectionResults = @()
         ControlResults = @()
         Findings       = @()
+        ReviewItems    = @()
         ScanId         = ''
         OverallScore   = $null
         OverallStatus  = 'PENDING'
@@ -408,13 +409,25 @@ function Get-WinSecCLIActiveAssessment {
             $publicResult.Findings |
                 Where-Object { $null -ne $_ }
         )
+        $publicReviews = @(Get-WinSecCLIValue $publicResult 'ReviewItems' | Where-Object { $null -ne $_ })
+        $reviewIds = @{}
+        foreach ($review in $publicReviews) {
+            if ($review.ReviewId -isnot [string] -or $reviewIds.ContainsKey($review.ReviewId) -or
+                @($publicControls | Where-Object {$_.CheckId -ceq $review.CheckId -and $_.Status -cne 'NOT_SELECTED'}).Count -ne 1) {
+                throw 'Invalid public review provenance.'
+            }
+            $reviewIds[$review.ReviewId] = $true
+            if ($null -ne (Get-WinSecCLIValue $review 'DefenderSetting')) {
+                $null = ConvertTo-WinSecDefenderReviewItem $review $publicResult
+            }
+        }
 
         # ----------------------------------------------------
         # Reject foreign, scored or raw nested records
         # ----------------------------------------------------
 
         foreach ($record in @(
-            $publicSections + $publicControls + $publicFindings
+            $publicSections + $publicControls + $publicFindings + $publicReviews
         )) {
             # Validate each record independently of the public envelope.
             # Do not coerce arrays or numbers into identity strings.
@@ -459,6 +472,7 @@ function Get-WinSecCLIActiveAssessment {
             SectionResults = @($publicSections)
             ControlResults = @($publicControls)
             Findings       = @($publicFindings)
+            ReviewItems    = @($publicReviews)
 
             ScanId         = $activeScanId
             OverallScore   = $null
@@ -722,6 +736,7 @@ function Get-WinSecCLIActiveAssessment {
         SectionResults = $sectionResults
         ControlResults = $controlResults
         Findings       = $findings
+        ReviewItems    = @()
         ScanId         = $selectedScan
         OverallScore   = $overallScore
         OverallStatus  = $overallStatus
@@ -949,6 +964,7 @@ function Show-WinSecCLICurrentScreen {
                 -SectionResults $assessment.SectionResults `
                 -ControlResults $assessment.ControlResults `
                 -Findings $assessment.Findings `
+                -ReviewItems @(Get-WinSecCLIValue $assessment 'ReviewItems') `
                 -ScanId $assessment.ScanId `
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') `
                 -Version $Context.Version -EnableExport:$enableExport -Message ([string](Get-WinSecCLIValue $Context 'LastExportMessage'))
@@ -1034,7 +1050,8 @@ function Get-WinSecCLINavigationCounts {
     # --------------------------------------------------------
 
     $findingCount = 0
-    if ($null -ne $section -and @($assessment.Findings).Count -gt 0) {
+    if ($null -ne $section -and (@($assessment.Findings).Count -gt 0 -or @(Get-WinSecCLIValue $assessment 'ReviewItems').Count -gt 0 -or
+        $null -ne (Get-WinSecCLIValue $assessment 'ConfigurationAssessment'))) {
         # Use the same catalog/identity/scope resolution and ordering as the
         # screen. Public findings have CheckId, not necessarily SectionKey.
         $findingView = Get-WinSecSelectedFindings `
@@ -1042,8 +1059,10 @@ function Get-WinSecCLINavigationCounts {
             -SectionResults $assessment.SectionResults `
             -ControlResults $assessment.ControlResults `
             -Findings $assessment.Findings `
+            -ReviewItems @(Get-WinSecCLIValue $assessment 'ReviewItems') `
+            -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') `
             -ScanId $assessment.ScanId
-        $findingCount = @($findingView.Findings).Count
+        $findingCount = @($findingView.Rows).Count
     }
 
     return [PSCustomObject]@{
@@ -1103,8 +1122,10 @@ function Get-WinSecCLIFindingsExportSelection {
     Assert-WinSecResultScope $assessment.SourceScopeType $assessment.SourceScopeKey
     $scope=Get-WinSecCLIViewScope $State
     $view=Get-WinSecSelectedFindings -NavigationState $State -SectionResults $assessment.SectionResults `
-        -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $assessment.ScanId
-    if ($view.Warning -or @($view.Findings).Count -eq 0 -or $view.DeviceId -cne $State.SelectedDeviceId -or
+        -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $assessment.ScanId `
+        -ReviewItems @(Get-WinSecCLIValue $assessment 'ReviewItems') `
+        -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment')
+    if ($view.Warning -or (@($view.Findings).Count -eq 0 -and @($view.ReviewItems).Count -eq 0 -and @($view.CheckRows).Count -eq 0) -or $view.DeviceId -cne $State.SelectedDeviceId -or
         $view.ScanId -cne $assessment.ScanId) { throw 'No verified findings to export.' }
     $selection=[pscustomobject]@{DeviceId=$view.DeviceId;ScanId=$view.ScanId;SourceScopeType=$assessment.SourceScopeType;
         SourceScopeKey=$assessment.SourceScopeKey;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey;
@@ -1114,6 +1135,7 @@ function Get-WinSecCLIFindingsExportSelection {
             if ($null -ne $f.Guidance) {$exportFinding|Add-Member -NotePropertyName Guidance -NotePropertyValue (Copy-WinSecResultData $f.Guidance)}
             $exportFinding
         })}
+    if (@($view.ReviewItems).Count) {$selection | Add-Member -NotePropertyName ReviewItems -NotePropertyValue (Copy-WinSecResultData $view.ReviewItems)}
     $configuration=Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
     if ($null -ne $configuration) {$selection|Add-Member -NotePropertyName ConfigurationAssessment -NotePropertyValue (Copy-WinSecResultData $configuration)}
     return $selection
@@ -1677,8 +1699,14 @@ function Invoke-WinSecCLIDeviceRemoval {
     $publicKeys = @(
         foreach ($pair in $Context.PublicScans.GetEnumerator()) {
             $key=$pair.Key; $scan = $pair.Value
-            if ($scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string] -or
-                $key -cne (Get-WinSecScanSessionKey -DeviceId $scan.DeviceId -ScanId $scan.ScanId)) {
+            # PublicScans uses the CLI length-prefixed identity, independently
+            # of the coordinator's DeviceId|ScanId session storage key.
+            if ($scan.DeviceId -isnot [string] -or $scan.ScanId -isnot [string]) {
+                throw 'Inconsistent public scan ownership.'
+            }
+            Assert-WinSecScanIdentifier -Value $scan.DeviceId -FieldName 'DeviceId'
+            Assert-WinSecScanIdentifier -Value $scan.ScanId -FieldName 'ScanId'
+            if ($key -cne ('{0}:{1}{2}:{3}' -f $scan.DeviceId.Length,$scan.DeviceId,$scan.ScanId.Length,$scan.ScanId)) {
                 throw 'Inconsistent public scan ownership.'
             }
             if ([string]::Equals($scan.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $key }

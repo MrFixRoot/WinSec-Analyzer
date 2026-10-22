@@ -315,6 +315,7 @@ function Get-WinSecSelectedFindings {
         [AllowEmptyCollection()][object[]]$SectionResults = @(),
         [AllowEmptyCollection()][object[]]$ControlResults = @(),
         [AllowEmptyCollection()][object[]]$Findings = @(),
+        [AllowEmptyCollection()][object[]]$ReviewItems = @(),
         [string]$ScanId = '',
         [string]$Platform = 'Windows',
         [AllowNull()][object]$ConfigurationAssessment = $null
@@ -328,7 +329,7 @@ function Get-WinSecSelectedFindings {
     $view = [pscustomobject]@{
         Scope=$context.Scope; Title=$section.Name; DeviceId=$context.DeviceId
         ScanId=$ScanId; SectionKey=$section.Key; Score='NOT_SCORED'; Status=$section.Status
-        Findings=@(); FrameworkStatus='UNAVAILABLE'; Warning=''
+        Findings=@(); ReviewItems=@(); CheckRows=@(); Rows=@(); FrameworkStatus='UNAVAILABLE'; Warning=''
     }
     if ([string]::IsNullOrWhiteSpace($context.DeviceId)) {
         $view.Warning = 'No device selected. Select a device before viewing assessment findings.'
@@ -341,7 +342,7 @@ function Get-WinSecSelectedFindings {
     if ($null -eq (Get-Command 'Copy-WinSecResultData' -CommandType Function -ErrorAction SilentlyContinue)) {
         . (Join-Path $projectRoot 'src/Core/ResultModel.ps1')
     }
-    $data = Copy-WinSecResultData -Value ([pscustomobject]@{ Controls=$ControlResults; Findings=$Findings })
+    $data = Copy-WinSecResultData -Value ([pscustomobject]@{ Controls=$ControlResults; Findings=$Findings; Reviews=$ReviewItems })
     $pending = New-Object 'System.Collections.Generic.Stack[object]'
     $pending.Push($data)
     while ($pending.Count -gt 0) {
@@ -516,12 +517,36 @@ function Get-WinSecSelectedFindings {
     # Classification remains owned by Core. Do not run the priority engine or
     # generate extra findings, scores, recommendations or synthetic compliance.
     $view.Findings = $matched
+    $reviewIds=@{}
+    $view.ReviewItems=@(foreach($review in $data.Reviews) {
+        if($null -eq $review){continue}
+        if($review.DeviceId -cne $context.DeviceId -or $review.ScanId -cne $view.ScanId -or
+            -not $collected.Contains($review.CheckId) -or $review.ReviewId -isnot [string] -or $reviewIds.ContainsKey($review.ReviewId)) {
+            throw 'Foreign or duplicate public review.'
+        }
+        $reviewIds[$review.ReviewId]=$true
+        if($null -eq $review.DefenderSetting){continue}
+        $safe=ConvertTo-WinSecDefenderReviewItem $review ([pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId})
+        if($section.Key -ceq 'SystemSecurity' -and ($context.Scope -ceq 'Section' -or
+            ($null -ne $control -and $control.CheckId -ceq 'WSA-SYS-001'))) {$safe}
+    })
     if ($null -ne $ConfigurationAssessment) {
         Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId
         $scoreScope=if ($context.Scope -ceq 'Control') {'CONTROL'} else {'SECTION'}
         $scoreKey=if ($scoreScope -ceq 'CONTROL' -and $null -ne $control) {$control.CheckId} else {$section.Key}
         $view.Score=Get-WinSecConfigurationScoreText $ConfigurationAssessment $scoreScope $scoreKey
+        $view.CheckRows=@(Get-WinSecConfigurationRows $ConfigurationAssessment $scoreScope $scoreKey)
     }
+    $gradedIds=@($view.CheckRows | ForEach-Object {$_.CriterionId})
+    $displayReviews=@($view.ReviewItems|Where-Object {
+        $s=$_.DefenderSetting
+        -not (($s.Topic -ceq 'PUA' -and $gradedIds -ccontains 'WSA-DEF-ADD-001') -or
+            ($s.Topic -ceq 'CLOUD' -and $gradedIds -ccontains 'WSA-DEF-ADD-002') -or
+            ($s.Topic -ceq 'TAMPER' -and $gradedIds -ccontains 'WSA-DEF-ADD-003') -or
+            ($s.Topic -ceq 'ASR' -and $s.SettingId -ceq '56a863a9-875e-4185-98a7-b882c64b5ce5' -and $gradedIds -ccontains 'WSA-DEF-ADD-004'))
+    })
+    $diagnostics=@($view.Findings|Where-Object {$null -eq $_.Guidance -or $gradedIds -cnotcontains $_.Guidance.CriterionId})
+    $view.Rows=@($view.CheckRows)+$diagnostics+@(ConvertTo-WinSecDefenderReviewRows -ReviewItems $displayReviews)
     return $view
 }
 
@@ -848,6 +873,8 @@ function Show-WinSecFindings {
         [AllowEmptyCollection()]
         [object[]]$Findings = @(),
 
+        [AllowEmptyCollection()][object[]]$ReviewItems = @(),
+
         [string]$ScanId = '',
 
         [AllowNull()][object]$ConfigurationAssessment = $null,
@@ -869,6 +896,7 @@ function Show-WinSecFindings {
         -SectionResults $SectionResults `
         -ControlResults $ControlResults `
         -Findings $Findings `
+        -ReviewItems $ReviewItems `
         -ScanId $ScanId `
         -Platform $Platform -ConfigurationAssessment $ConfigurationAssessment
 
@@ -923,7 +951,8 @@ function Show-WinSecFindings {
     # Calculate detail area
     # --------------------------------------------------------
 
-    $count = @($assessment.Findings).Count
+    $displayRows=@($assessment.Rows)
+    $count = $displayRows.Count
 
     $detailPlan = Get-WinSecFindingDetailPlan `
         -Layout $baseLayout
@@ -1064,6 +1093,9 @@ function Show-WinSecFindings {
             Priority = 1
             Expand   = $true
         }
+        @{
+            Key='ConfigurationPercent';Header='Config %';Width=10;MinWidth=10;MaxWidth=12;Priority=3;Align='Right'
+        }
     )
 
     # --------------------------------------------------------
@@ -1101,7 +1133,7 @@ function Show-WinSecFindings {
 
     Write-WinSecTable `
         -Columns $columns `
-        -Rows $assessment.Findings `
+        -Rows $displayRows `
         -SelectedIndex $selectedIndex `
         -MaxRows $maxRows
 
@@ -1114,7 +1146,7 @@ function Show-WinSecFindings {
         $detailPlan.ShowDetails
     ) {
 
-        $selectedFinding = $assessment.Findings[
+        $selectedFinding = $displayRows[
             $selectedIndex
         ]
 

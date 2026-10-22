@@ -423,7 +423,14 @@ function Get-WinSecFrameworkMappings {
                 if ($null -eq $reference) {
                     continue
                 }
-                $criterionIds=Get-WinSecFrameworkField $reference 'criterionIds'
+                # Read the collection directly: pipeline output unwraps a one-item array.
+                # Retain its original type so malformed scalar mappings still fail closed.
+                $criterionIds=$null
+                if ($reference -is [System.Collections.IDictionary]) {
+                    if ($reference.Contains('criterionIds')) {$criterionIds=$reference['criterionIds']}
+                } elseif ($null -ne $reference.PSObject.Properties['criterionIds']) {
+                    $criterionIds=$reference.PSObject.Properties['criterionIds'].Value
+                }
                 if ($null -ne $criterionIds -and
                     ($criterionIds -isnot [array] -or $criterionIds.Count -eq 0 -or $criterionIds -cnotcontains $CriterionId)) { continue }
 

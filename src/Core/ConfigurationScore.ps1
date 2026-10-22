@@ -1,4 +1,5 @@
 # Versioned configuration scores and public criterion manifest. No Windows queries.
+. (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
 function Assert-WinSecConfigurationFields {
     param([object]$Value,[string[]]$Fields)
     if ($Value -isnot [pscustomobject] -or @($Value.PSObject.Properties).Count -ne $Fields.Count -or
@@ -22,7 +23,7 @@ function Get-WinSecConfigurationScoringPolicy {
         if ($policy.$field -isnot [string]) {throw 'Scoring policy metadata must be scalar text.'}
     }
     if ($policy.schemaVersion -cne '1.0.0' -or $policy.enabled -isnot [bool] -or
-        $policy.methodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or $policy.methodologyVersion -cne '1.0.0' -or
+        $policy.methodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or $policy.methodologyVersion -cnotin @('1.0.0','1.1.0') -or
         $policy.controlMethod -cne 'PASS_CRITERIA_FRACTION' -or $policy.sectionMethod -cne 'EQUAL_CONTROL_MEAN' -or
         $policy.requireCompleteControl -isnot [bool] -or -not $policy.requireCompleteControl -or
         $policy.requireCompleteSection -isnot [bool] -or -not $policy.requireCompleteSection -or
@@ -31,30 +32,38 @@ function Get-WinSecConfigurationScoringPolicy {
 }
 
 function Get-WinSecConfigurationControlTotals {
-    param([object]$Control)
+    param([object]$Control,[string]$MethodologyVersion='1.0.0')
     $criteria=@($Control.Criteria);$resolved=@($criteria|Where-Object {$_.Status -cin @('PASS','FAIL')}).Count
     $passed=@($criteria|Where-Object {$_.Status -ceq 'PASS'}).Count
-    $complete=($criteria.Count -gt 0 -and $resolved -eq $criteria.Count -and $Control.Permission -ceq 'APPROVED')
+    $applicable=@($criteria|Where-Object {$MethodologyVersion -cne '1.1.0' -or $_.Status -cne 'NOT_APPLICABLE'}).Count
+    $excluded=($MethodologyVersion -ceq '1.1.0' -and $criteria.Count -gt 0 -and $applicable -eq 0 -and $Control.Permission -ceq 'APPROVED')
+    $complete=($applicable -gt 0 -and $resolved -eq $applicable -and $Control.Permission -ceq 'APPROVED')
     [pscustomobject]@{
-        Value=if ($complete) {[Math]::Round((100.0*$passed/$criteria.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
-        Coverage=if ($criteria.Count) {[Math]::Round((100.0*$resolved/$criteria.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
-        Status=if ($complete) {'COMPLETE'} else {'NOT_SCORED'}
+        Value=if ($complete) {[Math]::Round((100.0*$passed/$applicable),2,[MidpointRounding]::AwayFromZero)} else {$null}
+        Coverage=if ($applicable) {[Math]::Round((100.0*$resolved/$applicable),2,[MidpointRounding]::AwayFromZero)} else {$null}
+        Status=if ($complete) {'COMPLETE'} elseif($excluded){'NOT_APPLICABLE'} else {'NOT_SCORED'}
         EvaluatedCriteria=$resolved;TotalCriteria=$criteria.Count
     }
 }
 
 function Get-WinSecConfigurationSectionTotals {
-    param([object[]]$Controls)
+    param([object[]]$Controls,[string]$MethodologyVersion='1.0.0')
+    $recordedCount=$Controls.Count
+    if($MethodologyVersion -ceq '1.1.0'){$Controls=@($Controls|Where-Object {$_.Status -cne 'NOT_APPLICABLE'})}
     $complete=@($Controls|Where-Object {$_.Status -ceq 'COMPLETE'}).Count
     $sum=0.0
     foreach ($control in $Controls) {
-        if ($control.Status -ceq 'COMPLETE') { $sum+=100.0*@($control.Criteria|Where-Object {$_.Status -ceq 'PASS'}).Count/$control.Criteria.Count }
+        if ($control.Status -ceq 'COMPLETE') {
+            $denominator=@($control.Criteria|Where-Object {$MethodologyVersion -cne '1.1.0' -or $_.Status -cne 'NOT_APPLICABLE'}).Count
+            if($denominator -eq 0){throw 'A complete control has no applicable criteria.'}
+            $sum+=100.0*@($control.Criteria|Where-Object {$_.Status -ceq 'PASS'}).Count/$denominator
+        }
     }
     [pscustomobject]@{
         Value=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {[Math]::Round(($sum/$Controls.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
         Coverage=if ($Controls.Count) {[Math]::Round((100.0*$complete/$Controls.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
-        Status=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {'COMPLETE'} else {'NOT_SCORED'}
-        CompleteControls=$complete;TotalControls=$Controls.Count
+        Status=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {'COMPLETE'} elseif($MethodologyVersion -ceq '1.1.0' -and $recordedCount -gt 0 -and $Controls.Count -eq 0){'NOT_APPLICABLE'} else {'NOT_SCORED'}
+        CompleteControls=$complete;TotalControls=$recordedCount
     }
 }
 
@@ -82,7 +91,7 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
     }
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
     if ($copy.SchemaVersion -cne '1.0.0' -or $copy.MethodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or
-        $copy.MethodologyVersion -cne '1.0.0' -or $copy.PolicySha256 -isnot [string] -or $copy.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
+        $copy.MethodologyVersion -cnotin @('1.0.0','1.1.0') -or $copy.PolicySha256 -isnot [string] -or $copy.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
         $copy.CatalogVersion -isnot [string] -or $copy.CatalogVersion -cne (Get-WinSecResultField $Owner 'CatalogVersion') -or
         $copy.Controls -isnot [array] -or $copy.Controls.Count -eq 0 -or $copy.Controls.Count -gt 128 -or $copy.Sections -isnot [array]) {
         throw 'Invalid configuration assessment metadata.'
@@ -99,14 +108,17 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
             ($copy.ScopeType -ceq 'SECTION' -and $copy.ScopeKey -cne $control.SectionKey)) { throw 'Configuration control is outside scope.' }
         $seen[$control.CheckId]=$true;$sections[$control.SectionKey]=$true;$ids=@{};$identity=$null
         foreach ($criterion in $control.Criteria) {
-            Assert-WinSecConfigurationFields $criterion @('CriterionId','Title','Status','CatalogId','CatalogVersion','CatalogSha256','Profile','OSRelease','Edition','SourceFramework','SourceVersion','SourceControlId','SourceTitle','SourceUrl','Recommendation','VerifiedAtUTC')
+            $criterionFields=@('CriterionId','Title','Status','CatalogId','CatalogVersion','CatalogSha256','Profile','OSRelease','Edition','SourceFramework','SourceVersion','SourceControlId','SourceTitle','SourceUrl','Recommendation','VerifiedAtUTC')
+            if($copy.MethodologyVersion -ceq '1.1.0' -and $criterion.Status -ceq 'NOT_APPLICABLE'){$criterionFields+=@('ApplicabilityReason','ApplicabilitySourceUrl')}
+            Assert-WinSecConfigurationFields $criterion $criterionFields
             if ($criterion.VerifiedAtUTC -is [datetime] -and $criterion.VerifiedAtUTC.Kind -eq [DateTimeKind]::Utc) {$criterion.VerifiedAtUTC=$criterion.VerifiedAtUTC.ToString('o')}
             foreach ($p in $criterion.PSObject.Properties) {
-                $limit=if ($p.Name -ceq 'Recommendation') {4096} elseif ($p.Name -ceq 'SourceUrl') {1024} else {256}
+                $limit=if ($p.Name -ceq 'Recommendation') {4096} elseif ($p.Name -cin @('SourceUrl','ApplicabilitySourceUrl')) {1024} else {256}
                 if ($p.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($p.Value) -or $p.Value.Length -gt $limit -or $p.Value -match '[\p{C}]') { throw 'Invalid public criterion manifest field.' }
             }
             if (-not (Test-WinSecTargetIdentifier $criterion.CriterionId) -or $ids.ContainsKey($criterion.CriterionId) -or
-                $criterion.Status -cnotin @('PASS','FAIL','UNKNOWN','NOT_EVALUATED') -or
+                ($criterion.Status -cnotin @('PASS','FAIL','UNKNOWN','NOT_EVALUATED') -and
+                 -not ($copy.MethodologyVersion -ceq '1.1.0' -and $criterion.Status -ceq 'NOT_APPLICABLE')) -or
                 $criterion.SourceFramework -cnotin @('LOCAL_POLICY','CIS Benchmarks') -or
                 $criterion.SourceControlId -ceq 'NOT_ASSIGNED' -or
                 $criterion.CatalogSha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
@@ -121,8 +133,13 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
             $uri=$null
             if (-not [Uri]::TryCreate($criterion.SourceUrl,[UriKind]::Absolute,[ref]$uri) -or $uri.Scheme -cne 'https' -or
                 $uri.UserInfo -or $uri.Query -or $uri.Fragment) { throw 'Unsafe criterion source URL.' }
+            if($criterion.Status -ceq 'NOT_APPLICABLE') {
+                $exclusion=[pscustomobject]@{NotApplicableTargets=@([pscustomobject]@{OSRelease=$criterion.OSRelease;Edition=$criterion.Edition;
+                    Reason=$criterion.ApplicabilityReason;SourceUrl=$criterion.ApplicabilitySourceUrl})}
+                $null=Get-WinSecCriterionPlatformExclusion $exclusion
+            }
         }
-        Assert-WinSecConfigurationTotals $control (Get-WinSecConfigurationControlTotals $control)
+        Assert-WinSecConfigurationTotals $control (Get-WinSecConfigurationControlTotals $control $copy.MethodologyVersion)
     }
     # The entire recorded section/device set must be present, including disabled checks.
     $expected=@($registry.Checks|Where-Object {$_.Visible -eq $true -and
@@ -134,7 +151,7 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
         Assert-WinSecConfigurationFields $section @('SectionKey','Value','Coverage','Status','CompleteControls','TotalControls')
         if ($copy.ScopeType -ceq 'CONTROL' -or $section.SectionKey -isnot [string] -or -not $sections.ContainsKey($section.SectionKey) -or $sectionSeen.ContainsKey($section.SectionKey)) { throw 'Invalid configuration section.' }
         $sectionSeen[$section.SectionKey]=$true
-        Assert-WinSecConfigurationTotals $section (Get-WinSecConfigurationSectionTotals @($copy.Controls|Where-Object {$_.SectionKey -ceq $section.SectionKey}))
+        Assert-WinSecConfigurationTotals $section (Get-WinSecConfigurationSectionTotals @($copy.Controls|Where-Object {$_.SectionKey -ceq $section.SectionKey}) $copy.MethodologyVersion)
     }
     if (($copy.ScopeType -ceq 'CONTROL' -and $copy.Sections.Count) -or
         ($copy.ScopeType -cne 'CONTROL' -and $sectionSeen.Count -ne $sections.Count)) { throw 'Incomplete configuration section set.' }
@@ -188,21 +205,29 @@ function New-WinSecConfigurationAssessment {
             }
             foreach ($rule in @($snapshot.Catalog.Criteria)) {
                 $items=@(if ($null -ne $evaluated) {$evaluated.Evaluations|Where-Object {$_.CriterionId -ceq $rule.CriterionId}})
-                $status=if ($items.Count -eq 1 -and $items[0].Status -cin @('PASS','FAIL','UNKNOWN','NOT_EVALUATED')) {$items[0].Status} else {'NOT_EVALUATED'}
+                $allowedStatuses=@('PASS','FAIL','UNKNOWN','NOT_EVALUATED')
+                if($PolicySnapshot.Policy.methodologyVersion -ceq '1.1.0'){$allowedStatuses+='NOT_APPLICABLE'}
+                $status=if ($items.Count -eq 1 -and $items[0].Status -cin $allowedStatuses) {$items[0].Status} else {'NOT_EVALUATED'}
                 $control.Criteria+=@([pscustomobject]@{CriterionId=$rule.CriterionId;Title=$rule.Name;Status=$status;CatalogId=$snapshot.Catalog.CatalogId;
                     CatalogVersion=$snapshot.Catalog.CatalogVersion;CatalogSha256=$snapshot.Sha256;Profile=$rule.Applicability.Profile;
                     OSRelease=$rule.Applicability.OSRelease;Edition=$rule.Applicability.Edition;SourceFramework=$rule.Source.Framework;
                     SourceVersion=$rule.Source.Version;SourceControlId=$rule.Source.ControlId;SourceTitle=$rule.Source.Title;SourceUrl=$rule.Source.Url;
                     Recommendation=$rule.Recommendation;VerifiedAtUTC=([DateTimeOffset]::Parse($rule.Verification.ReviewedAtUTC)).UtcDateTime.ToString('o')})
+                if($status -ceq 'NOT_APPLICABLE') {
+                    $exclusion=Get-WinSecCriterionPlatformExclusion $rule $Context
+                    if($null -eq $exclusion){throw 'Unverified platform exclusion cannot be scored.'}
+                    $control.Criteria[-1]|Add-Member ApplicabilityReason $exclusion.Reason
+                    $control.Criteria[-1]|Add-Member ApplicabilitySourceUrl $exclusion.SourceUrl
+                }
             }
         }
-        $totals=Get-WinSecConfigurationControlTotals $control
+        $totals=Get-WinSecConfigurationControlTotals $control $PolicySnapshot.Policy.methodologyVersion
         foreach ($p in $totals.PSObject.Properties) {$control.($p.Name)=$p.Value}
         $controls.Add($control)
     }
     if (-not $hasApproved) { return $null }
     $sections=@(if ($ScopeType -cne 'CONTROL') {foreach ($key in @($controls.SectionKey|Sort-Object -Unique)) {
-        $totals=Get-WinSecConfigurationSectionTotals @($controls|Where-Object {$_.SectionKey -ceq $key})
+        $totals=Get-WinSecConfigurationSectionTotals @($controls|Where-Object {$_.SectionKey -ceq $key}) $PolicySnapshot.Policy.methodologyVersion
         [pscustomobject]@{SectionKey=$key;Value=$totals.Value;Coverage=$totals.Coverage;Status=$totals.Status;CompleteControls=$totals.CompleteControls;TotalControls=$totals.TotalControls}
     }})
     $summary=[pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$Audit.DeviceId;ScanId=$Audit.ScanId;ScopeType=$ScopeType;ScopeKey=$ScopeKey;
@@ -217,8 +242,31 @@ function Get-WinSecConfigurationScoreText {
     $copy=ConvertTo-WinSecPublicConfigurationAssessment $Assessment $Assessment
     $items=@(if ($ScopeType -ceq 'CONTROL') {$copy.Controls|Where-Object {$_.CheckId -ceq $ScopeKey}}
         elseif ($ScopeType -ceq 'SECTION') {$copy.Sections|Where-Object {$_.SectionKey -ceq $ScopeKey}})
+    if($items.Count -eq 1 -and $items[0].Status -ceq 'NOT_APPLICABLE'){return 'NOT_APPLICABLE'}
     if ($items.Count -ne 1 -or $null -eq $items[0].Value) { return 'NOT_SCORED' }
     return ('{0:0.##}/100' -f $items[0].Value)
+}
+
+function Get-WinSecConfigurationRows {
+    [CmdletBinding()]
+    param([AllowNull()][object]$Assessment,[string]$ScopeType,[string]$ScopeKey)
+    if($null -eq $Assessment){return}
+    $copy=ConvertTo-WinSecPublicConfigurationAssessment $Assessment $Assessment
+    if($ScopeType -cnotin @('SECTION','CONTROL')){throw 'Invalid configuration table scope.'}
+    foreach($control in $copy.Controls) {
+        if(($ScopeType -ceq 'SECTION' -and $control.SectionKey -cne $ScopeKey) -or
+            ($ScopeType -ceq 'CONTROL' -and $control.CheckId -cne $ScopeKey)){continue}
+        foreach($criterion in $control.Criteria) {
+            [pscustomobject]@{Id=$criterion.CriterionId;FindingId=$criterion.CriterionId;CriterionId=$criterion.CriterionId;
+                Finding=$criterion.Title;Description=if($criterion.Status -ceq 'NOT_APPLICABLE'){$criterion.ApplicabilityReason}else{('Recorded criterion: '+$criterion.CriterionId+'; catalog '+$criterion.CatalogVersion)};
+                ConfigurationState=$criterion.Status;Kind='CRITERION_RESULT';EvaluationStatus=$criterion.Status;
+                ConfigurationPercent=if($criterion.Status -ceq 'PASS'){'100%'}elseif($criterion.Status -ceq 'FAIL'){'0%'}elseif($criterion.Status -ceq 'NOT_APPLICABLE'){'EXCLUDED'}else{'NOT_SCORED'};
+                Severity='UNASSIGNED';Priority='UNASSIGNED';Evidence='';
+                Recommendation=if($criterion.Status -ceq 'FAIL'){$criterion.Recommendation}else{'No confirmed deviation for this criterion. This is a configuration assessment, not an enforcement test.'};
+                Reference=$criterion.SourceUrl;FrameworkReferences=@();CheckId=$control.CheckId;SectionKey=$control.SectionKey;
+                DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;CatalogVersion=$criterion.CatalogVersion}
+        }
+    }
 }
 
 function Assert-WinSecConfigurationViewContext {
@@ -256,6 +304,11 @@ function Assert-WinSecConfigurationProvenance {
             $result=Invoke-WinSecCriterionEvaluation -Criterion $rules[0] -Evidence $collectors[0].Evidence -TargetContext $context `
                 -CheckId $control.CheckId -DeviceId $Session.DeviceId -ScanId $Session.ScanId
             if ($result.Status -cne $criterion.Status) { throw 'Configuration result cannot be independently reproduced.' }
+            if($criterion.Status -ceq 'NOT_APPLICABLE') {
+                $exclusion=Get-WinSecCriterionPlatformExclusion $rules[0] $context
+                if($null -eq $exclusion -or $criterion.ApplicabilityReason -cne $exclusion.Reason -or
+                    $criterion.ApplicabilitySourceUrl -cne $exclusion.SourceUrl){throw 'Platform exclusion differs from the approved criterion.'}
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿# WinSec Analyzer
+# WinSec Analyzer
 # Archivo: src\Services\ReportService.ps1
 # Informes públicos de hallazgos; no recolecta datos ni evalúa criterios.
 
@@ -23,7 +23,7 @@ function New-WinSecFindingsMarkdown {
         throw 'Invalid report framework.'
     }
     $copy = Copy-WinSecResultData -Value $Selection
-    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings','ConfigurationAssessment')
+    $allowed = @('DeviceId','ScanId','SourceScopeType','SourceScopeKey','ScopeType','ScopeKey','CatalogVersion','Findings','ReviewItems','ConfigurationAssessment')
     if ($copy -isnot [pscustomobject]) { throw 'Invalid report selection.' }
     foreach ($p in $copy.PSObject.Properties) {
         if ($p.Name -cnotin $allowed) { throw 'Unexpected report field.' }
@@ -33,8 +33,23 @@ function New-WinSecFindingsMarkdown {
     }
     Assert-WinSecResultScope $copy.SourceScopeType $copy.SourceScopeKey
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
+    $reviews=@()
+    if($null -ne $copy.ReviewItems) {
+        if($copy.ReviewItems -isnot [array] -or $copy.ReviewItems.Count -gt 132){throw 'Invalid review export collection.'}
+        $reviewIds=@{}
+        $reviews=@(foreach($review in $copy.ReviewItems) {
+            $safe=ConvertTo-WinSecDefenderReviewItem $review $copy
+            if($reviewIds.ContainsKey($safe.ReviewId) -or
+                ($copy.ScopeType -ceq 'CONTROL' -and $copy.ScopeKey -cne $safe.CheckId) -or
+                ($copy.ScopeType -ceq 'SECTION' -and $copy.ScopeKey -cne 'SystemSecurity') -or
+                ($copy.SourceScopeType -ceq 'CONTROL' -and $copy.SourceScopeKey -cne $safe.CheckId) -or
+                ($copy.SourceScopeType -ceq 'SECTION' -and $copy.SourceScopeKey -cne 'SystemSecurity')){throw 'Review outside report scope.'}
+            $reviewIds[$safe.ReviewId]=$true
+            $safe
+        })
+    }
     if ($copy.ScopeType -cnotin @('SECTION','CONTROL') -or $copy.Findings -isnot [array] -or
-        $copy.Findings.Count -eq 0 -or $copy.Findings.Count -gt 1000) { throw 'No exportable findings selection.' }
+        ($copy.Findings.Count -eq 0 -and $reviews.Count -eq 0 -and $null -eq $copy.ConfigurationAssessment) -or $copy.Findings.Count -gt 1000) { throw 'No exportable findings selection.' }
     $sections = @(Get-WinSecMainMenuSections)
     $catalogControls = @(foreach ($s in $sections) { Get-WinSecSectionControls -SectionKey $s.Key })
     $seen = @{}
@@ -110,7 +125,8 @@ function New-WinSecFindingsMarkdown {
         ('Check catalog: ' + (ConvertTo-WinSecMarkdownText $copy.CatalogVersion)),
         ('Exported at UTC: ' + [DateTime]::UtcNow.ToString('o')),
         $(if ($null -ne $configuration) {'Overall device score: NOT_SCORED; individual configuration scores are recorded below.'} else {'Score: NOT_SCORED'}),
-        $(if (@($copy.Findings|Where-Object {$null -ne $_.Guidance}).Count -gt 0) {
+        $(if ($null -ne $configuration) {'Criteria: complete original criterion manifest recorded, including PASS and unresolved checks.'}
+        elseif (@($copy.Findings|Where-Object {$null -ne $_.Guidance}).Count -gt 0) {
             'Criteria: original verified criterion snapshots are recorded per finding.'
         } else {'Criteria: PENDING_APPROVED_CRITERIA; historical criteria versions: NOT RECORDED.'}), '',
         'Public results only. Framework references provide context; they do not certify compliance.',
@@ -122,7 +138,8 @@ function New-WinSecFindingsMarkdown {
         $lines.Add('Original scoring policy SHA256: ' + $configuration.PolicySha256)
         $lines.Add('Coverage and recorded criteria:')
         foreach ($control in @($configuration.Controls|Where-Object {$copy.ScopeType -ceq 'SECTION' -and $_.SectionKey -ceq $copy.ScopeKey -or $copy.ScopeType -ceq 'CONTROL' -and $_.CheckId -ceq $copy.ScopeKey})) {
-            $lines.Add(('- {0}; score: {1}; criterion coverage: {2}/{3}' -f $control.CheckId,(Get-WinSecConfigurationScoreText $configuration 'CONTROL' $control.CheckId),$control.EvaluatedCriteria,$control.TotalCriteria))
+            $excluded=@($control.Criteria|Where-Object Status -CEQ NOT_APPLICABLE).Count
+            $lines.Add(('- {0}; score: {1}; applicable criterion coverage: {2}/{3}; excluded: {4}; recorded: {5}' -f $control.CheckId,(Get-WinSecConfigurationScoreText $configuration 'CONTROL' $control.CheckId),$control.EvaluatedCriteria,($control.TotalCriteria-$excluded),$excluded,$control.TotalCriteria))
             foreach ($criterion in $control.Criteria) {
                 $lines.Add((ConvertTo-WinSecMarkdownText ('  Criterion: ' + $criterion.CriterionId + '; ' + $criterion.Status + '; catalog: ' + $criterion.CatalogId + ' / ' + $criterion.CatalogVersion + '; SHA256: ' + $criterion.CatalogSha256)))
             }
@@ -133,6 +150,29 @@ function New-WinSecFindingsMarkdown {
         $lines.Add(('- {0}; version: {1}; schema: {2}; SHA256: {3}' -f
             (ConvertTo-WinSecMarkdownText $fw.name),(ConvertTo-WinSecMarkdownText $fw.frameworkVersion),
             (ConvertTo-WinSecMarkdownText $fw.schemaVersion),$hashes[$i]))
+    }
+    if($null -ne $configuration) {
+        $checkRows=@(Get-WinSecConfigurationRows $configuration $copy.ScopeType $copy.ScopeKey)
+        if($checkRows.Count -eq 0 -and $copy.Findings.Count -eq 0 -and $reviews.Count -eq 0){throw 'No configuration checks in this report scope.'}
+        $lines.Add('');$lines.Add('## Configuration checks');$lines.Add('')
+        $lines.Add('| Check | Verification | Result | Config % | Referenced framework control | Applicability |')
+        $lines.Add('| --- | --- | --- | --- | --- | --- |')
+        foreach($row in $checkRows) {
+            $failed=@($copy.Findings|Where-Object {$null -ne $_.Guidance -and $_.CheckId -ceq $row.CheckId -and $_.Guidance.CriterionId -ceq $row.CriterionId})
+            $refs=@(foreach($finding in $failed){$referencesByFinding[$finding.FindingId]})
+            $refText=if($row.EvaluationStatus -ceq 'FAIL' -and $refs.Count){($refs|ForEach-Object {$_.FrameworkName+' / '+$_.ReferenceId}) -join '; '}else{'Not asserted'}
+            $applicability=if($row.EvaluationStatus -ceq 'NOT_APPLICABLE'){$row.Description}else{'Applicable or unresolved; see recorded result'}
+            $values=@(($row.CheckId+' / '+$row.CriterionId),$row.Finding,$row.EvaluationStatus,$row.ConfigurationPercent,$refText,$applicability)
+            $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
+        }
+        foreach($control in $configuration.Controls) {
+            if(($copy.ScopeType -ceq 'CONTROL' -and $control.CheckId -cne $copy.ScopeKey) -or
+                ($copy.ScopeType -ceq 'SECTION' -and $control.SectionKey -cne $copy.ScopeKey)){continue}
+            foreach($criterion in @($control.Criteria|Where-Object Status -CEQ NOT_APPLICABLE)) {
+                $lines.Add('Platform exclusion source: '+(ConvertTo-WinSecMarkdownText $criterion.ApplicabilitySourceUrl))
+            }
+        }
+        $lines.Add('Percentages describe only recorded approved applicable configuration criteria. Verified NOT_APPLICABLE criteria are excluded from the denominator. UNKNOWN and NOT_EVALUATED are not exclusions or failures and receive no percentage. ASR scoring covers only the vulnerable signed driver rule; other ASR rules remain inventory-only.')
     }
     $lines.Add(''); $lines.Add('## Configuration deviations'); $lines.Add('')
     $lines.Add('| Finding | Configuration | Status | Original policy control | Referenced framework control |')
@@ -188,6 +228,24 @@ function New-WinSecFindingsMarkdown {
         } else {
             $lines.Add('Manual recommendations: PENDING_APPROVED_CRITERIA. No framework-specific remediation has been approved for export.')
         }
+    }
+    if($reviews.Count) {
+        $lines.Add('');$lines.Add('## Defender observations - REVIEW_ONLY, excluded from scoring');$lines.Add('')
+        $lines.Add('Observed configuration is not proof of effective enforcement or a confirmed policy deviation. Cloud connectivity is not tested. Unlisted ASR rules are not assessed.')
+        $lines.Add('');$lines.Add('| Setting | Identifier | Observed mode | Inventory | Status |')
+        $lines.Add('| --- | --- | --- | --- | --- |')
+        foreach($review in $reviews) {
+            $s=$review.DefenderSetting
+            $values=@($s.Topic,$s.SettingId,$s.Mode,$s.InventoryState,$review.Status)
+            $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
+        }
+        $lines.Add('')
+        $lines.Add('Manual review: assess PUA blocking using a staged audit deployment; verify cloud protection policy and connectivity; review tamper protection support and management authority; select applicable ASR rules individually before recommending enforcement. No remediation is executed.')
+        $lines.Add('No framework control is declared violated by these observations; approved criteria and reviewed mappings are required.')
+        foreach($url in @('https://learn.microsoft.com/en-us/defender-endpoint/detect-block-potentially-unwanted-apps-microsoft-defender-antivirus',
+            'https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure',
+            'https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection',
+            'https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-overview')){$lines.Add('Technical reference: '+$url)}
     }
     return [pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;Markdown=($lines -join "`n") + "`n"}
 }

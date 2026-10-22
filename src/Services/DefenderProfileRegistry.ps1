@@ -98,7 +98,7 @@ function Get-WinSecExpandedDefenderCatalog {
     $definitions = @(Get-WinSecDefenderProfileDefinitions $ProjectRoot | Where-Object Profile -CEQ $Profile)
     if ($definitions.Count -ne 1 -or $null -ne $definitions[0].FileName) { throw 'Unknown expanded Defender profile.' }
     $definition = $definitions[0]
-    $template = Get-WinSecAssessmentCatalog $ProjectRoot 'WSA-SYS-001' -Profile 'WSA-W11-24H2-PRO-DEF-BASE'
+    $template = Get-WinSecBaseAssessmentCatalog $ProjectRoot 'WSA-SYS-001' -Profile 'WSA-W11-24H2-PRO-DEF-BASE'
     if ($template.Sha256 -cne $definition.TemplateSha256) { throw 'Defender profile template changed without review.' }
     $catalog = Copy-WinSecResultData $template.Catalog
     $catalog.CatalogId = $Profile

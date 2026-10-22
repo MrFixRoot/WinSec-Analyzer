@@ -29,26 +29,26 @@ Test-WinSecMatrix 'Exactly 101 unique reviewed combinations preserve the first t
     }
 }
 foreach($definition in $definitions) {
-    Test-WinSecMatrix ('Exact SKU/build and four approved evaluable criteria: '+$definition.Profile) {
+    Test-WinSecMatrix ('Exact SKU/build and eight approved evaluable criteria: '+$definition.Profile) {
         $match=[regex]::Match($definition.Profile,'\AWSA-W11-(2[1-6]H[12])-(.+)-DEF-BASE\z')
         $release=$match.Groups[1].Value;$edition=$match.Groups[2].Value
         $snapshot=Get-WinSecAssessmentCatalog $root WSA-SYS-001 -Profile $definition.Profile
         Assert-WinSecMatrix ($definition.OSRelease -ceq ('Windows 11 10.0.'+$builds[$release]) -and
-            $definition.Edition -ceq ('SKU:'+$skus[$edition]) -and $snapshot.Catalog.Criteria.Count -eq 4)
+            $definition.Edition -ceq ('SKU:'+$skus[$edition]) -and $snapshot.Catalog.Criteria.Count -eq 8)
         $context=[pscustomobject]@{DeviceId='local:MATRIX';ScanId='matrix-1';OSFamily='Windows';OSRelease=$definition.OSRelease;
             Edition=$definition.Edition;Profile=$definition.Profile}
         $control=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$context.ScanId;CheckId='WSA-SYS-001';SectionKey='SystemSecurity';
             Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL';Evidence=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$context.ScanId;
                 CheckId='WSA-SYS-001';CollectionSuccessful=$true;DefenderStatus=[pscustomobject]@{AMRunningMode='Normal';AMServiceEnabled=$true;
-                    AntivirusEnabled=$true;RealTimeProtectionEnabled=$false;BehaviorMonitorEnabled=$true}}}
+                    AntivirusEnabled=$true;RealTimeProtectionEnabled=$false;BehaviorMonitorEnabled=$true};ConfigurationModes=[pscustomobject]@{Pua='BLOCK';Cloud='ENABLED';Tamper='ENABLED';AsrVulnerableDriver='BLOCK'}}}
         $selection=Get-WinSecApplicableCriteria -Catalog $snapshot.Catalog -TargetContext $context -ControlResult $control -ProjectRoot $root `
             -DependencyEvidence (Resolve-WinSecAssessmentDependencies $control) -ForEvaluation
         $evaluation=Invoke-WinSecControlEvaluation -ControlResult $control -Criteria $selection.EligibleCriteria -TargetContext $context
-        Assert-WinSecMatrix ($selection.Status -ceq 'READY' -and @($evaluation.Evaluations|Where-Object Status -CEQ PASS).Count -eq 3 -and
+        Assert-WinSecMatrix ($selection.Status -ceq 'READY' -and @($evaluation.Evaluations|Where-Object Status -CEQ PASS).Count -eq 7 -and
             @($evaluation.Evaluations|Where-Object Status -CEQ FAIL).Count -eq 1)
         if($null -eq $definition.FileName){
-            Assert-WinSecMatrix ($snapshot.Catalog.CatalogVersion -ceq '0.2.0' -and
-                $snapshot.Sha256 -ceq (Get-WinSecDefenderProfileFingerprint $definition.MatrixSha256 $definition.TemplateSha256 $definition.Profile))
+            Assert-WinSecMatrix ($snapshot.Catalog.CatalogVersion -ceq '0.3.0' -and
+                $snapshot.Sha256 -ceq (Get-WinSecDefenderRevisionFingerprint (Get-WinSecDefenderProfileFingerprint $definition.MatrixSha256 $definition.TemplateSha256 $definition.Profile) (Get-WinSecDefenderCriteriaRevision $root).Sha256 $definition.Profile))
         }
         $context.Edition='SKU:65535'
         $blocked=Get-WinSecApplicableCriteria -Catalog $snapshot.Catalog -TargetContext $context -ControlResult $control -ProjectRoot $root `
@@ -57,8 +57,8 @@ foreach($definition in $definitions) {
     }
 }
 Test-WinSecMatrix 'Original catalog bytes and independent expanded objects remain immutable' {
-    $a=Get-WinSecAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-24H2-PRO-DEF-BASE
-    $b=Get-WinSecAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-25H2-ENT-DEF-BASE
+    $a=Get-WinSecBaseAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-24H2-PRO-DEF-BASE
+    $b=Get-WinSecBaseAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-25H2-ENT-DEF-BASE
     Assert-WinSecMatrix ($a.Sha256 -ceq '12F3BAC36CFCBAE46FFC890FC5AD50F6721096EB4E1E8446BAA4DBB28712BC6E' -and
         $b.Sha256 -ceq '8A6DE7C2B198926923E5A0E033C175BFF1ACB8F7447D4999DD8522273AE6DEF2')
     $first=Get-WinSecAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-23H2-PRO-DEF-BASE

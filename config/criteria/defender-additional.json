@@ -1,0 +1,179 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogId": "WSA-DEF-CONFIGURATION-REVISION",
+  "CatalogVersion": "0.3.0",
+  "CheckId": "WSA-SYS-001",
+  "Status": "APPROVED",
+  "EvaluationEnabled": true,
+  "ScoringEnabled": true,
+  "DeviceChangesAllowed": false,
+  "Description": "D-051: owner-approved PUA, configured cloud protection, reported tamper protection and standard ASR vulnerable driver blocking. Composed with each exact Windows 11 profile. Other ASR rules remain inventory-only. No native validation or effective enforcement claim.",
+  "Criteria": [
+    {
+      "CriterionId": "WSA-DEF-ADD-001",
+      "CheckId": "WSA-SYS-001",
+      "Area": "ThreatProtection",
+      "Name": "Potentially unwanted application blocking configured",
+      "EvidencePath": "ConfigurationModes.Pua",
+      "Operator": "Equals",
+      "ExpectedValue": "BLOCK",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.3.0",
+        "ControlId": "WSA-DEF-ADD-001",
+        "Title": "Microsoft Defender Antivirus PUA protection",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/detect-block-potentially-unwanted-apps-microsoft-defender-antivirus"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner explicit scoring approval D-051; Microsoft technical reference reviewed",
+        "ReviewedAtUTC": "2026-10-22T14:42:52Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 template",
+        "Edition": "SKU:TEMPLATE",
+        "Profile": "WSA-DEF-REVISION-TEMPLATE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "BLOCK is the proposed target. AUDIT records activity without blocking. Unknown telemetry is not FAIL. Microsoft recommends assessing audit results before deployment; browser download protection is separate.",
+      "Recommendation": "Review organizational policy and PUA audit results, then have an authorized administrator consider blocking. Confirm the resulting setting with a new read-only scan.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-ADD-002",
+      "CheckId": "WSA-SYS-001",
+      "Area": "CloudProtection",
+      "Name": "Cloud protection configured",
+      "EvidencePath": "ConfigurationModes.Cloud",
+      "Operator": "Equals",
+      "ExpectedValue": "ENABLED",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.3.0",
+        "ControlId": "WSA-DEF-ADD-002",
+        "Title": "Configure cloud protection in Microsoft Defender Antivirus",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/cloud-protection-configure"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner explicit scoring approval D-051; Microsoft technical reference reviewed",
+        "ReviewedAtUTC": "2026-10-22T14:42:52Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 template",
+        "Edition": "SKU:TEMPLATE",
+        "Profile": "WSA-DEF-REVISION-TEMPLATE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Assesses configuration only: Basic or Advanced maps to ENABLED; absent or unrecognized telemetry is UNKNOWN, not FAIL. Does not test connectivity, samples or effective cloud blocking.",
+      "Recommendation": "Review the approved cloud protection and privacy policies, service connectivity and management authority before an authorized administrator changes settings. Sample submission is a separate decision.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-ADD-003",
+      "CheckId": "WSA-SYS-001",
+      "Area": "Integrity",
+      "Name": "Tamper protection reported enabled",
+      "EvidencePath": "ConfigurationModes.Tamper",
+      "Operator": "Equals",
+      "ExpectedValue": "ENABLED",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.3.0",
+        "ControlId": "WSA-DEF-ADD-003",
+        "Title": "Protect security settings with tamper protection",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner explicit scoring approval D-051; Microsoft technical reference reviewed",
+        "ReviewedAtUTC": "2026-10-22T14:42:52Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 template",
+        "Edition": "SKU:TEMPLATE",
+        "Profile": "WSA-DEF-REVISION-TEMPLATE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Assesses only an observed Boolean IsTamperProtected state on the exact Windows 11 profile with Defender in Normal mode. Unavailable or unrecognized telemetry is UNKNOWN, not FAIL; management authority and effectiveness are not claimed.",
+      "Recommendation": "Verify support, active antivirus mode, authorized management and any troubleshooting exception before an authorized administrator restores the approved tamper protection configuration.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-DEF-ADD-004",
+      "CheckId": "WSA-SYS-001",
+      "Area": "AttackSurfaceReduction",
+      "Name": "ASR: vulnerable signed driver blocking configured",
+      "EvidencePath": "ConfigurationModes.AsrVulnerableDriver",
+      "Operator": "Equals",
+      "ExpectedValue": "BLOCK",
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "0.3.0",
+        "ControlId": "WSA-DEF-ADD-004",
+        "Title": "Microsoft ASR standard protection: block abuse of exploited vulnerable signed drivers",
+        "Url": "https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-reference"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner explicit scoring approval D-051; Microsoft technical reference reviewed",
+        "ReviewedAtUTC": "2026-10-22T14:42:52Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 template",
+        "Edition": "SKU:TEMPLATE",
+        "Profile": "WSA-DEF-REVISION-TEMPLATE"
+      },
+      "ActivationDependencies": [
+        "active-antivirus-mode"
+      ],
+      "Interpretation": "Scores only required rule 56a863a9-875e-4185-98a7-b882c64b5ce5. BLOCK passes; AUDIT, WARN, DISABLED or NOT_CONFIGURED fail this local policy. Missing rule is NOT_CONFIGURED only in a complete coherent inventory. Unavailable or incomplete inventory is UNKNOWN. Does not test existing driver loading, other ASR rules, LSA or WMI exceptions.",
+      "Recommendation": "Review the approved local baseline and application compatibility, then have the authorized administrator configure this specific ASR rule in Block mode. Re-scan read-only. Do not bulk-enable other ASR rules; LSASS and WMI rules require their own applicability review.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    }
+  ],
+  "ReviewOnly": [
+    {
+      "Area": "AttackSurfaceReduction",
+      "Name": "Configured ASR rules and observed modes",
+      "EvidencePath": "AttackSurfaceReduction.Rules",
+      "Assessment": "REVIEW_ONLY",
+      "ReferenceUrl": "https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-overview"
+    }
+  ],
+  "ApprovalReference": "D-051: explicit owner request to include all four groups in configuration scoring"
+}

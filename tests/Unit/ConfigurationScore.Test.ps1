@@ -11,7 +11,9 @@ function Assert-WinSecConfig {param([bool]$Value);if(-not $Value){throw 'Configu
 function Assert-WinSecConfigRejected {param([scriptblock]$Action);$caught=$false;try{$null=& $Action}catch{$caught=$true};Assert-WinSecConfig $caught}
 function New-WinSecConfigFixture {
     param([string]$Profile='WSA-W11-24H2-PRO-DEF-BASE',[bool[]]$Flags=@($true,$true,$false,$true),[string]$Mode='Normal')
-    $snapshot=Get-WinSecAssessmentCatalog $root 'WSA-SYS-001' -Profile $Profile
+    # Preserve regression coverage of the immutable four-rule historical policy.
+    # The current eight-rule revision has its own scoring/pipeline suites.
+    $snapshot=Get-WinSecBaseAssessmentCatalog $root 'WSA-SYS-001' -Profile $Profile
     $rule=$snapshot.Catalog.Criteria[0]
     $context=[pscustomobject]@{DeviceId='local:CONFIG-SYNTHETIC';ScanId='config-synthetic-1';OSFamily='Windows';
         OSRelease=$rule.Applicability.OSRelease;Edition=$rule.Applicability.Edition;Profile=$Profile}
