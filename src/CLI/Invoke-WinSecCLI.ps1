@@ -1389,7 +1389,13 @@ function Invoke-WinSecCLILocalRescan {
                 (Get-WinSecPublicHistoryJson $pickerRequest) -cne $requestSnapshot) {
                 throw 'Invalid or modified profile selection decision.'
             }
-            if (-not $answer.Confirmed) { return $null }
+            if (-not $answer.Confirmed) {
+                $Context | Add-Member -NotePropertyName LastScanMessage -NotePropertyValue 'Scan cancelled. Previous results were preserved.' -Force
+                if ($State.Screen -ceq 'Devices') {
+                    $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
+                }
+                return $null
+            }
             $afterPicker = Get-WinSecCLIScanScope -State $State
             if ((Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)) -cne $deviceId -or
                 $afterPicker.ScopeType -cne $scope.ScopeType -or $afterPicker.ScopeKey -cne $scope.ScopeKey -or
@@ -1441,11 +1447,9 @@ function Invoke-WinSecCLILocalRescan {
 
     if ($null -eq $publicResult) {
         # Cancellation is not a completed scan and must not replace history.
-        if ($ShowProgress -and $scanDisplay.CancelRequested) {
-            $Context.LastScanMessage = 'Scan cancelled. Previous results were preserved.'
-            if ($State.Screen -ceq 'Devices') {
-                $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
-            }
+        $Context | Add-Member -NotePropertyName LastScanMessage -NotePropertyValue 'Scan cancelled. Previous results were preserved.' -Force
+        if ($State.Screen -ceq 'Devices') {
+            $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
         }
         return $null
     }

@@ -41,7 +41,48 @@ function Show-WinSecAssessmentProfileSelection {
         }
         $options.Add($profile)
     }
-    $display = [pscustomobject]@{Index=0;CanChoose=$false}
+    # Labels are presentation metadata only. The chosen, validated preview is
+    # returned unchanged; labels never determine applicability or permission.
+    $matrix = $null
+    if (@($options | Where-Object {$_.Profile -cmatch '^WSA-W11-'}).Count) {
+        $matrix = (Get-WinSecDefenderProfileMatrix -ProjectRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..')))).Matrix
+    }
+    $groups = New-Object 'System.Collections.Generic.List[object]'
+    $groupMap = @{}
+    foreach ($profile in $options) {
+        $policy = $profile.Policies[0]
+        $system = $policy.OSFamily
+        $releaseLabel = $policy.OSRelease
+        $build = 0
+        if ($policy.OSFamily -ceq 'Windows' -and $policy.OSRelease -cmatch '^Windows 11 10\.0\.([0-9]+)$') {
+            $system = 'Windows 11'
+            $build = [int]$Matches[1]
+            $release = @($matrix.Releases | Where-Object {$_.Build -eq $build})
+            if ($release.Count -eq 1) { $releaseLabel = '{0} | build {1}' -f $release[0].Name,$build }
+        }
+        $edition = $policy.Edition
+        $editionName = @($matrix.Editions | Where-Object {('SKU:' + $_.Sku) -ceq $edition})
+        if ($editionName.Count -eq 1) { $edition = $editionName[0].Name }
+        $groupKey = $system + '|' + $policy.Edition
+        if (-not $groupMap.ContainsKey($groupKey)) {
+            $group = [pscustomobject]@{Label=($system + ' / ' + $edition);Profiles=New-Object 'System.Collections.Generic.List[object]'}
+            $groupMap[$groupKey] = $group
+            $groups.Add($group)
+        }
+        $groupMap[$groupKey].Profiles.Add([pscustomobject]@{Label=$releaseLabel;Build=$build;Preview=$profile})
+    }
+    foreach ($group in $groups) {
+        $group.Profiles = @($group.Profiles | Sort-Object Label,Build)
+    }
+    $display = [pscustomobject]@{Stage='OS';Index=0;SystemIndex=0;CanChoose=$false}
+    $wrap = {
+        param([object[]]$Lines,[int]$Width)
+        foreach ($line in $Lines) {
+            for ($offset=0;$offset -lt $line.Length;$offset+=$Width) {
+                $line.Substring($offset,[Math]::Min($Width,$line.Length-$offset))
+            }
+        }
+    }
     $render = {
         param($UnusedState)
         $display.CanChoose = $false
@@ -51,38 +92,52 @@ function Show-WinSecAssessmentProfileSelection {
         $lines = @('WINSEC ANALYZER - ASSESSMENT PROFILE',
             ('Device: ' + $requestCopy.Hostname),('DeviceId: ' + $requestCopy.DeviceId),
             ('Scope: {0} / {1}' -f $requestCopy.ScopeType,$requestCopy.ScopeKey),
-            'Mode: READ ONLY | Overall score: NOT_SCORED',
-            ('Approved profiles available: ' + $options.Count),
-            ('Choice {0} / {1}' -f ($display.Index+1),($options.Count+1)))
-        if ($display.Index -eq 0) {
-            $lines += 'Collection only - no configuration evaluation'
-            if ($options.Count -eq 0) { $lines += 'No approved profile is available for this selection.' }
+            'Mode: READ ONLY | Overall score: NOT_SCORED')
+        $details = @()
+        if ($display.Stage -ceq 'OS') {
+            $lines += 'OPERATING SYSTEM / EDITION'
+            $labels = @('Collection only - no configuration evaluation') + @($groups | ForEach-Object {$_.Label})
+            if ($options.Count -eq 0) { $details += 'No approved profile is available for this selection.' }
+            $details += 'Selected: ' + $labels[$display.Index]
         }
         else {
-            $selected = $options[$display.Index-1]
-            $lines += 'Profile: ' + $selected.Profile
+            $group = $groups[$display.SystemIndex-1]
+            $lines += 'VERSION / BUILD - ' + $group.Label
+            $labels = @($group.Profiles | ForEach-Object {$_.Label})
+            $selected = $group.Profiles[$display.Index].Preview
+            $details += 'Selected: ' + $labels[$display.Index]
+            $details += 'Profile: ' + $selected.Profile
             foreach ($policy in $selected.Policies) {
-                $lines += 'Criteria: {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion
-                $lines += 'Criteria SHA256: ' + $policy.CatalogSha256
-                $lines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
+                $details += 'Criteria: {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion
+                $details += 'Criteria SHA256: ' + $policy.CatalogSha256
+                $details += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
             }
-            $lines += 'Applicability and prerequisites are checked during the scan.'
+            $details += 'Applicability and prerequisites are checked during the scan.'
         }
-        $lines += 'A scan confirmation follows. No scan has started.'
-        $lines += '[Up / Down] Choice | [Y / Enter] Select | [N / Esc] Cancel scan'
-        $wrapped = @(foreach ($line in $lines) {
-            for ($offset=0;$offset -lt $line.Length;$offset+=$width) {
-                $line.Substring($offset,[Math]::Min($width,$line.Length-$offset))
-            }
-        })
-        if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count+1)) {
-            $hints = @('Resize to view the complete profile.',('[N / Esc] Cancel scan'))
+        $lines += 'Choice {0} / {1}' -f ($display.Index+1),$labels.Count
+        $details += 'A scan confirmation follows. No scan has started.'
+        $details += '[Up / Down] Choice | [Y / Enter] Select | [N] Cancel scan'
+        $details += if ($display.Stage -ceq 'OS') {'[Esc] Cancel scan'} else {'[Esc] Back to operating systems'}
+        $header = @(& $wrap $lines $width)
+        $footer = @(& $wrap $details $width)
+        $rows = [Math]::Min(8,[Math]::Min($labels.Count,$terminal.Height-1-$header.Count-$footer.Count))
+        if ($terminal.Width -lt 40 -or $rows -lt 1) {
+            $hints = @('Resize to view the complete profile.','[Esc] Back | [N] Cancel scan')
             for ($i=0;$i -lt [Math]::Min($hints.Count,[Math]::Max(0,$terminal.Height-1));$i++) {
                 Write-WinSecText -Text $hints[$i].Substring(0,[Math]::Min($width,$hints[$i].Length)) -Color Yellow
             }
             return
         }
-        foreach ($line in $wrapped) { Write-WinSecText -Text $line }
+        foreach ($line in $header) { Write-WinSecText -Text $line -Color Cyan }
+        $start = [Math]::Max(0,[Math]::Min($display.Index-[int][Math]::Floor($rows/2),$labels.Count-$rows))
+        for ($i=$start;$i -lt ($start+$rows);$i++) {
+            $prefix = if ($i -eq $display.Index) {'> '} else {'  '}
+            $line = $prefix + $labels[$i]
+            if ($line.Length -gt $width) { $line = $line.Substring(0,$width-3) + '...' }
+            $color = if ($i -eq $display.Index) {'Cyan'} else {'Gray'}
+            Write-WinSecText -Text $line -Color $color
+        }
+        foreach ($line in $footer) { Write-WinSecText -Text $line -Color Gray }
         $display.CanChoose = $true
     }
     $resizeState = New-WinSecResizeState
@@ -91,16 +146,27 @@ function Show-WinSecAssessmentProfileSelection {
         $key = Read-WinSecResizeAwareKey -ResizeState $resizeState -RenderAction $render
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
+        if ($key.VirtualKeyCode -eq 27 -and $display.Stage -ceq 'BUILD') {
+            $display.Stage='OS';$display.Index=$display.SystemIndex
+            $null = & $render $null
+            continue
+        }
         if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
             return [pscustomobject]@{Confirmed=$false;Selection=$null}
         }
         if ($key.VirtualKeyCode -in @(38,40)) {
             $delta = if ($key.VirtualKeyCode -eq 38) {-1} else {1}
-            $display.Index = ($display.Index+$delta+$options.Count+1) % ($options.Count+1)
+            $count = if ($display.Stage -ceq 'OS') {$groups.Count+1} else {$groups[$display.SystemIndex-1].Profiles.Count}
+            $display.Index = ($display.Index+$delta+$count) % $count
             $null = & $render $null
         }
         elseif ($display.CanChoose -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
-            $choice = if ($display.Index -eq 0) {$null} else {Copy-WinSecResultData $options[$display.Index-1]}
+            if ($display.Stage -ceq 'OS' -and $display.Index -gt 0) {
+                $display.SystemIndex=$display.Index;$display.Index=0;$display.Stage='BUILD'
+                $null = & $render $null
+                continue
+            }
+            $choice = if ($display.Stage -ceq 'OS') {$null} else {Copy-WinSecResultData $groups[$display.SystemIndex-1].Profiles[$display.Index].Preview}
             return [pscustomobject]@{Confirmed=$true;Selection=$choice}
         }
     }

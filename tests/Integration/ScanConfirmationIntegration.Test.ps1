@@ -112,12 +112,18 @@ Test-WinSecConfirmationIntegrationCase 'Escape preserves the existing public res
     $fixture = New-WinSecConfirmationIntegrationContext
     Add-WinSecConfirmationIntegrationKey -Character 'Y' -Code 89
     $first = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
-    $before = ConvertTo-Json -InputObject $fixture -Depth 20 -Compress
+    # Keep every state field except the two user-facing notices. Avoid a JSON
+    # round trip here: it can reinterpret timestamps in the previous session.
+    $before = ConvertTo-Json -InputObject @($fixture.State,
+        ($fixture.Context | Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 20 -Compress
     Add-WinSecConfirmationIntegrationKey -Code 27
     $cancelled = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($null -eq $cancelled -and $script:auditCalls -eq 1)
     Assert-WinSecConfirmationIntegration (
-        (ConvertTo-Json -InputObject $fixture -Depth 20 -Compress) -ceq $before
+        (ConvertTo-Json -InputObject @($fixture.State,
+            ($fixture.Context | Select-Object * -ExcludeProperty LastScanMessage,LastDeviceMessage)) -Depth 20 -Compress) -ceq $before -and
+        $fixture.Context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.' -and
+        $fixture.Context.LastDeviceMessage -ceq $fixture.Context.LastScanMessage
     ) 'Cancellation changed the selected assessment or its prior state.'
 }
 Test-WinSecConfirmationIntegrationCase 'A small resized terminal cannot approve with Y' {
@@ -126,7 +132,7 @@ Test-WinSecConfirmationIntegrationCase 'A small resized terminal cannot approve 
     Add-WinSecConfirmationIntegrationKey -Code 27
     $cancelled = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecConfirmationIntegration ($null -eq $cancelled -and $script:auditCalls -eq 0 -and
-        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.LastScanMessage -ceq 'PREVIOUS-MESSAGE')
+        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.LastScanMessage -ceq 'Scan cancelled. Previous results were preserved.')
 }
 Test-WinSecConfirmationIntegrationCase 'Catalog changes while the dialog is open abort before collection' {
     $fixture = New-WinSecConfirmationIntegrationContext
@@ -166,6 +172,15 @@ Test-WinSecConfirmationIntegrationCase 'An explicitly disabled registry reports 
     finally { Set-Item -Path Function:\Get-WinSecCheckRegistry -Value $fakeRegistry }
 }
 
+Test-WinSecConfirmationIntegrationCase 'Selecting Cancel with arrows and Enter cannot collect or publish' {
+    $fixture = New-WinSecConfirmationIntegrationContext
+    Add-WinSecConfirmationIntegrationKey -Code 39
+    Add-WinSecConfirmationIntegrationKey -Code 13
+    $result = Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
+    Assert-WinSecConfirmationIntegration ($null -eq $result -and $script:auditCalls -eq 0 -and
+        $fixture.Context.PublicScans.Count -eq 0 -and $fixture.Context.ScanCoordinator.Sessions.Count -eq 0 -and
+        $fixture.Context.LastDeviceMessage -ceq 'Scan cancelled. Previous results were preserved.')
+}
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"
 if ($script:failed -gt 0) { throw "$script:failed confirmation integration test(s) failed." }

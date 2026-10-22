@@ -199,7 +199,8 @@ foreach($code in @(89,13)){
     Test-WinSecProfile 'Arrows and Y or Enter explicitly choose a profile with its complete provenance' {
         $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
         $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
-        $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 89){'y'}else{''})))
+        $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey 13))
+        $script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 89){'y'}else{''})))
         $answer=Show-WinSecAssessmentProfileSelection -Request $request -Profiles $options
         Assert-WinSecProfile ($answer.Confirmed -ceq $true -and $answer.Selection.Profile -ceq 'TEST' -and
             ($script:lines -join ' ').Contains(('D'*64)) -and $script:coordinator.Sessions.Count -eq 0)
@@ -234,6 +235,7 @@ Test-WinSecProfile 'Picker resizing preserves the choice but still requires an e
     $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=10}
     $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey 13))
     $script:keys.Enqueue((New-WinSecProfileKey 0 '' ([pscustomobject]@{Width=120;ContentWidth=119;Height=45})))
+    $script:keys.Enqueue((New-WinSecProfileKey 13))
     $script:keys.Enqueue((New-WinSecProfileKey 13))
     $r=Show-WinSecAssessmentProfileSelection $request @(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
     Assert-WinSecProfile ($r.Confirmed -and $r.Selection.Profile -ceq 'TEST' -and $script:keys.Count -eq 0)

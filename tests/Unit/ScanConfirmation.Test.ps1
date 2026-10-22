@@ -267,7 +267,7 @@ Test-WinSecConfirmationCase 'Modified evidence confirmation requests cannot star
 . (Join-Path $root 'src/UI/Screens/ScanConfirmation.ps1')
 function Get-WinSecTerminalSize { return $script:terminal }
 function Clear-WinSecScreen { $script:lines = @() }
-function Write-WinSecText { param($Text, $Color) $script:lines += $Text }
+function Write-WinSecText { param($Text, $Color) $script:lines += $Text;$script:colors += [string]$Color }
 function New-WinSecResizeState { return [pscustomobject]@{} }
 function Invoke-WinSecResizeHandler {
     param($ResizeState, $RenderAction)
@@ -285,6 +285,7 @@ function New-WinSecConfirmationUIFixture {
     $script:terminal = [pscustomobject]@{ Width = 100; ContentWidth = 99; Height = 40 }
     $script:keys = New-Object 'System.Collections.Generic.Queue[object]'
     $script:needsRender = $false
+    $script:colors = @()
     return [pscustomobject]@{
         Operation = 'SCAN'; DeviceId = 'local:UI-FIXTURE'; Hostname = 'UI-FIXTURE'
         SelectionMode = 'ALL_EXECUTABLE'; ReadOnly = $true; CatalogVersion = 'FIXTURE'
@@ -443,6 +444,36 @@ Test-WinSecConfirmationCase 'Dictionary requests display their declared scope ra
     $script:keys.Enqueue((New-WinSecConfirmationKey -Character Y))
     Assert-WinSecConfirmationTest (Show-WinSecScanConfirmation -Request $dictionary)
     Assert-WinSecConfirmationTest (($script:lines -join ' ').Contains('Control: WSA-SYS-001'))
+}
+foreach ($arrow in @(37,38,39,40)) {
+    Test-WinSecConfirmationCase ('Arrow then Enter cancels the displayed scan: '+$arrow) {
+        $request=New-WinSecConfirmationUIFixture
+        $script:keys.Enqueue((New-WinSecConfirmationKey -Code $arrow))
+        $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
+        Assert-WinSecConfirmationTest (-not(Show-WinSecScanConfirmation $request) -and
+            ($script:lines -join '|').Contains('> [ Cancel ]') -and $script:colors -contains 'Cyan')
+    }
+}
+Test-WinSecConfirmationCase 'Selecting Accept again with arrows still requires an explicit Enter' {
+    $request=New-WinSecConfirmationUIFixture
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 39))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 37))
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
+    Assert-WinSecConfirmationTest ((Show-WinSecScanConfirmation $request) -and ($script:lines -join '|').Contains('> [ Accept ]'))
+}
+Test-WinSecConfirmationCase 'A selected Cancel survives resizing without implying confirmation' {
+    $request=New-WinSecConfirmationUIFixture
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 40))
+    $key=New-WinSecConfirmationKey -Code 0
+    $key|Add-Member -NotePropertyName Terminal -NotePropertyValue ([pscustomobject]@{Width=120;ContentWidth=119;Height=45})
+    $script:keys.Enqueue($key);$script:keys.Enqueue((New-WinSecConfirmationKey -Code 13))
+    Assert-WinSecConfirmationTest (-not(Show-WinSecScanConfirmation $request) -and $script:keys.Count -eq 0)
+}
+Test-WinSecConfirmationCase 'Confirmation warnings fit a one-cell terminal and cannot accept' {
+    $request=New-WinSecConfirmationUIFixture
+    $script:terminal=[pscustomobject]@{Width=1;ContentWidth=1;Height=1}
+    $script:keys.Enqueue((New-WinSecConfirmationKey -Code 13));$script:keys.Enqueue((New-WinSecConfirmationKey -Code 27))
+    Assert-WinSecConfirmationTest (-not(Show-WinSecScanConfirmation $request) -and $script:lines.Count -eq 0)
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

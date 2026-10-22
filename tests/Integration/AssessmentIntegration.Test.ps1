@@ -368,6 +368,7 @@ foreach($field in @('DeviceId','ScanId')){
 foreach($screen in @('Devices','MainMenu','Section')){
     Test-WinSecAssessmentIntegration ('CLI picker and final confirmation reach approved evaluation and history: '+$screen) {
         Add-WinSecAssessmentPickerKey 40
+        Add-WinSecAssessmentPickerKey 13
         Add-WinSecAssessmentPickerKey 13 -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
         Add-WinSecAssessmentPickerKey 89 'y' -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
         $p=Invoke-WinSecAssessmentPickerIntegrationScan $screen
@@ -381,7 +382,7 @@ foreach($screen in @('Devices','MainMenu','Section')){
 }
 foreach($where in @('picker','confirmation')){
     Test-WinSecAssessmentIntegration 'Cancelling either modal collects nothing and preserves the public state' {
-        if($where -ceq 'confirmation'){Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13}
+        if($where -ceq 'confirmation'){Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13}
         Add-WinSecAssessmentPickerKey 27
         $p=Invoke-WinSecAssessmentPickerIntegrationScan
         Assert-WinSecAssessmentIntegration ($null -eq $p -and $script:reads -eq 0 -and $script:osReads -eq 0 -and
@@ -405,18 +406,21 @@ Test-WinSecAssessmentIntegration 'The real draft offers collection only without 
 }
 Test-WinSecAssessmentIntegration 'Policy changes after it was offered invalidate selection before telemetry collection' {
     Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13
     Add-WinSecAssessmentPickerKey 13 -Hook {$script:policy.Catalog.CatalogVersion='changed-in-picker';$script:policy.Sha256=('C'*64)}
     $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
 }
 Test-WinSecAssessmentIntegration 'Revoked approval while choosing a profile cannot reach scan confirmation or collection' {
     Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13
     Add-WinSecAssessmentPickerKey 13 -Hook {$script:policy.Catalog.Criteria[0].Approved=$false}
     $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
 }
 Test-WinSecAssessmentIntegration 'Navigation changed in the picker cannot scan the earlier selection' {
     Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13
     Add-WinSecAssessmentPickerKey 13 -Hook {$script:pickerState.Screen='MainMenu'}
     $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:store.Count -eq 0)
@@ -431,7 +435,7 @@ Test-WinSecAssessmentIntegration 'The picker cannot return metadata for a policy
     Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
 }
 Test-WinSecAssessmentIntegration 'The next rescan asks again and a collection-only result cannot rewrite prior guidance' {
-    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
     $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
     Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
     $second=Invoke-WinSecAssessmentPickerIntegrationScan
@@ -453,7 +457,7 @@ Test-WinSecAssessmentIntegration 'An empty executable selection skips the picker
         -not ($script:allLines -join '|').Contains('ASSESSMENT PROFILE'))
 }
 Test-WinSecAssessmentIntegration 'Cancelling profile selection preserves an existing CLI assessment and immutable history' {
-    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
     $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
     $publicBefore=Get-WinSecPublicHistoryJson $script:context.PublicScans
     Add-WinSecAssessmentPickerKey 27

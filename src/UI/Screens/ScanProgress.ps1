@@ -78,8 +78,9 @@ function Show-WinSecScanProgress {
     $State.LastProgress = $event
     $State.Width = $terminal.Width; $State.Height = $terminal.Height
     Clear-WinSecScreen
+    $color = if ($event.Phase -cin @('CANCELLED','COMPLETED_WITH_ERRORS')) {'Yellow'} else {'Cyan'}
     foreach ($line in @($lines | Select-Object -First ([Math]::Max(0, [int]$terminal.Height - 1)))) {
-        Write-WinSecText -Text $line.Substring(0, [Math]::Min($line.Length, $width)) -Color Cyan
+        Write-WinSecText -Text $line.Substring(0, [Math]::Min($line.Length, $width)) -Color $color
     }
 }
 

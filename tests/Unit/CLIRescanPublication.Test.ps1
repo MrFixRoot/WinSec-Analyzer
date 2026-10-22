@@ -169,9 +169,14 @@ Test-WinSecPublication 'Cancellation preserves the existing public and navigatio
     $fixture.Context.ActiveScanByDevice['local:PUBLICATION']='previous-scan'
     $script:sourceResult=$null
     $before=ConvertTo-Json -InputObject $fixture -Depth 20 -Compress
+    # Only the requested cancellation notices may change; compare every other
+    # field, including navigation, prior public results and active sessions.
+    $expected=ConvertFrom-Json $before
+    $expected.Context.LastScanMessage='Scan cancelled. Previous results were preserved.'
+    $expected.Context|Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $expected.Context.LastScanMessage -Force
     $response=Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecPublication ($null -eq $response -and
-        $before -ceq (ConvertTo-Json -InputObject $fixture -Depth 20 -Compress))
+        (ConvertTo-Json $expected -Depth 20 -Compress) -ceq (ConvertTo-Json -InputObject $fixture -Depth 20 -Compress))
 }
 Write-Host "Passed: $script:passed"
 Write-Host "Failed: $script:failed"

@@ -5,7 +5,7 @@ $ErrorActionPreference='Stop'
 $script:passed=0; $script:failed=0
 function Get-WinSecTerminalSize { return $script:terminal }
 function Clear-WinSecScreen { $script:lines=@() }
-function Write-WinSecText { param($Text,$Color) $script:lines+= [string]$Text }
+function Write-WinSecText { param($Text,$Color) $script:lines+= [string]$Text;$script:colors+=[string]$Color }
 function New-WinSecResizeState { return [pscustomobject]@{} }
 function Invoke-WinSecResizeHandler { param($ResizeState,$RenderAction) }
 function Read-WinSecResizeAwareKey {
@@ -26,6 +26,7 @@ function Test-WinSecDialog {
     param([string]$Name,[scriptblock]$Action)
     $script:terminal=[pscustomobject]@{Width=80; ContentWidth=79; Height=40}
     $script:keys=New-Object 'System.Collections.Generic.Queue[object]'
+    $script:colors=@()
     $script:request=[pscustomobject]@{Operation='DELETE_DEVICE'; DeviceId=('local:hw1-'+('a'*64)); Hostname='FIXTURE';
         MemoryScanCount=2; StoredFileCount=3; IncludesHistory=$true; Irreversible=$true; RegistersAgainOnStartup=$true}
     try { $null=& $Action; $script:passed++; Write-Host "[PASS] $Name" }
@@ -47,7 +48,7 @@ foreach ($key in @(@{C='';V=27},@{C='N';V=78})) {
 Test-WinSecDialog 'Enter confirms only the fully visible deletion request' {
     Add-WinSecRemovalKey '' 13
     Assert-WinSecDialog (Show-WinSecDeviceRemovalConfirmation $script:request)
-    Assert-WinSecDialog (($script:lines -join ' ') -match '\[Y / Enter\]' -and
+    Assert-WinSecDialog (($script:lines -join ' ') -match '\[Y\] Accept' -and
         ($script:lines -join ' ') -match '\[N / Esc\]')
 }
 Test-WinSecDialog 'Enter cannot approve a deletion on a truncated terminal' {
@@ -84,6 +85,29 @@ Test-WinSecDialog 'A scan request cannot authorize a deletion' {
     $script:request.Operation='SCAN'; $caught=$false
     try { $null=Show-WinSecDeviceRemovalConfirmation $script:request } catch { $caught=$true }
     Assert-WinSecDialog $caught
+}
+foreach($arrow in @(37,38,39,40)) {
+    Test-WinSecDialog ('Arrow then Enter selects Cancel instead of deleting: '+$arrow) {
+        Add-WinSecRemovalKey '' $arrow;Add-WinSecRemovalKey '' 13
+        Assert-WinSecDialog (-not(Show-WinSecDeviceRemovalConfirmation $script:request) -and
+            ($script:lines -join '|').Contains('> [ Cancel ]') -and $script:colors -contains 'Cyan')
+    }
+}
+Test-WinSecDialog 'Accept can be selected again; irreversible-deletion warning is yellow' {
+    Add-WinSecRemovalKey '' 39;Add-WinSecRemovalKey '' 37;Add-WinSecRemovalKey '' 13
+    Assert-WinSecDialog ((Show-WinSecDeviceRemovalConfirmation $script:request) -and
+        ($script:lines -join '|').Contains('> [ Accept ]') -and $script:colors -contains 'Yellow')
+}
+Test-WinSecDialog 'The selected Cancel survives resizing and still requires Enter' {
+    Add-WinSecRemovalKey '' 40
+    $script:keys.Enqueue({$script:terminal.Width=120;$script:terminal.ContentWidth=119})
+    Add-WinSecRemovalKey '' 13
+    Assert-WinSecDialog (-not(Show-WinSecDeviceRemovalConfirmation $script:request) -and $script:keys.Count -eq 0)
+}
+Test-WinSecDialog 'Deletion warnings fit a one-cell terminal and cannot accept' {
+    $script:terminal=[pscustomobject]@{Width=1;ContentWidth=1;Height=1}
+    Add-WinSecRemovalKey '' 13;Add-WinSecRemovalKey '' 27
+    Assert-WinSecDialog (-not(Show-WinSecDeviceRemovalConfirmation $script:request) -and $script:lines.Count -eq 0)
 }
 Write-Host "Passed: $script:passed; Failed: $script:failed"
 if ($script:failed -gt 0) { throw 'Deletion confirmation tests failed.' }

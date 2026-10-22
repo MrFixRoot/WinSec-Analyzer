@@ -17,6 +17,7 @@ function Test-WinSecProgress {
     $script:events = New-Object 'System.Collections.Generic.List[object]'
     $script:keys = New-Object 'System.Collections.Generic.Queue[object]'
     $script:lines = New-Object 'System.Collections.Generic.List[string]'
+    $script:colors = New-Object 'System.Collections.Generic.List[string]'
     $script:terminal = [pscustomobject]@{Width=80;ContentWidth=79;Height=25}
     $script:display = New-WinSecScanProgressState -DeviceId 'local:PROGRESS-FIXTURE' -ScopeLabel 'Control'
     try { $null = & $Action; $script:passed++; Write-Host ('[PASS] ' + $Name) }
@@ -31,8 +32,8 @@ function Invoke-WinSecAuditCheck {
         -Status INFORMATIONAL -ObservedStatus INFORMATIONAL -Evidence @{Secret='PRIVATE-PROGRESS-MARKER'}
 }
 function Get-WinSecTerminalSize { $script:terminal }
-function Clear-WinSecScreen { $script:lines.Clear() }
-function Write-WinSecText { param($Text,$Color); $script:lines.Add([string]$Text) }
+function Clear-WinSecScreen { $script:lines.Clear();$script:colors.Clear() }
+function Write-WinSecText { param($Text,$Color); $script:lines.Add([string]$Text);$script:colors.Add([string]$Color) }
 function Read-WinSecPendingKey { if ($script:keys.Count) { return $script:keys.Dequeue() }; return $null }
 function New-WinSecProgressEvent {
     param([string]$Phase='READING', [int]$Completed=0, [int]$Total=2)
@@ -95,6 +96,15 @@ Test-WinSecProgress 'Reading is 0 percent and finalizing cannot claim 100 percen
     Assert-WinSecProgress (($script:lines -join '|') -match '99%' -and ($script:lines -join '|') -notmatch '100%')
     Show-WinSecScanProgress $script:display (New-WinSecProgressEvent COMPLETED 2)
     Assert-WinSecProgress (($script:lines -join '|') -match '100%' -and ($script:lines -join '|') -match 'NOT_SCORED')
+}
+Test-WinSecProgress 'Cancellation and technical warnings are yellow; normal progress retains cyan' {
+    Show-WinSecScanProgress $script:display (New-WinSecProgressEvent)
+    Assert-WinSecProgress (@($script:colors|Where-Object {$_ -cne 'Cyan'}).Count -eq 0)
+    Show-WinSecScanProgress $script:display (New-WinSecProgressEvent CANCELLED)
+    Assert-WinSecProgress (@($script:colors|Where-Object {$_ -cne 'Yellow'}).Count -eq 0 -and
+        ($script:lines -join '|') -match 'No new scan saved')
+    Show-WinSecScanProgress $script:display (New-WinSecProgressEvent COMPLETED_WITH_ERRORS 2)
+    Assert-WinSecProgress (@($script:colors|Where-Object {$_ -cne 'Yellow'}).Count -eq 0)
 }
 Test-WinSecProgress 'Half the selected controls produces 50 percent' {
     Show-WinSecScanProgress $script:display (New-WinSecProgressEvent CHECK_COMPLETED 1)

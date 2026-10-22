@@ -8,6 +8,8 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/Core/ScanCoordinator.ps1')
 . (Join-Path $root 'src/CLI/Invoke-WinSecCLI.ps1')
 . (Join-Path $root 'src/UI/Core/ResizeHandler.ps1')
+$script:pendingReader = (Get-Command Read-WinSecPendingKey).ScriptBlock
+. (Join-Path $root 'tests/Fixtures/RawUIKeyboardMemory.ps1')
 . (Join-Path $root 'src/UI/Screens/ScanConfirmation.ps1')
 . (Join-Path $root 'src/UI/Screens/ScanProgress.ps1')
 $script:catalog = Get-WinSecCheckRegistry -ProjectRoot $root
@@ -114,8 +116,7 @@ function Clear-WinSecScreen {
 }
 function Write-WinSecText { param($Text,$Color); $script:lines.Add([string]$Text) }
 function Read-WinSecPendingKey {
-    if ($script:progressKeys.Count) { return $script:progressKeys.Dequeue() }
-    return $null
+    & $script:pendingReader -InputUI $script:progressInputUI
 }
 function Read-WinSecResizeAwareKey {
     param($ResizeState,$RenderAction)
@@ -135,6 +136,7 @@ function Test-WinSecDefenderIntegration {
     $script:frames = New-Object 'System.Collections.Generic.List[string]'
     $script:confirmationKeys = New-Object 'System.Collections.Generic.Queue[object]'
     $script:progressKeys = New-Object 'System.Collections.Generic.Queue[object]'
+    $script:progressInputUI = New-WinSecRawUIKeyboardFixture -Keys $script:progressKeys
     $script:terminal = [pscustomobject]@{Width=100;ContentWidth=99;Height=40}
     $script:uuid = '12345678-1234-4567-89ab-123456789abc'
     $script:coordinator = New-WinSecScanCoordinator -ProjectRoot $root
@@ -313,6 +315,9 @@ Test-WinSecDefenderIntegration 'CLI Scan and Rescan render real progress and pub
         ActiveScanByDevice=@{};ActiveScanByScope=@{};PublicScans=@{};LastScanMessage=''}
     foreach ($expectedAction in @('SCAN','RESCAN')) {
         $script:confirmationKeys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        # Enter was pressed in the confirmation; its release is still buffered
+        # when AuditEngine first polls cancellation, before drawing READING.
+        $script:progressKeys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$false;ControlKeyState=0})
         $script:frames.Clear()
         $result = Invoke-WinSecCLILocalRescan -State $state -Context $context -ShowProgress
         $frames = @($script:frames.ToArray()) + @($script:lines -join '|')
@@ -322,6 +327,8 @@ Test-WinSecDefenderIntegration 'CLI Scan and Rescan render real progress and pub
         Assert-WinSecDefenderIntegration ($script:savedHistory.ScanId -ceq $result.ScanId -and
             $context.ActiveScanByDevice[$script:localId] -ceq $result.ScanId -and
             $script:savedHistory.PublicResult.ContainsRawEvidence -ceq $false -and $result.Findings.Count -eq 0)
+        Assert-WinSecDefenderIntegration ($script:progressInputUI.BlockedReads -eq 0 -and
+            $script:progressKeys.Count -eq 0 -and ($frames -join '|') -match '  0%')
     }
     Assert-WinSecDefenderIntegration ($script:statusCalls -eq 2 -and $context.PublicScans.Count -eq 2)
 }

@@ -120,7 +120,7 @@ function Show-WinSecScanConfirmation {
         $profileLines+='Scoring policy SHA256: ' + $policy.PolicySha256
     }
 
-    $display = [pscustomobject]@{ CanConfirm = $false }
+    $display = [pscustomobject]@{ CanConfirm = $false; Choice = 0 }
     $render = {
         param($UnusedState)
         $display.CanConfirm = $false
@@ -145,7 +145,7 @@ function Show-WinSecScanConfirmation {
             $lines += 'NO_EXECUTABLE_CHECKS - no audit will be started. NOT_SCORED.'
         }
         $lines += if ($hasChecks) {
-            '[Y / Enter] Confirm this operation | [N / Esc] Cancel'
+            @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Y] Accept | [N / Esc] Cancel')
         }
         else {
             '[N / Esc] Back'
@@ -160,12 +160,21 @@ function Show-WinSecScanConfirmation {
             }
         )
         if ($terminal.Width -lt 40 -or $terminal.Height -lt ($wrapped.Count + 1)) {
-            Write-WinSecText -Text 'Resize to view the complete scan request.' -Color Yellow
-            Write-WinSecText -Text ('Required height at this width: {0}' -f ($wrapped.Count + 1))
-            Write-WinSecText -Text '[N / Esc] Cancel'
+            $hints = @('Resize to view the complete scan request.',
+                ('Required height at this width: {0}' -f ($wrapped.Count + 1)),'[N / Esc] Cancel')
+            foreach ($hint in @($hints | Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
+                Write-WinSecText -Text $hint.Substring(0,[Math]::Min($width,$hint.Length)) -Color Yellow
+            }
             return
         }
-        foreach ($line in $wrapped) { Write-WinSecText -Text $line }
+        foreach ($line in $wrapped) {
+            $color = 'Gray'
+            if (($line -ceq '  [ Accept ]' -and $display.Choice -eq 0) -or
+                ($line -ceq '  [ Cancel ]' -and $display.Choice -eq 1)) {
+                $line = '> ' + $line.Substring(2);$color = 'Cyan'
+            }
+            Write-WinSecText -Text $line -Color $color
+        }
         $display.CanConfirm = $hasChecks
     }
 
@@ -179,6 +188,12 @@ function Show-WinSecScanConfirmation {
         if ($key.VirtualKeyCode -eq 27 -or [string]$key.Character -ieq 'N') {
             return $false
         }
+        if ($key.VirtualKeyCode -in @(37,38,39,40)) {
+            $display.Choice = 1 - $display.Choice
+            $null = & $render $null
+            continue
+        }
+        if ($key.VirtualKeyCode -eq 13 -and $display.Choice -eq 1) { return $false }
         if ($display.CanConfirm -and ($key.VirtualKeyCode -eq 13 -or [string]$key.Character -ieq 'Y')) {
             return $true
         }
