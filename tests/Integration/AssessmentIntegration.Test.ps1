@@ -8,6 +8,7 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Core/KeyboardController.ps1','src/UI/Core/ResizeHandler.ps1','src/UI/Core/TerminalRenderer.ps1',
     'src/UI/Core/LayoutManager.ps1','src/UI/Components/Banner.ps1','src/UI/Components/Table.ps1','src/UI/Components/KeyboardHelp.ps1',
     'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1',
+    'src/UI/Screens/ScanConfirmation.ps1','src/UI/Screens/AssessmentProfileSelection.ps1',
     'src/Services/ReportService.ps1','src/Services/ExportService.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
@@ -19,6 +20,11 @@ function Get-CimInstance {
     param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
     if($Namespace -ceq 'root/cimv2' -and $ClassName -ceq 'Win32_ComputerSystemProduct'){
         return [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+    }
+    if($Namespace -ceq 'root/cimv2' -and $ClassName -ceq 'Win32_OperatingSystem'){
+        $script:osReads++
+        return [pscustomobject]@{Caption='Microsoft Windows 11 Pro';Version='10.0.26100';BuildNumber='26100';
+            OperatingSystemSKU=[uint32]48;ProductType=[uint32]1}
     }
     throw 'Synthetic Defender CIM unavailable.'
 }
@@ -69,7 +75,18 @@ function Clear-WinSecScreen {$script:lines.Clear();$null=$script:fragment.Clear(
 function Write-Host {
     param([object[]]$Object,[switch]$NoNewline,$ForegroundColor,$BackgroundColor,[string]$Separator=' ')
     $null=$script:fragment.Append(($Object -join $Separator))
-    if(-not $NoNewline){$script:lines.Add($script:fragment.ToString());$null=$script:fragment.Clear()}
+    if(-not $NoNewline){$script:lines.Add($script:fragment.ToString());$script:allLines.Add($script:fragment.ToString());$null=$script:fragment.Clear()}
+}
+function Read-WinSecResizeAwareKey {
+    param($ResizeState,$RenderAction)
+    if($script:pickerKeys.Count -eq 0){throw 'Synthetic profile/scan key queue exhausted.'}
+    $key=$script:pickerKeys.Dequeue()
+    if($null -ne $key.Hook){$null=& $key.Hook}
+    return $key
+}
+function Add-WinSecAssessmentPickerKey {
+    param([int]$Code,[string]$Character='',[scriptblock]$Hook)
+    $script:pickerKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$Code;Character=$Character;KeyDown=$true;ControlKeyState=0;Hook=$Hook})
 }
 function New-WinSecAssessmentIntegrationContext {
     $coordinator=New-WinSecScanCoordinator
@@ -94,6 +111,8 @@ function Test-WinSecAssessmentIntegration {
     $script:reads=0;$script:catalogReads=0;$script:realTime=$false;$script:collectionError=$false
     $script:runningMode='Normal'
     $script:changePolicyDuringRead=$false
+    $script:osReads=0;$script:pickerKeys=New-Object 'System.Collections.Generic.Queue[object]'
+    $script:allLines=New-Object 'System.Collections.Generic.List[string]'
     $script:store=@{};$script:exports=New-Object 'System.Collections.Generic.List[object]'
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
     $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55}
@@ -122,6 +141,16 @@ function Invoke-WinSecAssessmentProfileIntegrationScan {
         -ScopeType $ScopeType -ScopeKey $ScopeKey -AssessmentProfile TEST -TargetContext $os -ConfirmAction $ConfirmAction
     Assert-WinSecAssessmentIntegration ($os.Profile -ceq 'UNRESOLVED')
     return $p
+}
+function Invoke-WinSecAssessmentPickerIntegrationScan {
+    param([string]$Screen='Devices')
+    if($script:policy.Catalog.Status -ceq 'APPROVED'){
+        $script:policy.Catalog.Criteria[0].Applicability.OSRelease='Windows 11 10.0.26100'
+        $script:policy.Catalog.Criteria[0].Applicability.Edition='SKU:48'
+    }
+    $script:pickerState=New-WinSecNavigationState
+    $script:pickerState.Screen=$Screen;$script:pickerState.SelectedDeviceId=$script:context.Devices[0].DeviceId
+    Invoke-WinSecCLILocalRescan -State $script:pickerState -Context $script:context
 }
 Test-WinSecAssessmentIntegration 'Initialization never reads Defender or evaluates a catalog' {
     Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:catalogReads -eq 0 -and $script:store.Count -eq 0)
@@ -332,6 +361,112 @@ foreach($field in @('DeviceId','ScanId')){
         try{$null=Invoke-WinSecCoordinatedScan $script:context.ScanCoordinator -ScanId 'profile-array-identity' `
             -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile TEST -TargetContext $os -ConfirmAction {$true}}catch{$caught=$true}
         Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:catalogReads -eq 0 -and $script:store.Count -eq 0)
+    }
+}
+foreach($screen in @('Devices','MainMenu','Section')){
+    Test-WinSecAssessmentIntegration ('CLI picker and final confirmation reach approved evaluation and history: '+$screen) {
+        Add-WinSecAssessmentPickerKey 40
+        Add-WinSecAssessmentPickerKey 13 -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
+        Add-WinSecAssessmentPickerKey 89 'y' -Hook {Assert-WinSecAssessmentIntegration ($script:reads -eq 0 -and $script:osReads -eq 0)}
+        $p=Invoke-WinSecAssessmentPickerIntegrationScan $screen
+        Assert-WinSecAssessmentIntegration ($p.Findings[0].Guidance.Profile -ceq 'TEST' -and $p.OverallStatus -ceq 'NOT_SCORED' -and
+            $script:reads -eq 1 -and $script:osReads -eq 1 -and $script:store.Count -eq 1 -and $script:pickerKeys.Count -eq 0 -and
+            $script:context.PublicScans.Count -eq 1)
+        $text=$script:allLines -join '|'
+        Assert-WinSecAssessmentIntegration ($text.Contains('ASSESSMENT PROFILE') -and $text.Contains('CONFIRM SCAN') -and
+            $text.Contains('Evaluation profile: TEST') -and $text -notmatch 'PRIVATE-ASSESSMENT-RAW-PATH')
+    }
+}
+foreach($where in @('picker','confirmation')){
+    Test-WinSecAssessmentIntegration 'Cancelling either modal collects nothing and preserves the public state' {
+        if($where -ceq 'confirmation'){Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13}
+        Add-WinSecAssessmentPickerKey 27
+        $p=Invoke-WinSecAssessmentPickerIntegrationScan
+        Assert-WinSecAssessmentIntegration ($null -eq $p -and $script:reads -eq 0 -and $script:osReads -eq 0 -and
+            $script:store.Count -eq 0 -and $script:context.PublicScans.Count -eq 0 -and $script:context.ScanCoordinator.Sessions.Count -eq 0)
+    }
+}
+Test-WinSecAssessmentIntegration 'Collection-only choice cannot silently use an available approved profile' {
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    $p=Invoke-WinSecAssessmentPickerIntegrationScan
+    Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and
+        @($p.Findings|Where-Object {$null -ne $_.Guidance}).Count -eq 0 -and
+        ($script:allLines -join '|').Contains('Collection only') -and $p.OverallStatus -ceq 'NOT_SCORED')
+}
+Test-WinSecAssessmentIntegration 'The real draft offers collection only without pretending to have an approved profile' {
+    $script:policy=Copy-WinSecResultData $script:draft
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    $p=Invoke-WinSecAssessmentPickerIntegrationScan
+    Assert-WinSecAssessmentIntegration ($p.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and
+        ($script:allLines -join '|').Contains('No approved profile is available') -and
+        @($p.Findings|Where-Object Kind -EQ CONFIGURATION_DEVIATION).Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'Policy changes after it was offered invalidate selection before telemetry collection' {
+    Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13 -Hook {$script:policy.Catalog.CatalogVersion='changed-in-picker';$script:policy.Sha256=('C'*64)}
+    $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'Revoked approval while choosing a profile cannot reach scan confirmation or collection' {
+    Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13 -Hook {$script:policy.Catalog.Criteria[0].Approved=$false}
+    $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'Navigation changed in the picker cannot scan the earlier selection' {
+    Add-WinSecAssessmentPickerKey 40
+    Add-WinSecAssessmentPickerKey 13 -Hook {$script:pickerState.Screen='MainMenu'}
+    $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:store.Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'The picker cannot return metadata for a policy it was not offered' {
+    function Show-WinSecAssessmentProfileSelection {
+        param($Request,$Profiles)
+        $forged=Copy-WinSecResultData $Profiles[0];$forged.Policies[0].CatalogSha256=('F'*64)
+        [pscustomobject]@{Confirmed=$true;Selection=$forged}
+    }
+    $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
+    Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
+}
+Test-WinSecAssessmentIntegration 'The next rescan asks again and a collection-only result cannot rewrite prior guidance' {
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
+    Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    $second=Invoke-WinSecAssessmentPickerIntegrationScan
+    Assert-WinSecAssessmentIntegration ($script:reads -eq 2 -and $script:store.Count -eq 2 -and
+        $script:store[$first.ScanId] -ceq $saved -and $first.Findings[0].Guidance.Profile -ceq 'TEST' -and
+        $second.Findings[0].Kind -ceq 'CATALOG_NOT_READY' -and ($script:allLines -join '|').Contains('CONFIRM RESCAN'))
+}
+Test-WinSecAssessmentIntegration 'An empty executable selection skips the picker and cannot start an audit' {
+    function Get-WinSecCheckRegistry {param($ProjectRoot);Copy-WinSecResultData $script:catalog}
+    Add-WinSecAssessmentPickerKey 27
+    $p=Invoke-WinSecAssessmentPickerIntegrationScan
+    Assert-WinSecAssessmentIntegration ($null -eq $p -and $script:reads -eq 0 -and $script:osReads -eq 0 -and
+        ($script:allLines -join '|').Contains('NO_EXECUTABLE_CHECKS') -and
+        -not ($script:allLines -join '|').Contains('ASSESSMENT PROFILE'))
+}
+Test-WinSecAssessmentIntegration 'Cancelling profile selection preserves an existing CLI assessment and immutable history' {
+    Add-WinSecAssessmentPickerKey 40;Add-WinSecAssessmentPickerKey 13;Add-WinSecAssessmentPickerKey 89 'y'
+    $first=Invoke-WinSecAssessmentPickerIntegrationScan;$saved=$script:store[$first.ScanId]
+    $publicBefore=Get-WinSecPublicHistoryJson $script:context.PublicScans
+    Add-WinSecAssessmentPickerKey 27
+    $cancelled=Invoke-WinSecAssessmentPickerIntegrationScan
+    Assert-WinSecAssessmentIntegration ($null -eq $cancelled -and $script:reads -eq 1 -and $script:osReads -eq 1 -and
+        $script:store.Count -eq 1 -and $script:store[$first.ScanId] -ceq $saved -and
+        (Get-WinSecPublicHistoryJson $script:context.PublicScans) -ceq $publicBefore)
+}
+foreach($invalid in @('textual','multiple','cancelled-with-selection')){
+    Test-WinSecAssessmentIntegration 'Malformed picker decisions cannot reach scan confirmation or publication' {
+        function Show-WinSecAssessmentProfileSelection {
+            param($Request,$Profiles)
+            switch($invalid){
+                'textual' {[pscustomobject]@{Confirmed='true';Selection=$null}}
+                'multiple' {[pscustomobject]@{Confirmed=$true;Selection=$null};[pscustomobject]@{Confirmed=$true;Selection=$null}}
+                'cancelled-with-selection' {[pscustomobject]@{Confirmed=$false;Selection=$Profiles[0]}}
+            }
+        }
+        $caught=$false;try{$null=Invoke-WinSecAssessmentPickerIntegrationScan}catch{$caught=$true}
+        Assert-WinSecAssessmentIntegration ($caught -and $script:reads -eq 0 -and $script:osReads -eq 0 -and $script:store.Count -eq 0)
     }
 }
 [Console]::WriteLine(('Assessment integration: {0} passed, {1} failed.' -f $script:passed,$script:failed))

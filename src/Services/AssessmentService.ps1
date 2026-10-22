@@ -88,6 +88,32 @@ function Get-WinSecAssessmentProfilePlan {
     [pscustomobject]@{Preview=$preview;Catalogs=$snapshots}
 }
 
+function Get-WinSecAssessmentProfileOptions {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$CheckIds
+    )
+    $seen = @{}
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($id in $CheckIds) {
+        if (-not (Test-WinSecTargetIdentifier $id) -or $seen.ContainsKey($id)) { throw 'Invalid profile discovery selection.' }
+        $seen[$id] = $true
+        $snapshot = Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $id
+        if ($null -eq $snapshot -or -not (Test-WinSecCriteriaCatalog $snapshot.Catalog).ReadyForEvaluation) { continue }
+        $scope = $snapshot.Catalog.Criteria[0].Applicability
+        if (@($snapshot.Catalog.Criteria|Where-Object {
+            $_.Applicability.Profile -cne $scope.Profile -or $_.Applicability.OSFamily -cne $scope.OSFamily -or
+            $_.Applicability.OSRelease -cne $scope.OSRelease -or $_.Applicability.Edition -cne $scope.Edition
+        }).Count -gt 0) { continue }
+        $null = $names.Add($scope.Profile)
+    }
+    foreach ($name in @($names|Sort-Object -CaseSensitive)) {
+        # Reuse the exact approval and metadata contract of the coordinator.
+        (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
+    }
+}
+
 function Resolve-WinSecAssessmentDependencies {
     [CmdletBinding()]
     param(

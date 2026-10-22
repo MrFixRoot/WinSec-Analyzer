@@ -1335,6 +1335,42 @@ function Invoke-WinSecCLILocalRescan {
     if ($scope.ScopeType -cne 'DEVICE') {
         $scopeArguments = @{ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
     }
+    $selectedProfile = $null
+    $assessmentMode = Get-WinSecCLIValue $coordinator 'AssessmentEnabled'
+    if ($assessmentMode -is [bool] -and $assessmentMode) {
+        $pickerArguments = @{Coordinator=$coordinator;DeviceId=$deviceId}
+        foreach ($name in $scopeArguments.Keys) { $pickerArguments[$name]=$scopeArguments[$name] }
+        $pickerPlan = Get-WinSecScanConfirmationPlan @pickerArguments
+        if ($pickerPlan.CheckIds.Count -gt 0) {
+            $profiles = @(Get-WinSecAssessmentProfileOptions -ProjectRoot $coordinator.ProjectRoot -CheckIds $pickerPlan.CheckIds)
+            $pickerRequest = ConvertFrom-Json -InputObject $pickerPlan.RequestJson -ErrorAction Stop
+            $requestSnapshot = Get-WinSecPublicHistoryJson $pickerRequest
+            $answers = @(Show-WinSecAssessmentProfileSelection -Request $pickerRequest -Profiles (Copy-WinSecResultData $profiles))
+            if ($answers.Count -ne 1) { throw 'Profile selection must return exactly one decision.' }
+            $answer = Copy-WinSecResultData $answers[0]
+            if ($answer -isnot [pscustomobject] -or @($answer.PSObject.Properties).Count -ne 2 -or
+                @($answer.PSObject.Properties|Where-Object {$_.Name -cnotin @('Confirmed','Selection')}).Count -gt 0 -or
+                $answer.Confirmed -isnot [bool] -or (-not $answer.Confirmed -and $null -ne $answer.Selection) -or
+                (Get-WinSecPublicHistoryJson $pickerRequest) -cne $requestSnapshot) {
+                throw 'Invalid or modified profile selection decision.'
+            }
+            if (-not $answer.Confirmed) { return $null }
+            $afterPicker = Get-WinSecCLIScanScope -State $State
+            if ((Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)) -cne $deviceId -or
+                $afterPicker.ScopeType -cne $scope.ScopeType -or $afterPicker.ScopeKey -cne $scope.ScopeKey -or
+                (Get-WinSecScanConfirmationPlan @pickerArguments).Fingerprint -cne $pickerPlan.Fingerprint) {
+                throw 'Scan selection changed while choosing an assessment profile.'
+            }
+            if ($null -ne $answer.Selection) {
+                $selectedProfile = Assert-WinSecAssessmentProfilePreview $answer.Selection
+                $selectionJson = Get-WinSecPublicHistoryJson $selectedProfile
+                if (@($profiles|Where-Object {(Get-WinSecPublicHistoryJson $_) -ceq $selectionJson}).Count -ne 1) {
+                    throw 'The selected profile was not offered for this operation.'
+                }
+                $scopeArguments.AssessmentProfile = $selectedProfile.Profile
+            }
+        }
+    }
     if ($ShowProgress) {
         $scanDisplay = New-WinSecScanProgressState -DeviceId $deviceId -ScopeLabel $scope.Label
         $scopeArguments.ProgressCallback = {
@@ -1351,6 +1387,10 @@ function Invoke-WinSecCLILocalRescan {
             $before = Get-WinSecCLIScanScope -State $State
             if ((Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)) -cne $deviceId -or $before.ScopeType -cne $scope.ScopeType -or
                 $before.ScopeKey -cne $scope.ScopeKey) { throw 'Scan navigation changed before confirmation.' }
+            if ($null -ne $selectedProfile -and
+                (Get-WinSecPublicHistoryJson $Request.EvaluationProfile) -cne (Get-WinSecPublicHistoryJson $selectedProfile)) {
+                throw 'The assessment profile changed after selection; choose it again.'
+            }
             $answer = Show-WinSecScanConfirmation -Request $Request
             if ($ShowProgress -and $answer) { $scanDisplay.ScanAction = $Request.ScanAction }
             $after = Get-WinSecCLIScanScope -State $State
@@ -1637,6 +1677,7 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/Devices.ps1'
         'src/UI/Screens/Findings.ps1'
         'src/UI/Screens/ScanConfirmation.ps1'
+        'src/UI/Screens/AssessmentProfileSelection.ps1'
         'src/UI/Screens/ScanProgress.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
         'src/UI/Screens/DeviceName.ps1'
@@ -1677,6 +1718,7 @@ function Invoke-WinSecCLI {
         'Show-WinSecResults'
         'Show-WinSecFindings'
         'Show-WinSecScanConfirmation'
+        'Show-WinSecAssessmentProfileSelection'
         'New-WinSecScanProgressState'
         'Show-WinSecScanProgress'
         'Test-WinSecScanProgressCancellation'

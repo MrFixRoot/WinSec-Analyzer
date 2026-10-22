@@ -5,6 +5,7 @@ $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/Core/ScanCoordinator.ps1')
 . (Join-Path $root 'src/UI/Screens/ScanConfirmation.ps1')
+. (Join-Path $root 'src/UI/Screens/AssessmentProfileSelection.ps1')
 $script:registry=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
 $script:passed=0;$script:failed=0
@@ -166,6 +167,96 @@ Test-WinSecProfile 'Case-ambiguous dictionary profile fields cannot hide the dis
     foreach($p in $request.PSObject.Properties){$dictionary.Add($p.Name,$p.Value)}
     $dictionary.Add('evaluationprofile',$request.EvaluationProfile)
     Assert-WinSecProfileRejected {Show-WinSecScanConfirmation $dictionary}
+}
+Test-WinSecProfile 'Discovery lists only approved complete profiles and owns its metadata' {
+    $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+    Assert-WinSecProfile ($options.Count -eq 1 -and $options[0].Profile -ceq 'TEST')
+    $script:policy.Catalog.CatalogVersion='changed'
+    Assert-WinSecProfile ($options[0].Policies[0].CatalogVersion -ceq 'test-1')
+}
+Test-WinSecProfile 'The production draft provides no selectable approved profile' {
+    $script:policy=Copy-WinSecResultData $script:draft
+    Assert-WinSecProfile (@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001')).Count -eq 0)
+}
+Test-WinSecProfile 'Discovery does not release a mixed-profile catalog or duplicate controls' {
+    $extra=Copy-WinSecResultData $script:policy.Catalog.Criteria[0];$extra.CriterionId='SYNTHETIC-OTHER';$extra.Applicability.Profile='OTHER'
+    $script:policy.Catalog.Criteria=@($script:policy.Catalog.Criteria[0],$extra)
+    Assert-WinSecProfile (@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001')).Count -eq 0)
+    Assert-WinSecProfileRejected {Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001','WSA-SYS-001')}
+}
+foreach($withOptions in @($false,$true)){
+    Test-WinSecProfile 'The initial collection-only choice requires an explicit Enter and selects no policy' {
+        $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+        $profiles=@(if($withOptions){Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001')})
+        $script:keys.Enqueue((New-WinSecProfileKey 13))
+        $answer=Show-WinSecAssessmentProfileSelection -Request $request -Profiles $profiles
+        Assert-WinSecProfile ($answer.Confirmed -ceq $true -and $null -eq $answer.Selection -and
+            ($script:lines -join ' ').Contains('Collection only'))
+    }
+}
+foreach($code in @(89,13)){
+    Test-WinSecProfile 'Arrows and Y or Enter explicitly choose a profile with its complete provenance' {
+        $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+        $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+        $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 89){'y'}else{''})))
+        $answer=Show-WinSecAssessmentProfileSelection -Request $request -Profiles $options
+        Assert-WinSecProfile ($answer.Confirmed -ceq $true -and $answer.Selection.Profile -ceq 'TEST' -and
+            ($script:lines -join ' ').Contains(('D'*64)) -and $script:coordinator.Sessions.Count -eq 0)
+        $answer.Selection.Policies[0].CatalogVersion='changed'
+        Assert-WinSecProfile ($options[0].Policies[0].CatalogVersion -ceq 'test-1')
+    }
+}
+foreach($code in @(78,27)){
+    Test-WinSecProfile 'N and Escape cancel even after navigating to an approved profile' {
+        $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+        $script:keys.Enqueue((New-WinSecProfileKey 38));$script:keys.Enqueue((New-WinSecProfileKey $code $(if($code -eq 78){'n'}else{''})))
+        $answer=Show-WinSecAssessmentProfileSelection $request @(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+        Assert-WinSecProfile ($answer.Confirmed -ceq $false -and $null -eq $answer.Selection)
+    }
+}
+Test-WinSecProfile 'Modified and release events cannot choose a profile or imply confirmation' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+    $modified=New-WinSecProfileKey 89 'y';$modified.ControlKeyState=4
+    $released=New-WinSecProfileKey 13;$released.KeyDown=$false
+    $script:keys.Enqueue($modified);$script:keys.Enqueue($released);$script:keys.Enqueue((New-WinSecProfileKey 27))
+    Assert-WinSecProfile (-not (Show-WinSecAssessmentProfileSelection $request @()).Confirmed -and $script:keys.Count -eq 0)
+}
+Test-WinSecProfile 'A truncated picker cannot select a hidden policy with Enter' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+    $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=10}
+    $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey 13));$script:keys.Enqueue((New-WinSecProfileKey 27))
+    $r=Show-WinSecAssessmentProfileSelection $request @(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+    Assert-WinSecProfile (-not $r.Confirmed -and $null -eq $r.Selection)
+}
+Test-WinSecProfile 'Picker resizing preserves the choice but still requires an explicit confirmation key' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+    $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=10}
+    $script:keys.Enqueue((New-WinSecProfileKey 40));$script:keys.Enqueue((New-WinSecProfileKey 13))
+    $script:keys.Enqueue((New-WinSecProfileKey 0 '' ([pscustomobject]@{Width=120;ContentWidth=119;Height=45})))
+    $script:keys.Enqueue((New-WinSecProfileKey 13))
+    $r=Show-WinSecAssessmentProfileSelection $request @(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+    Assert-WinSecProfile ($r.Confirmed -and $r.Selection.Profile -ceq 'TEST' -and $script:keys.Count -eq 0)
+}
+Test-WinSecProfile 'Picker warnings fit tiny terminals without starting or selecting anything' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+    foreach($size in @(@{W=16;H=5},@{W=1;H=1})){
+        $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=$size.W;Height=$size.H}
+        $script:keys.Enqueue((New-WinSecProfileKey 27))
+        $r=Show-WinSecAssessmentProfileSelection $request @()
+        Assert-WinSecProfile (-not $r.Confirmed -and $script:lines.Count -lt $size.H -and
+            @($script:lines|Where-Object {$_.Length -gt $size.W}).Count -eq 0)
+    }
+}
+Test-WinSecProfile 'Duplicate or foreign offered profiles cannot be chosen' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson
+    $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-SYS-001'))
+    Assert-WinSecProfileRejected {Show-WinSecAssessmentProfileSelection $request @($options[0],$options[0])}
+    $options[0].Policies[0].CheckId='WSA-SYS-002'
+    Assert-WinSecProfileRejected {Show-WinSecAssessmentProfileSelection $request $options}
+}
+Test-WinSecProfile 'A picker request cannot display a scope contradicting its control selection' {
+    $request=ConvertFrom-Json (Get-WinSecProfileFixturePlan).RequestJson;$request.ScopeKey='WSA-SYS-002'
+    Assert-WinSecProfileRejected {Show-WinSecAssessmentProfileSelection $request @()}
 }
 Write-Host ('Assessment profile: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if($script:failed){throw 'Assessment profile unit tests failed.'}
