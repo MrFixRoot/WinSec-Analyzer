@@ -131,7 +131,7 @@ Test-WinSecReportCase 'Configuration table retains original criterion and safe r
     $control=[pscustomobject]@{DeviceId=$selection.DeviceId;ScanId=$selection.ScanId;CheckId='WSA-SYS-001';Status='NOT_EVALUATED'}
     $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults @($control) -Findings $selection.Findings -ScanId $selection.ScanId
     Assert-WinSecReport ($view.Findings.Count -eq 1 -and $view.Findings[0].ConfigurationState -ceq 'MISCONFIGURED' -and
-        $view.Findings[0].Finding -ceq $guidance.CriterionTitle)
+        $view.Findings[0].Finding -ceq $guidance.CriterionTitle -and $view.Rows[0].ControlCode -ceq 'WSA-SYS-001 / SYNTHETIC-RT')
     $report=New-WinSecFindingsMarkdown -Selection $selection -FrameworkId cis-controls
     Assert-WinSecReport ($report.Markdown.Contains('| Finding | Configuration | Status | Original policy control | Referenced framework control |') -and
         $report.Markdown.Contains('MISCONFIGURED') -and $report.Markdown.Contains('SYNTHETIC real\-time \| protection') -and

@@ -79,6 +79,10 @@ Test-WinSecReviewIntegration 'Findings routes observations separately and includ
     Show-WinSecCLICurrentScreen $state $ctx
     Assert-WinSecReviewIntegration ($view.Findings.Count -eq 4 -and $view.ReviewItems.Count -eq 8 -and $view.CheckRows.Count -eq 8 -and $counts.FindingCount -eq 12 -and
         ($script:lines -join '|').Contains('PASS') -and ($script:lines -join '|').Contains('FAIL') -and $script:reads -eq 1)
+    foreach($row in $view.Rows|Where-Object {$_.Kind -ceq 'CRITERION_RESULT'}) {
+        Assert-WinSecReviewIntegration ($row.ControlCode -ceq ($row.CheckId+' / '+$row.CriterionId) -and
+            ($script:lines -join '|').Contains($row.ControlCode))
+    }
     $state.ControlIndex=1
     $other=Get-WinSecCLIActiveAssessment $state $ctx
     Assert-WinSecReviewIntegration (@($other.ReviewItems).Count -eq 0)
@@ -92,6 +96,25 @@ foreach($framework in @('cis-controls','nist-csf','mitre-attack')) {
             $report.Markdown.Contains('9e6c4e1f') -and $report.Markdown.Contains('excluded from scoring') -and
             $report.Markdown.Contains('50/100') -and $report.Markdown.Contains('Configuration checks') -and $report.Markdown.Contains('Framework-oriented manual guidance:') -and
             $report.Markdown -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"' -and $script:reads -eq 1)
+        $markdownLines=@($report.Markdown -split '\r?\n')
+        for($i=0;$i -lt $markdownLines.Count;$i++) {
+            if(-not $markdownLines[$i].StartsWith('|')){continue}
+            if($i -eq 0 -or -not $markdownLines[$i-1].StartsWith('|')) {
+                Assert-WinSecReviewIntegration ($i -gt 0 -and [string]::IsNullOrWhiteSpace($markdownLines[$i-1]))
+            }
+            if($i+1 -eq $markdownLines.Count -or -not $markdownLines[$i+1].StartsWith('|')) {
+                Assert-WinSecReviewIntegration ($i+1 -lt $markdownLines.Count -and [string]::IsNullOrWhiteSpace($markdownLines[$i+1]))
+            }
+        }
+        # The built-in PS7 Markdown renderer verifies actual table structure.
+        # PS5.1 exercises the same table boundaries without an extra dependency.
+        if($null -ne (Get-Command ConvertFrom-Markdown -CommandType Cmdlet -ErrorAction SilentlyContinue)) {
+            $html=(ConvertFrom-Markdown -InputObject $report.Markdown).Html
+            $tables=[regex]::Matches($html,'<table>[\s\S]*?</table>')
+            Assert-WinSecReviewIntegration ($tables.Count -eq 3 -and
+                [regex]::Matches($tables[0].Value,'<tr>').Count -eq 9 -and
+                -not $tables[0].Value.Contains('Percentages describe'))
+        }
     }
 }
 foreach($size in @(@(80,26),@(40,20),@(16,5))) {

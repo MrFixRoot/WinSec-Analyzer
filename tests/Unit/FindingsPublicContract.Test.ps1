@@ -52,6 +52,22 @@ Test-WinSecPublicFinding 'Control selection uses exact CheckId' {
     $view=Get-WinSecPublicFindingView $fixture
     Assert-WinSecPublicFinding ($view.Findings.Count -eq 1 -and $view.Findings[0].CheckId -ceq 'WSA-SYS-002')
 }
+Test-WinSecPublicFinding 'Display rows retain technical identities and trusted control names without changing public records' {
+    $fixture=New-WinSecPublicFindingFixture
+    $fixture.Findings[0]|Add-Member ControlName 'SYNTHETIC-FINDING-PRIVATE'
+    $before=ConvertTo-Json $fixture -Depth 15 -Compress
+    $view=Get-WinSecPublicFindingView $fixture
+    Assert-WinSecPublicFinding ($view.Rows.Count -eq 2 -and $view.Rows[0].Id -ceq $fixture.Findings[0].FindingId -and
+        $view.Rows[1].Id -ceq $fixture.Findings[1].FindingId -and
+        ($view.Rows.DisplayId -join ',') -ceq '01,02' -and
+        $view.Rows[0].ControlCode -ceq 'WSA-SYS-001' -and $view.Rows[1].ControlCode -ceq 'WSA-SYS-002' -and
+        $view.Rows[0].ControlName -ceq 'Windows Defender' -and $view.Rows[1].ControlName -ceq 'BitLocker' -and
+        $null -eq $view.Findings[0].PSObject.Properties['ControlName'] -and $null -eq $view.Findings[0].PSObject.Properties['DisplayId'] -and
+        $null -eq $view.Findings[0].PSObject.Properties['ControlCode'])
+    $view.Rows[0].ControlName='Changed display copy'
+    Assert-WinSecPublicFinding ($before -ceq (ConvertTo-Json $fixture -Depth 15 -Compress) -and
+        (Get-WinSecPublicFindingView $fixture).Rows[0].ControlName -ceq 'Windows Defender')
+}
 Test-WinSecPublicFinding 'Unassigned values remain unchanged even with legacy routing fields' {
     $fixture=New-WinSecPublicFindingFixture
     $fixture.Findings[0]|Add-Member -NotePropertyName SectionKey -NotePropertyValue SystemSecurity

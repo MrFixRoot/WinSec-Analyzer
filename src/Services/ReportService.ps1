@@ -165,6 +165,7 @@ function New-WinSecFindingsMarkdown {
             $values=@(($row.CheckId+' / '+$row.CriterionId),$row.Finding,$row.EvaluationStatus,$row.ConfigurationPercent,$refText,$applicability)
             $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
         }
+        $lines.Add('')
         foreach($control in $configuration.Controls) {
             if(($copy.ScopeType -ceq 'CONTROL' -and $control.CheckId -cne $copy.ScopeKey) -or
                 ($copy.ScopeType -ceq 'SECTION' -and $control.SectionKey -cne $copy.ScopeKey)){continue}

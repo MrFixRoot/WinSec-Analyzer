@@ -16,7 +16,7 @@ function Assert-WinSecFindingIntegration {param([bool]$Condition);if(-not $Condi
 function Test-WinSecFindingIntegration {
     param([string]$Name,[scriptblock]$Action)
     try {$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
-    catch {$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+' : '+$_.Exception.Message)}
+    catch {$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+' : '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace)}
 }
 function Get-WinSecTerminalSize {$script:terminal}
 function Clear-WinSecScreen {$script:renderCalls++;$script:lines.Clear();$null=$script:fragment.Clear()}
@@ -78,11 +78,21 @@ foreach($size in @(@{Width=120;Height=55},@{Width=80;Height=26},@{Width=40;Heigh
             $script:lines.Count -le $script:terminal.Height -and
             @($script:lines|Where-Object{$_.Length -gt $script:terminal.ContentWidth}).Count -eq 0 -and
             $before -ceq (ConvertTo-Json -InputObject @($state,$context,$session) -Depth 25 -Compress) -and $script:scanCalls -eq 0)
+        if($size.Width -ge 80){
+            Assert-WinSecFindingIntegration ($text.Contains('CONTROL') -and $text.Contains('WSA-SYS-001') -and $text.Contains('WSA-SYS-002'))
+            $assessment=Get-WinSecCLIActiveAssessment -State $state -Context $context
+            $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $scan
+            for($i=0;$i -lt $view.Rows.Count;$i++) {
+                $rowPattern='(?m)^(?:> | {2})'+('{0:D2}' -f ($i+1))+'\s+'+[regex]::Escape($view.Rows[$i].ControlCode)+'\s'
+                Assert-WinSecFindingIntegration ($text -match $rowPattern)
+            }
+        }
         if($size.Height -ge 55){
             Assert-WinSecFindingIntegration ($text -match 'Evidence: Not included in public results.' -and
                 $text -match 'UNASSIGNED')
             $assessment=Get-WinSecCLIActiveAssessment -State $state -Context $context
             $view=Get-WinSecSelectedFindings -NavigationState $state -ControlResults $assessment.ControlResults -Findings $assessment.Findings -ScanId $scan
+            Assert-WinSecFindingIntegration ($text.Contains('Technical ID: '+$view.Rows[$state.FindingsOffset].Id))
             if($view.Findings[$state.FindingsOffset].FrameworkReferences.Count -eq 0){
                 Assert-WinSecFindingIntegration ($text -match 'No configured framework references.' -and
                     $text -notmatch 'FRAMEWORK REFERENCES \(context only\): [1-9]')

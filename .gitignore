@@ -9,6 +9,9 @@
 
 reports/*
 !reports/.gitkeep
+!/reports/exports/
+/reports/exports/*
+!/reports/exports/.gitkeep
 
 logs/*
 !logs/.gitkeep

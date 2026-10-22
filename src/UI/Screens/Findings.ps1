@@ -546,7 +546,21 @@ function Get-WinSecSelectedFindings {
             ($s.Topic -ceq 'ASR' -and $s.SettingId -ceq '56a863a9-875e-4185-98a7-b882c64b5ce5' -and $gradedIds -ccontains 'WSA-DEF-ADD-004'))
     })
     $diagnostics=@($view.Findings|Where-Object {$null -eq $_.Guidance -or $gradedIds -cnotcontains $_.Guidance.CriterionId})
-    $view.Rows=@($view.CheckRows)+$diagnostics+@(ConvertTo-WinSecDefenderReviewRows -ReviewItems $displayReviews)
+    $displayNumber=0
+    $view.Rows=@(foreach($row in @($view.CheckRows)+$diagnostics+@(ConvertTo-WinSecDefenderReviewRows -ReviewItems $displayReviews)) {
+        $definitions=@($registry.Checks|Where-Object {$_.CheckId -ceq $row.CheckId})
+        if($definitions.Count -ne 1){throw 'Unknown or ambiguous finding display control.'}
+        # Presentation fields belong only to this copied view, not public history.
+        $displayRow=Copy-WinSecResultData $row
+        $displayNumber++
+        $displayRow|Add-Member -NotePropertyName DisplayId -NotePropertyValue ('{0:D2}' -f $displayNumber) -Force
+        $displayRow|Add-Member -NotePropertyName ControlName -NotePropertyValue $definitions[0].Name -Force
+        $criterionId=if($null -ne $row.CriterionId){$row.CriterionId}elseif($null -ne $row.Guidance){$row.Guidance.CriterionId}else{''}
+        $controlCode=$row.CheckId
+        if(-not [string]::IsNullOrWhiteSpace($criterionId)){$controlCode+=' / '+$criterionId}
+        $displayRow|Add-Member -NotePropertyName ControlCode -NotePropertyValue $controlCode -Force
+        $displayRow
+    })
     return $view
 }
 
@@ -738,14 +752,14 @@ function Get-WinSecFindingDetailPlan {
     # Expanded details on taller terminals
     if ($available -ge 24) {
 
-        $detailRows = 13
+        $detailRows = 16
         $textLines = 2
         $referenceLines = 2
     }
     elseif ($available -ge 16) {
 
         # Compact details
-        $detailRows = 9
+        $detailRows = 11
         $textLines = 1
         $referenceLines = 1
     }
@@ -797,6 +811,16 @@ function Write-WinSecFindingDetails {
     Write-WinSecText `
         -Text "PRIORITY: $($Finding.Priority) | SEVERITY: $($Finding.Severity)" `
         -Color $priorityColor
+
+    Write-WinSecFindingField `
+        -Label 'Technical ID' `
+        -Value $Finding.Id `
+        -MaxLines $DetailPlan.TextLines
+
+    Write-WinSecFindingField `
+        -Label 'Control' `
+        -Value $Finding.ControlName `
+        -MaxLines 1
 
     Write-WinSecFindingField `
         -Label 'Description' `
@@ -1065,13 +1089,25 @@ function Show-WinSecFindings {
     # Define responsive findings table
     # --------------------------------------------------------
 
+    $identifierWidth=[Math]::Max(2,([string]$displayRows.Count).Length)
+    $controlCodeWidth=11
+    foreach($row in $displayRows){$controlCodeWidth=[Math]::Max($controlCodeWidth,[Math]::Min(48,$row.ControlCode.Length))}
     $columns = @(
         @{
-            Key      = 'Id'
+            Key      = 'DisplayId'
             Header   = 'ID'
-            Width    = 5
-            MinWidth = 3
-            MaxWidth = 8
+            Width    = $identifierWidth
+            MinWidth = $identifierWidth
+            MaxWidth = $identifierWidth
+            Priority = 1
+        }
+
+        @{
+            Key      = 'ControlCode'
+            Header   = 'Control'
+            Width    = $controlCodeWidth
+            MinWidth = [Math]::Min(30,$controlCodeWidth)
+            MaxWidth = 48
             Priority = 1
         }
 
@@ -1086,7 +1122,7 @@ function Show-WinSecFindings {
 
         @{
             Key      = 'Finding'
-            Header   = 'Configuration / diagnostic'
+            Header   = 'Configuration'
             Width    = 46
             MinWidth = 14
             MaxWidth = 72
