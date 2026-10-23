@@ -27,6 +27,62 @@ function ConvertTo-WinSecBitLockerUInt32 {
     return $null
 }
 
+function Get-WinSecBitLockerFailureKind {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][System.Management.Automation.ErrorRecord]$Failure,
+        [AllowNull()][object]$NativeCode=$null
+    )
+    # Lista cerrada basada en códigos tipados. Nunca interpretar Message/ErrorData,
+    # rutas, nombres de cuenta, texto localizado ni propiedades agregadas al error.
+    $codes=New-Object 'System.Collections.Generic.List[long]'
+    $number=ConvertTo-WinSecBitLockerUInt32 $NativeCode
+    if($null -ne $number){$codes.Add($number)}
+    $exception=if($null -ne $Failure){$Failure.psbase.Exception}else{$null}
+    for($depth=0;$depth -lt 8 -and $null -ne $exception;$depth++) {
+        if($exception -is [System.UnauthorizedAccessException]){return 'ACCESS_DENIED'}
+        if($exception -is [System.TimeoutException]){return 'TIMEOUT'}
+        $codes.Add(([long]$exception.psbase.HResult -band 4294967295L))
+        if($exception.psbase.GetType().FullName -ceq 'System.Management.ManagementException') {
+            $codes.Add(([long]$exception.psbase.ErrorCode -band 4294967295L))
+        }
+        if($exception.psbase.GetType().FullName -ceq 'Microsoft.Management.Infrastructure.CimException') {
+            # MI_Result/CIMStatusCode son distintos de un HRESULT WBEM.
+            foreach($miCode in @([long]$exception.psbase.NativeErrorCode,[long]$exception.psbase.StatusCode)) {
+                switch($miCode) {
+                    2 {return 'ACCESS_DENIED'}
+                    3 {return 'NAMESPACE_NOT_FOUND'}
+                    4 {return 'INVALID_PARAMETER'}
+                    5 {return 'CLASS_NOT_FOUND'}
+                    7 {return 'OPERATION_UNSUPPORTED'}
+                    12 {return 'PROPERTY_NOT_FOUND'}
+                    14 {return 'QUERY_UNSUPPORTED'}
+                    15 {return 'INVALID_QUERY'}
+                    16 {return 'METHOD_UNAVAILABLE'}
+                    17 {return 'METHOD_UNAVAILABLE'}
+                }
+            }
+            $codes.Add(([long]$exception.psbase.StatusCode -band 4294967295L))
+        }
+        $exception=$exception.psbase.InnerException
+    }
+    foreach($code in $codes) {
+        switch($code) {
+            2147942405 {return 'ACCESS_DENIED'} # E_ACCESSDENIED
+            2147749891 {return 'ACCESS_DENIED'} # WBEM_E_ACCESS_DENIED
+            2147749902 {return 'NAMESPACE_NOT_FOUND'}
+            2147749904 {return 'CLASS_NOT_FOUND'}
+            2147749937 {return 'PROPERTY_NOT_FOUND'}
+            2147749911 {return 'INVALID_QUERY'}
+            2147749905 {return 'PROVIDER_NOT_REGISTERED'}
+            2147749907 {return 'PROVIDER_LOAD_FAILED'}
+            2147749908 {return 'PROVIDER_INITIALIZATION_FAILED'}
+            2150694912 {return 'VOLUME_LOCKED'} # FVE_E_LOCKED_VOLUME
+        }
+    }
+    return 'UNKNOWN'
+}
+
 function Test-WinSecBitLocker {
     [CmdletBinding()]
     param(
@@ -89,9 +145,23 @@ function Test-WinSecBitLocker {
         $systemVolume.DriveLetter=$drive
     }
     catch {
+        $kind=Get-WinSecBitLockerFailureKind -Failure $_
+        if($kind -cne 'UNKNOWN' -and $failure -cin @('OS_VOLUME_QUERY_FAILED','BITLOCKER_PROVIDER_UNAVAILABLE')) {
+            $prefix=if($failure -ceq 'OS_VOLUME_QUERY_FAILED'){'OS_VOLUME_QUERY'}else{'BITLOCKER_PROVIDER'}
+            $failure=$prefix+'_'+$kind
+        }
         $issues.Add($failure)
         if($failure -cne 'OS_VOLUME_NOT_FOUND'){$result.Status='ERROR'}
         $result.ErrorMessage='Unable to collect Windows system volume encryption telemetry.'
+        if($kind -ceq 'ACCESS_DENIED') {
+            $result.ErrorMessage='Access to Windows volume encryption telemetry was denied. Verify administrator permissions before another explicitly confirmed read-only scan. No elevation or Windows change was performed.'
+        } elseif($kind -cin @('NAMESPACE_NOT_FOUND','CLASS_NOT_FOUND','PROVIDER_NOT_REGISTERED','PROVIDER_LOAD_FAILED','PROVIDER_INITIALIZATION_FAILED')) {
+            $result.ErrorMessage='The Windows volume encryption provider is unavailable. Verify provider availability and Windows support; this does not establish that encryption is disabled or not applicable.'
+        } elseif($kind -cin @('INVALID_QUERY','PROPERTY_NOT_FOUND','INVALID_PARAMETER','QUERY_UNSUPPORTED')) {
+            $result.ErrorMessage='The Windows volume encryption query was rejected. Review collector compatibility; no encryption state can be inferred.'
+        } elseif($kind -ceq 'TIMEOUT') {
+            $result.ErrorMessage='The Windows volume encryption query timed out. No encryption state or configuration score can be inferred.'
+        }
         $evidence.CollectionIssues=@($issues.ToArray())
         return $result
     }
@@ -106,14 +176,21 @@ function Test-WinSecBitLocker {
         @{Method='GetLockStatus';Field='LockStatus';Values=@('UNLOCKED','LOCKED')}
     )
     foreach($reading in $readings) {
+        $methodCode=$null
         try {
             $responses=@(Invoke-CimMethod -InputObject $volume -MethodName $reading.Method -OperationTimeoutSec 10 -ErrorAction Stop)
             if($responses.Count -ne 1){throw 'Ambiguous method result.'}
             $response=$responses[0]
             $code=ConvertTo-WinSecBitLockerUInt32 (Get-WinSecBitLockerProperty $response 'ReturnValue')
+            $methodCode=$code
             if($null -eq $code -or $code -ne 0){throw 'Method unavailable.'}
         }
-        catch {$issues.Add($reading.Method+'_UNAVAILABLE');continue}
+        catch {
+            $kind=Get-WinSecBitLockerFailureKind -Failure $_ -NativeCode $methodCode
+            $suffix=if($kind -ceq 'UNKNOWN'){'UNAVAILABLE'}else{$kind}
+            $issues.Add($reading.Method+'_'+$suffix)
+            continue
+        }
         $value=ConvertTo-WinSecBitLockerUInt32 (Get-WinSecBitLockerProperty $response $reading.Field)
         if($null -ne $value -and $value -lt $reading.Values.Count){$systemVolume.($reading.Field)=$reading.Values[[int]$value]}
         if($systemVolume.($reading.Field) -ceq 'UNKNOWN'){$issues.Add($reading.Field+'_UNKNOWN')}

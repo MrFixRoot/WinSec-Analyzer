@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
+Import-Module CimCmdlets # Sólo tipos CIM locales para excepciones sintéticas; sin consultas.
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $collector=Join-Path $root 'src/Checks/BitLocker/Test-BitLocker.ps1'
 $script:passed=0;$script:failed=0;$script:queries=0;$script:identityReads=0
@@ -20,6 +21,7 @@ function Get-CimInstance {
     $script:queries++
     Assert-WinSecBitLocker ($OperationTimeoutSec -eq 10)
     if($script:queryFailure -ceq $ClassName){throw 'PRIVATE-BITLOCKER-ERROR'}
+    if($null -ne $script:queryException -and $ClassName -ceq $script:exceptionClass){throw $script:queryException}
     if($ClassName -ceq 'Win32_OperatingSystem') {
         Assert-WinSecBitLocker ($Namespace -ceq 'root/cimv2' -and ($Property -join ',') -ceq 'SystemDrive' -and -not $Filter)
         return $script:systems
@@ -36,6 +38,7 @@ function Invoke-CimMethod {
         $MethodName -cin @('GetProtectionStatus','GetConversionStatus','GetEncryptionMethod','GetLockStatus'))
     $script:methods.Add($MethodName)
     if($script:methodFailures -ccontains $MethodName){throw 'PRIVATE-BITLOCKER-ERROR'}
+    if($null -ne $script:methodException -and $MethodName -ceq $script:exceptionMethod){throw $script:methodException}
     $script:responses[$MethodName]
 }
 . $collector
@@ -45,6 +48,7 @@ function Test-WinSecBitLockerCase {
     param([string]$Name,[scriptblock]$Action)
     $script:queries=0;$script:identityReads=0;$script:methods.Clear()
     $script:localIds=@($script:id);$script:identityFails=$false;$script:queryFailure='';$script:methodFailures=@()
+    $script:queryException=$null;$script:methodException=$null;$script:exceptionClass='';$script:exceptionMethod=''
     $script:expectedDrive='C:';$script:systems=@([pscustomobject]@{SystemDrive='C:'})
     $script:volumes=@([pscustomobject]@{DriveLetter='C:';VolumeType=[uint32]0;
         DeviceID='\\?\Volume{12345678-1234-4567-89ab-123456789abc}\';PersistentVolumeID='PRIVATE-BITLOCKER-ID'})
@@ -175,10 +179,95 @@ foreach($fault in @('ForeignDevice','LegacyDevice','InvalidScan','WrongCheck','H
         Assert-WinSecBitLocker ($script:queries -eq 0 -and $script:methods.Count -eq 0)
     }
 }
+foreach($spec in @(
+    @{Code=2147942405;Kind='ACCESS_DENIED'},@{Code=2147749891;Kind='ACCESS_DENIED'},
+    @{Code=2147749902;Kind='NAMESPACE_NOT_FOUND'},@{Code=2147749904;Kind='CLASS_NOT_FOUND'},
+    @{Code=2147749937;Kind='PROPERTY_NOT_FOUND'},@{Code=2147749911;Kind='INVALID_QUERY'},
+    @{Code=2147749905;Kind='PROVIDER_NOT_REGISTERED'},@{Code=2147749907;Kind='PROVIDER_LOAD_FAILED'},
+    @{Code=2147749908;Kind='PROVIDER_INITIALIZATION_FAILED'})) {
+    Test-WinSecBitLockerCase ('Typed HRESULT classifies the failed provider query without raw text: '+$spec.Kind) {
+        $signed=[int]([long]$spec.Code-4294967296L)
+        $script:queryException=[System.Runtime.InteropServices.COMException]::new('PRIVATE-BITLOCKER-ERROR',$signed)
+        $script:exceptionClass='Win32_EncryptableVolume'
+        $r=Invoke-WinSecBitLockerFixture
+        Assert-WinSecBitLocker ($r.Evidence.CollectionIssues.Count -eq 1 -and
+            $r.Evidence.CollectionIssues[0] -ceq ('BITLOCKER_PROVIDER_'+$spec.Kind) -and $r.Status -ceq 'ERROR' -and
+            -not $r.Evidence.CollectionSuccessful -and $script:methods.Count -eq 0 -and $null -eq $r.NotApplicableReason -and
+            (ConvertTo-Json $r -Depth 12) -notmatch 'PRIVATE-BITLOCKER|COMException|HResult|ErrorData')
+    }
+}
+foreach($class in @('Win32_OperatingSystem','Win32_EncryptableVolume')) {
+    foreach($kind in @('ACCESS_DENIED','TIMEOUT')) {
+        Test-WinSecBitLockerCase ('Distinguishes typed permission and timeout errors at their actual query stage: '+$class+' '+$kind) {
+            $script:exceptionClass=$class
+            $script:queryException=if($kind -ceq 'ACCESS_DENIED'){[System.UnauthorizedAccessException]::new('PRIVATE-BITLOCKER-ERROR')}
+                else{[System.TimeoutException]::new('PRIVATE-BITLOCKER-ERROR')}
+            $prefix=if($class -ceq 'Win32_OperatingSystem'){'OS_VOLUME_QUERY'}else{'BITLOCKER_PROVIDER'}
+            $r=Invoke-WinSecBitLockerFixture
+            Assert-WinSecBitLocker ($r.Evidence.CollectionIssues[0] -ceq ($prefix+'_'+$kind) -and $r.Status -ceq 'ERROR' -and
+                $script:methods.Count -eq 0 -and $null -eq $r.NotApplicableReason -and
+                (ConvertTo-Json $r -Depth 12) -notmatch 'PRIVATE-BITLOCKER')
+        }
+    }
+}
+foreach($spec in @(@{Code=2;Kind='ACCESS_DENIED'},@{Code=3;Kind='NAMESPACE_NOT_FOUND'},@{Code=4;Kind='INVALID_PARAMETER'},
+    @{Code=5;Kind='CLASS_NOT_FOUND'},@{Code=7;Kind='OPERATION_UNSUPPORTED'},@{Code=12;Kind='PROPERTY_NOT_FOUND'},
+    @{Code=14;Kind='QUERY_UNSUPPORTED'},@{Code=15;Kind='INVALID_QUERY'},@{Code=16;Kind='METHOD_UNAVAILABLE'},
+    @{Code=17;Kind='METHOD_UNAVAILABLE'},@{Code=2147749891;Kind='ACCESS_DENIED'},@{Code=999;Kind='UNAVAILABLE'})) {
+    Test-WinSecBitLockerCase ('Actual CimException type preserves MI and WBEM distinctions without a provider query: '+$spec.Code) {
+        $errorData=[Microsoft.Management.Infrastructure.CimInstance]::new('CIM_Error')
+        try {
+            $errorData.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create('CIMStatusCode',[uint32]$spec.Code,
+                [Microsoft.Management.Infrastructure.CimType]::UInt32,[Microsoft.Management.Infrastructure.CimFlags]::Property))
+            $script:queryException=[Microsoft.Management.Infrastructure.CimException]::new($errorData)
+            $script:exceptionClass='Win32_EncryptableVolume'
+            $r=Invoke-WinSecBitLockerFixture
+            Assert-WinSecBitLocker ($r.Evidence.CollectionIssues[0] -ceq ('BITLOCKER_PROVIDER_'+$spec.Kind) -and
+                $r.Status -ceq 'ERROR' -and $null -eq $r.NotApplicableReason -and $script:methods.Count -eq 0 -and
+                (ConvertTo-Json $r -Depth 12) -notmatch 'CIM_Error|CIMStatusCode|CimException|ErrorData')
+        } finally {$errorData.Dispose();if($null -ne $script:queryException){$script:queryException.Dispose()}}
+    }
+}
+Test-WinSecBitLockerCase 'Provider error text and invented extended fields cannot manufacture a typed diagnosis' {
+    $script:queryException=[System.Exception]::new('Access denied 0x80070005 namespace not found PRIVATE-BITLOCKER')
+    $script:queryException|Add-Member -NotePropertyName NativeErrorCode -NotePropertyValue 2
+    $script:queryException|Add-Member -NotePropertyName HResult -NotePropertyValue -2147024891 -Force
+    $script:exceptionClass='Win32_EncryptableVolume'
+    $r=Invoke-WinSecBitLockerFixture
+    Assert-WinSecBitLocker ($r.Evidence.CollectionIssues[0] -ceq 'BITLOCKER_PROVIDER_UNAVAILABLE' -and
+        (ConvertTo-Json $r -Depth 12) -notmatch 'PRIVATE-BITLOCKER|0x80070005|NativeErrorCode')
+}
+Test-WinSecBitLockerCase 'Nested typed failures are classified without exposing wrapper messages' {
+    $cause=[System.UnauthorizedAccessException]::new('PRIVATE-BITLOCKER-ERROR')
+    $script:queryException=[System.Exception]::new('PRIVATE-BITLOCKER-WRAPPER',$cause)
+    $script:exceptionClass='Win32_EncryptableVolume'
+    Assert-WinSecBitLocker ((Invoke-WinSecBitLockerFixture).Evidence.CollectionIssues[0] -ceq 'BITLOCKER_PROVIDER_ACCESS_DENIED')
+}
+Test-WinSecBitLockerCase 'Method permission failure preserves valid sibling telemetry with no inferred failure or score' {
+    $script:methodException=[System.UnauthorizedAccessException]::new('PRIVATE-BITLOCKER-ERROR');$script:exceptionMethod='GetProtectionStatus'
+    $r=Invoke-WinSecBitLockerFixture
+    Assert-WinSecBitLocker ($r.Status -ceq 'INFORMATIONAL' -and $r.Evidence.CollectionSuccessful -and -not $r.Evidence.CollectionComplete -and
+        $r.Evidence.CollectionIssues -ccontains 'GetProtectionStatus_ACCESS_DENIED' -and $r.Evidence.SystemVolume.ProtectionStatus -ceq 'UNKNOWN' -and
+        $r.Evidence.SystemVolume.ConversionStatus -ceq 'FULLY_ENCRYPTED' -and $script:methods.Count -eq 4 -and
+        (ConvertTo-Json $r -Depth 12) -notmatch 'PRIVATE-BITLOCKER')
+}
+foreach($spec in @(@{Code=2147942405;Kind='ACCESS_DENIED'},@{Code=2150694912;Kind='VOLUME_LOCKED'})) {
+    Test-WinSecBitLockerCase ('A failed method return is categorized without trusting its apparent result: '+$spec.Kind) {
+        $script:responses.GetProtectionStatus.ReturnValue=[uint32]$spec.Code
+        $r=Invoke-WinSecBitLockerFixture
+        Assert-WinSecBitLocker ($r.Evidence.SystemVolume.ProtectionStatus -ceq 'UNKNOWN' -and
+            $r.Evidence.CollectionIssues -ccontains ('GetProtectionStatus_'+$spec.Kind) -and -not $r.Evidence.CollectionComplete)
+    }
+}
+Test-WinSecBitLockerCase 'Unknown native return codes remain unclassified and never become applicability exclusions' {
+    $script:responses.GetProtectionStatus.ReturnValue=[uint32]12345
+    $r=Invoke-WinSecBitLockerFixture
+    Assert-WinSecBitLocker ($r.Evidence.CollectionIssues -ccontains 'GetProtectionStatus_UNAVAILABLE' -and $null -eq $r.NotApplicableReason)
+}
 Test-WinSecBitLockerCase 'Read-only source has no recovery-key access, external tools, writes or remote parameters' {
     $tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile($collector,[ref]$tokens,[ref]$errors)
     $commands=@($ast.FindAll({param($n)$n -is [System.Management.Automation.Language.CommandAst]},$true))
-    $allowed=@('Get-WinSecBitLockerProperty','ConvertTo-WinSecBitLockerUInt32','Get-WinSecLocalHardwareDeviceId','New-Object','Get-CimInstance','Invoke-CimMethod','Where-Object')
+    $allowed=@('Get-WinSecBitLockerProperty','ConvertTo-WinSecBitLockerUInt32','Get-WinSecBitLockerFailureKind','Get-WinSecLocalHardwareDeviceId','New-Object','Get-CimInstance','Invoke-CimMethod','Where-Object')
     foreach($command in $commands) {
         Assert-WinSecBitLocker ($command.GetCommandName() -cin $allowed)
         Assert-WinSecBitLocker (@($command.CommandElements|Where-Object {$_ -is [System.Management.Automation.Language.CommandParameterAst] -and

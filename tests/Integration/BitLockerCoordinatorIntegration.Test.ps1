@@ -32,6 +32,7 @@ function Get-CimInstance {
     Assert-WinSecBitLockerIntegration ($Namespace -ceq 'root/cimv2/Security/MicrosoftVolumeEncryption' -and
         $ClassName -ceq 'Win32_EncryptableVolume' -and $Filter -ceq "DriveLetter = 'D:'" -and $OperationTimeoutSec -eq 10)
     if($script:providerFails){throw 'PRIVATE-BITLOCKER-INTEGRATION'}
+    if($script:providerDenied){throw [System.UnauthorizedAccessException]::new('PRIVATE-BITLOCKER-INTEGRATION')}
     [pscustomobject]@{DeviceID='\\?\Volume{12345678-1234-4567-89ab-123456789abc}\';DriveLetter='D:';VolumeType=[uint32]0}
 }
 function Invoke-CimMethod {
@@ -73,6 +74,7 @@ function Write-Host {
 function Test-WinSecBitLockerIntegrationCase {
     param([string]$Name,[scriptblock]$Action)
     $script:queries=0;$script:methodCalls=0;$script:confirmations=0;$script:ready=$true;$script:providerFails=$false
+    $script:providerDenied=$false
     $script:conversion=2;$script:protection=0;$script:osVersion='10.0.26100';$script:sku=48;$script:saveAllowed=$false;$script:saved=$null
     $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55}
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
@@ -133,6 +135,20 @@ Test-WinSecBitLockerIntegrationCase 'Provider failures stay technical and do not
     Assert-WinSecBitLockerIntegration ($control.ObservedStatus -ceq 'ERROR' -and -not $control.Evidence.CollectionSuccessful -and
         $script:methodCalls -eq 0 -and $null -eq $public.OverallScore -and $public.Findings.Count -eq 0 -and
         (ConvertTo-Json $public -Depth 24 -Compress) -notmatch 'PRIVATE-BITLOCKER')
+}
+Test-WinSecBitLockerIntegrationCase 'Access denial stays a typed internal collection error and does not become a false failure or public raw data' {
+    $script:coordinator.AssessmentEnabled=$true;$script:providerDenied=$true
+    $public=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType CONTROL -ScopeKey WSA-SYS-002 `
+        -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction $confirm
+    $session=Get-WinSecCoordinatorSession $script:coordinator $public.DeviceId $public.ScanId
+    $control=@($session.ControlResults|Where-Object CheckId -CEQ 'WSA-SYS-002')[0]
+    $record=New-WinSecPublicHistoryRecord $session
+    $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
+    Assert-WinSecBitLockerIntegration ($control.Evidence.CollectionIssues -ccontains 'BITLOCKER_PROVIDER_ACCESS_DENIED' -and
+        $control.ErrorMessage -match 'administrator permissions' -and $null -eq $public.ConfigurationAssessment.Controls[0].Value -and
+        @($public.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0 -and $public.ReviewItems.Count -eq 0 -and
+        $script:methodCalls -eq 0 -and $restored.PublicResult.ScanId -ceq $public.ScanId -and
+        (Get-WinSecPublicHistoryJson $record) -notmatch 'PRIVATE|Exception|HResult|CollectionIssues|BITLOCKER_PROVIDER_ACCESS_DENIED|administrator permissions')
 }
 Test-WinSecBitLockerIntegrationCase 'Cancellation after collection preserves the previous session and publishes no replacement' {
     $first=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType CONTROL -ScopeKey WSA-SYS-002 -ConfirmAction $confirm
