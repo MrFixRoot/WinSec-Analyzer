@@ -50,7 +50,7 @@ These are catalogued **assessment targets**, not a promise that every check is e
 
 The repository contains a modular CLI, keyboard-driven navigation, a target registry, scanning/evaluation engines, public result models, and unit/integration test suites. A local Scan/Rescan shortcut has been displayed and exercised during development.
 
-At the latest reviewed configuration snapshot, **all 14 check executions were disabled** pending validation, so an attempted local scan can correctly return `NO_EXECUTABLE_CHECKS`. Numeric scoring also remains **disabled** until its criteria and methodology are approved; the appropriate score state is `NOT_SCORED`.
+Defender and BitLocker are enabled for explicitly confirmed, read-only local scans. BitLocker assesses only the Windows volume: full encryption and active protection carry equal weight. Other checks remain disabled pending individual validation. Overall security scoring remains disabled; individual configuration scores require an approved profile and complete, applicable evidence.
 
 The following are **planned / under integration**, and should not be presented as finished until tested: confirmation before every scan, device/section/control-scoped Scan/Rescan, persistent scan history, historical comparisons, remapping frameworks for past results, and complete Markdown/TXT export.
 

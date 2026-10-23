@@ -98,9 +98,9 @@
       "description": "Assess Windows volume encryption and BitLocker protection configuration.",
       "order": 2,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/BitLocker/Test-BitLocker.ps1",
         "function": "Test-WinSecBitLocker"

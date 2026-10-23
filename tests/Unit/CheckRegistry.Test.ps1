@@ -366,7 +366,7 @@ try {
 
 
     Invoke-WinSecRegistryTest `
-        -Name 'Only individually validated Defender is executable' `
+        -Name 'Only individually validated Defender and BitLocker are executable' `
         -Test {
 
             $summary = Get-WinSecCheckRegistrySummary `
@@ -378,18 +378,21 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 11
+                -Expected 10
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `
-                -Expected 1
+                -Expected 2
 
             Assert-WinSecEqual `
                 -Actual $summary.Ready `
-                -Expected 1
+                -Expected 2
             $executable=@($script:BaseRegistry.Checks|Where-Object ExecutionEnabled)
-            Assert-WinSecEqual -Actual $executable[0].CheckId -Expected 'WSA-SYS-001'
-            Assert-WinSecEqual -Actual $executable[0].ImplementationStatus -Expected 'VALIDATED'
+            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002'
+            foreach ($check in $executable) {
+                Assert-WinSecEqual -Actual $check.ImplementationStatus -Expected 'VALIDATED'
+                Assert-WinSecEqual -Actual $check.ExecutionReady -Expected $true
+            }
         }
 
 
@@ -453,8 +456,8 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $ready.Count `
-                -Expected 1
-            Assert-WinSecEqual -Actual $ready[0].CheckId -Expected 'WSA-SYS-001'
+                -Expected 2
+            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002'
         }
 
 
@@ -861,6 +864,10 @@ function Test-WinSecFixture {
             # -----------------------------------------------
 
             $copy = Copy-WinSecTestCatalog
+            # This temporary project contains only the synthetic script below.
+            foreach ($check in $copy.checks) {
+                $check.execution.enabled = $false
+            }
 
             $firstCheck = $copy.checks[0]
 

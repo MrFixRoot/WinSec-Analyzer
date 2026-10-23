@@ -18,7 +18,7 @@
 #
 # Safety:
 # - Synthetic collector only; no Windows audit
-# - Only the individually validated Defender check may be enabled
+# - Only individually validated Defender and BitLocker may be enabled
 # - No security scoring
 # - No remote sessions
 # - No automatic evidence persistence
@@ -220,7 +220,7 @@ Assert-WinSecIntegration `
     -Description 'Automatic execution remains disabled'
 
 # ------------------------------------------------------------
-# TEST 5 - ONLY VALIDATED DEFENDER ENABLED
+# TEST 5 - ONLY VALIDATED DEFENDER AND BITLOCKER ENABLED
 # ------------------------------------------------------------
 
 $enabledChecks = @(
@@ -230,8 +230,9 @@ $enabledChecks = @(
 )
 
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 1 -and $enabledChecks[0].checkId -ceq 'WSA-SYS-001' -and $enabledChecks[0].implementationStatus -ceq 'VALIDATED') `
-    -Description 'Only validated Defender is enabled in production'
+    -Condition ($enabledChecks.Count -eq 2 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-SYS-001|WSA-SYS-002' -and
+        @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -eq 0) `
+    -Description 'Only validated Defender and BitLocker are enabled in production'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING POLICY DISABLED
@@ -253,9 +254,9 @@ Assert-WinSecIntegration `
 if (
     -not $readOnly -or
     -not $noAutomaticStartup -or
-    $enabledChecks.Count -ne 1 -or
-    $enabledChecks[0].checkId -cne 'WSA-SYS-001' -or
-    $enabledChecks[0].implementationStatus -cne 'VALIDATED' -or
+    $enabledChecks.Count -ne 2 -or
+    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002' -or
+    @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0 -or
     -not $scoringDisabled
 ) {
     throw (

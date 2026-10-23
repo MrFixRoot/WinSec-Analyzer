@@ -1,5 +1,5 @@
 # Coordinador/AuditEngine/recolector reales, proveedores y persistencia simulados.
-# El permiso de BitLocker existe sólo en una copia del catálogo en memoria.
+# Proveedores simulados; también verifica la selección del catálogo de producción.
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
@@ -50,6 +50,7 @@ function Invoke-CimMethod {
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $copy=Copy-WinSecResultData $script:production
+    if($script:useProductionRegistry){return $copy}
     foreach($check in $copy.Checks){$check.ExecutionEnabled=$false;$check.ExecutionReady=$false}
     if($script:ready) {
         $check=@($copy.Checks|Where-Object CheckId -CEQ 'WSA-SYS-002')[0]
@@ -74,7 +75,7 @@ function Write-Host {
 function Test-WinSecBitLockerIntegrationCase {
     param([string]$Name,[scriptblock]$Action)
     $script:queries=0;$script:methodCalls=0;$script:confirmations=0;$script:ready=$true;$script:providerFails=$false
-    $script:providerDenied=$false
+    $script:providerDenied=$false;$script:useProductionRegistry=$false
     $script:conversion=2;$script:protection=0;$script:osVersion='10.0.26100';$script:sku=48;$script:saveAllowed=$false;$script:saved=$null
     $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55}
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
@@ -91,9 +92,36 @@ $confirm={
         $request.Checks.Count -eq 1 -and $request.Checks[0].CheckId -ceq 'WSA-SYS-002')
     $true
 }
-Test-WinSecBitLockerIntegrationCase 'Production BitLocker remains disabled and unvalidated' {
+Test-WinSecBitLockerIntegrationCase 'Production BitLocker is individually validated and executable' {
     $check=@($script:production.Checks|Where-Object CheckId -CEQ 'WSA-SYS-002')[0]
-    Assert-WinSecBitLockerIntegration (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and $check.ImplementationStatus -ceq 'PENDING_VALIDATION')
+    Assert-WinSecBitLockerIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED')
+}
+foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002'},
+    @{T='SECTION';K='SystemSecurity';Ids='WSA-SYS-001|WSA-SYS-002'},
+    @{T='CONTROL';K='WSA-SYS-002';Ids='WSA-SYS-002'})) {
+    Test-WinSecBitLockerIntegrationCase ('Production catalog selects exact approved controls before cancellation: '+$scope.T) {
+        $script:useProductionRegistry=$true
+        $result=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType $scope.T -ScopeKey $scope.K -ConfirmAction {
+            param($request)
+            $script:confirmations++
+            Assert-WinSecBitLockerIntegration ($request.DeviceId -ceq $script:target.DeviceId -and $request.ReadOnly -ceq $true -and
+                $request.ScopeType -ceq $scope.T -and $request.ScopeKey -ceq $scope.K -and
+                (($request.Checks.CheckId | Sort-Object) -join '|') -ceq $scope.Ids)
+            $false
+        }
+        Assert-WinSecBitLockerIntegration ($null -eq $result -and $script:confirmations -eq 1 -and
+            $script:queries -eq 0 -and $script:methodCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 0 -and $null -eq $script:saved)
+    }
+}
+Test-WinSecBitLockerIntegrationCase 'Production BitLocker permission reaches approved evaluation without fixture enablement' {
+    $script:useProductionRegistry=$true;$script:coordinator.AssessmentEnabled=$true;$script:conversion=1;$script:protection=1
+    $result=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType CONTROL -ScopeKey WSA-SYS-002 `
+        -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction $confirm
+    Assert-WinSecBitLockerIntegration ($script:confirmations -eq 1 -and $script:methodCalls -eq 4 -and
+        $result.ExecutionStatus -ceq 'COMPLETED' -and $result.ConfigurationAssessment.Controls[0].CheckId -ceq 'WSA-SYS-002' -and
+        $result.ConfigurationAssessment.Controls[0].Value -eq 100 -and $result.ReviewItems.Count -eq 3 -and
+        @($result.ControlResults | Where-Object {$_.Status -cne 'NOT_SELECTED'}).Count -eq 1 -and
+        $null -eq $result.OverallScore -and $null -eq $script:saved)
 }
 Test-WinSecBitLockerIntegrationCase 'Initialization does not collect OS volume telemetry' {
     Assert-WinSecBitLockerIntegration ($script:queries -eq 0 -and $script:methodCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 0)
