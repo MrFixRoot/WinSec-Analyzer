@@ -34,6 +34,47 @@ Test-WinSecRevision 'All 101 exact profile previews use revision 0.3 and origina
         $snapshot.Catalog.Criteria.Count -eq 8 -and (Test-WinSecCriteriaCatalog $snapshot.Catalog).ReadyForScoring)
     Assert-WinSecRevision ((Get-WinSecBaseAssessmentCatalog $root WSA-SYS-001 -Profile WSA-W11-24H2-PRO-DEF-BASE).Sha256 -ceq '12F3BAC36CFCBAE46FFC890FC5AD50F6721096EB4E1E8446BAA4DBB28712BC6E')
 }
+foreach($scenario in @(
+    @{Name='All eight protections enabled';Base=$true;Additional=$true;Asr='BLOCK';Score=100;Resolved=8;Failures=0},
+    @{Name='All eight protections observably disabled';Base=$false;Additional=$false;Asr='DISABLED';Score=0;Resolved=8;Failures=8},
+    @{Name='Four baseline protections enabled and four additional protections disabled';Base=$true;Additional=$false;Asr='DISABLED';Score=50;Resolved=8;Failures=4},
+    @{Name='Seven protections enabled and the required ASR observation unknown';Base=$true;Additional=$true;Asr='UNKNOWN';Score=$null;Resolved=7;Failures=0}
+)) {
+    Test-WinSecRevision ('Complete scoring pipeline is independent of the host configuration: '+$scenario.Name) {
+        # These are synthetic observations for the explicitly selected primary
+        # Defender profile. Native token, OS, inventory and Defender are not read.
+        $script:status=[pscustomobject]@{AMRunningMode='Normal';AMServiceEnabled=$scenario.Base;AntivirusEnabled=$scenario.Base;
+            RealTimeProtectionEnabled=$scenario.Base;BehaviorMonitorEnabled=$scenario.Base;IsTamperProtected=$scenario.Additional}
+        $script:prefs.MAPSReporting=if($scenario.Additional){2}else{0}
+        $script:pua.Mode=if($scenario.Additional){'BLOCK'}else{'DISABLED'}
+        $script:asr.Rules[0].Mode=$scenario.Asr
+        $modes=Get-WinSecDefenderConfigurationModes $script:status $script:prefs $script:pua $script:asr
+        $control=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$context.ScanId;CheckId='WSA-SYS-001';SectionKey='SystemSecurity';
+            Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL';Evidence=[pscustomobject]@{
+                DeviceId=$context.DeviceId;ScanId=$context.ScanId;CheckId='WSA-SYS-001';CollectionSuccessful=$true;
+                DefenderStatus=$script:status;ConfigurationModes=$modes}}
+        $registry=Get-WinSecCheckRegistry -ProjectRoot $root
+        $catalogs=@{'WSA-SYS-001'=$snapshot}
+        $audit=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$context.ScanId;CatalogVersion=$registry.CatalogVersion;ControlResults=@($control)}
+        $assessment=Invoke-WinSecScanAssessment -AuditResult $audit -ProjectRoot $root -TargetContext $context -CatalogSnapshots $catalogs
+        $summary=New-WinSecConfigurationAssessment -Audit $audit -Assessment $assessment -Context $context -Registry $registry `
+            -Catalogs $catalogs -PolicySnapshot (Get-WinSecConfigurationScoringPolicy $root) -ScopeType CONTROL -ScopeKey WSA-SYS-001 -ProjectRoot $root
+        $scored=$summary.Controls[0]
+        Assert-WinSecRevision ($summary.Controls.Count -eq 1 -and $scored.Criteria.Count -eq 8 -and $scored.Permission -ceq 'APPROVED' -and
+            $scored.Value -eq $scenario.Score -and $scored.EvaluatedCriteria -eq $scenario.Resolved -and
+            @($scored.Criteria|Where-Object Status -CEQ FAIL).Count -eq $scenario.Failures -and
+            @($assessment.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq $scenario.Failures)
+        if($null -eq $scenario.Score) {
+            Assert-WinSecRevision ($scored.Status -ceq 'NOT_SCORED' -and $scored.Coverage -eq 87.5 -and
+                @($scored.Criteria|Where-Object Status -CEQ UNKNOWN).Count -eq 1 -and
+                (Get-WinSecConfigurationScoreText $summary CONTROL WSA-SYS-001) -ceq 'NOT_SCORED')
+        }
+        else {
+            Assert-WinSecRevision ($scored.Status -ceq 'COMPLETE' -and $scored.Coverage -eq 100 -and
+                (Get-WinSecConfigurationScoreText $summary CONTROL WSA-SYS-001) -ceq ($scenario.Score.ToString()+'/100'))
+        }
+    }
+}
 foreach($mode in @('BLOCK','AUDIT','DISABLED','UNKNOWN')) {
     Test-WinSecRevision ('PUA requires blocking, without failing unknown telemetry: '+$mode) {
         $script:pua.Mode=$mode;$r=Get-WinSecRevisionResult WSA-DEF-ADD-001
@@ -75,8 +116,13 @@ Test-WinSecRevision 'The revision fingerprint binds baseline, added criteria and
 foreach($framework in (Get-WinSecFrameworkCatalog).Frameworks) {
     Test-WinSecRevision ('Singleton criterion mappings retain their type and reject scalars/foreign criteria: '+$framework.frameworkId) {
         $doc=Copy-WinSecResultData $framework
-        $reference=$doc.mappings[0].references[-1]
-        $doc.mappings[0].references=@($reference)
+        $mapping=@($doc.mappings|Where-Object checkId -CEQ 'WSA-SYS-001')
+        Assert-WinSecRevision ($mapping.Count -eq 1)
+        $references=@($mapping[0].references|Where-Object {$_.criterionIds -ccontains 'WSA-DEF-ADD-004'})
+        Assert-WinSecRevision ($references.Count -eq 1)
+        $reference=$references[0]
+        $mapping[0].references=@($reference)
+        $doc.mappings=@($mapping[0])
         $reference.criterionIds=@('WSA-DEF-ADD-004')
         Assert-WinSecRevision (@(Get-WinSecFrameworkMappings WSA-SYS-001 @($doc) Windows WSA-DEF-ADD-004).Count -eq 1)
         Assert-WinSecRevision (@(Get-WinSecFrameworkMappings WSA-SYS-001 @($doc) Windows WSA-DEF-ADD-001).Count -eq 0)
