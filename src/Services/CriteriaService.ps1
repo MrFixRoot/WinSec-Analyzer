@@ -31,6 +31,7 @@
 # ============================================================
 
 . (Join-Path $PSScriptRoot '../Core/CriterionApplicability.ps1')
+. (Join-Path $PSScriptRoot '../Core/CriterionWeight.ps1')
 
 function Get-WinSecCriteriaField {
     [CmdletBinding()]
@@ -305,6 +306,9 @@ function Test-WinSecCriteriaCatalog {
             $errors.Add("Duplicate CriterionId: $id")
         }
         $ids[[string]$id] = $true
+
+        try {$null=Get-WinSecCriterionWeight $criterion}
+        catch {$errors.Add("$id has an invalid criterion weight.")}
 
         if ($cCheckId -cne $checkId) {
             $errors.Add("$id has a mismatched CheckId.")

@@ -33,6 +33,11 @@ function Get-MpPreference {
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $copy=Copy-WinSecResultData $script:registry
+    # This suite supplies only Defender providers. BitLocker production
+    # permissions are validated independently in BitLockerCoordinatorIntegration.
+    foreach($other in @($copy.Checks|Where-Object CheckId -CNE WSA-SYS-001)) {
+        $other.ExecutionEnabled=$false;$other.ExecutionReady=$false
+    }
     $check=$copy.Checks|Where-Object CheckId -CEQ WSA-SYS-001
     $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
     $copy
