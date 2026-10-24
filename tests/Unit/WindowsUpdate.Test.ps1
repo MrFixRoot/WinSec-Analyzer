@@ -7,8 +7,9 @@ $path=Join-Path $root 'src/Checks/System/Test-WindowsUpdate.ps1'
 $script:passed=0;$script:failed=0
 . (Join-Path $root 'tests/Fixtures/WindowsUpdateMemory.ps1')
 Reset-WinSecWindowsUpdateFixture
+. (Join-Path $root 'src/Checks/System/WindowsUpdatePolicyReader.ps1')
 . $path
-$importReads=$script:WU.IdentityReads+$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads
+$importReads=$script:WU.IdentityReads+$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads+$script:WU.NamedPolicyReads
 $realKeyReader=(Get-Command Open-WinSecWindowsUpdatePolicyKey).ScriptBlock
 $realVersionReader=(Get-Command Open-WinSecWindowsUpdateVersionKey).ScriptBlock
 $realRebootReader=(Get-Command Get-WinSecWindowsUpdateRebootRequired).ScriptBlock
@@ -31,15 +32,16 @@ Test-WinSecWindowsUpdateCase 'Only allowlisted local metadata, update service, p
     $results=@(Invoke-WinSecWindowsUpdateFixture);$r=$results[0];$e=$r.Evidence
     Assert-WinSecWindowsUpdate ($results.Count -eq 1 -and $r.CheckId -ceq 'WSA-SYS-003' -and $r.DeviceId -ceq $script:WU.DeviceId -and
         $r.ScanId -ceq 'wu-unit-1' -and $r.SectionKey -ceq 'SystemSecurity' -and $r.Status -ceq 'INFORMATIONAL' -and
-        $e.SchemaVersion -ceq '1.1.0' -and $e.Scope -ceq 'LOCAL_CONFIGURATION_ONLY' -and $e.CollectionSuccessful -and $e.CollectionComplete -and
+        $e.SchemaVersion -ceq '1.2.0' -and $e.Scope -ceq 'LOCAL_CONFIGURATION_ONLY' -and $e.CollectionSuccessful -and $e.CollectionComplete -and
         $e.DeviceId -ceq $r.DeviceId -and $e.ScanId -ceq $r.ScanId -and $e.CheckId -ceq $r.CheckId -and
         $e.CollectedAtUTC -ceq $r.TimestampUTC -and $e.Platform.BuildNumber -ceq '26100' -and $e.Platform.OperatingSystemSKU -eq 48 -and
         $script:WU.IdentityReads -eq 1 -and $script:WU.CimReads -eq 2 -and $script:WU.KeyReads -eq 2 -and
-        $script:WU.ValueReads.Count -eq 8 -and $script:WU.Closed.Count -eq 2 -and
+        $script:WU.ValueReads.Count -eq 14 -and $script:WU.Closed.Count -eq 2 -and
         $script:WU.VersionReads -eq 1 -and ($script:WU.VersionValueReads -join ',') -ceq 'CurrentBuildNumber,UBR' -and
         $script:WU.VersionClosed -eq 1 -and $script:WU.RebootReads -eq 1 -and
         $e.VersionRegistry.UBR.State -ceq 'OBSERVED' -and $e.VersionRegistry.UBR.Value -eq 9711 -and
-        $e.RestartInformation.State -ceq 'OBSERVED' -and $e.RestartInformation.Value -is [bool] -and -not $e.RestartInformation.Value)
+        $e.RestartInformation.State -ceq 'OBSERVED' -and $e.RestartInformation.Value -is [bool] -and -not $e.RestartInformation.Value -and
+        $script:WU.NamedPolicyReads -eq 5 -and $e.AutomationPolicy.AllowAutoUpdate.State -ceq 'OBSERVED')
     Assert-WinSecWindowsUpdate ([datetime]::Parse($r.TimestampUTC).ToUniversalTime() -gt [datetime]::UtcNow.AddMinutes(-1))
     Assert-WinSecWindowsUpdate (-not $e.ScoringEligible -and -not $e.EffectivePolicyVerified -and -not $e.UpdateSearchPerformed -and
         $e.PatchCurrency -ceq 'NOT_EVALUATED' -and $e.ComplianceAssessment -ceq 'NOT_EVALUATED' -and $null -eq $e.CriteriaSource -and
@@ -62,7 +64,7 @@ foreach($badId in @('remote:host','local:hostname',('local:hw1-'+('A'*64)),('loc
     Test-WinSecWindowsUpdateCase 'Noncanonical or remote identity aborts before any provider read' {
         Assert-WinSecWindowsUpdateThrows {Test-WinSecWindowsUpdate -DeviceId $badId -ScanId wu-1 -CheckId WSA-SYS-003}
         Assert-WinSecWindowsUpdate ($script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
-            $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0)
+            $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0 -and $script:WU.NamedPolicyReads -eq 0)
     }
 }
 foreach($fault in @('Foreign','Missing','Multiple','NonText','Error')) {
@@ -71,14 +73,14 @@ foreach($fault in @('Foreign','Missing','Multiple','NonText','Error')) {
             Multiple {$script:WU.LocalIds=@($script:WU.DeviceId,$script:WU.DeviceId)};NonText {$script:WU.LocalIds=@(1)};Error {$script:WU.IdentityFails=$true}}
         Assert-WinSecWindowsUpdateThrows {Invoke-WinSecWindowsUpdateFixture}
         Assert-WinSecWindowsUpdate ($script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
-            $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0)
+            $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0 -and $script:WU.NamedPolicyReads -eq 0)
     }
 }
 Test-WinSecWindowsUpdateCase 'A different CheckId or invalid ScanId cannot collect' {
     Assert-WinSecWindowsUpdateThrows {Test-WinSecWindowsUpdate -DeviceId $script:WU.DeviceId -ScanId wu-1 -CheckId WSA-SYS-001}
     Assert-WinSecWindowsUpdateThrows {Test-WinSecWindowsUpdate -DeviceId $script:WU.DeviceId -ScanId '../escape' -CheckId WSA-SYS-003}
     Assert-WinSecWindowsUpdate ($script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
-        $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0)
+        $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0 -and $script:WU.NamedPolicyReads -eq 0)
 }
 foreach($fault in @('Missing','Multiple','MismatchedBuild','TextSKU','BooleanType','MissingVersion')) {
     Test-WinSecWindowsUpdateCase ('Invalid OS telemetry remains unknown and preserves other sources: '+$fault) {
@@ -160,9 +162,11 @@ foreach($class in @('Win32_OperatingSystem','Win32_Service')) {
 Test-WinSecWindowsUpdateCase 'Total collection failure is ERROR without a security verdict or false applicability' {
     $script:WU.FailClasses=@('Win32_OperatingSystem','Win32_Service');$script:WU.FailKeys=@('AutomaticUpdates','WindowsUpdate')
     $script:WU.VersionKeyFails=$true;$script:WU.RebootFails=$true
+    $script:WU.NamedPolicyFailures=@('AllowAutoUpdate','ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
+        'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')
     $r=Invoke-WinSecWindowsUpdateFixture
     Assert-WinSecWindowsUpdate ($r.Status -ceq 'ERROR' -and -not $r.Evidence.CollectionSuccessful -and
-        -not $r.Evidence.CollectionComplete -and $r.Evidence.CollectionIssues.Count -eq 6 -and $null -eq $r.NotApplicableReason)
+        -not $r.Evidence.CollectionComplete -and $r.Evidence.CollectionIssues.Count -eq 11 -and $null -eq $r.NotApplicableReason)
 }
 foreach($fault in @('MissingKey','DeniedKey','MissingBuild','MissingRevision','BuildMismatch','BuildType','RevisionType',
     'NegativeRevision','RevisionText','RevisionArray','BuildRead','RevisionRead','Close')) {
@@ -261,6 +265,7 @@ Test-WinSecWindowsUpdateCase 'The native registry opener is restricted to read-o
         $realKeyReader.ToString().Contains('OpenSubKey($SubKey,$false)') -and $realKeyReader.ToString().Contains('$baseKey.Dispose()'))
     Assert-WinSecWindowsUpdateThrows {& $realKeyReader -SubKey 'SOFTWARE\other'}
     $tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+    Assert-WinSecWindowsUpdate (@($ast.EndBlock.Statements|Where-Object {$_ -isnot [System.Management.Automation.Language.FunctionDefinitionAst]}).Count -eq 0)
     $commands=@($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.CommandAst]},$true)|ForEach-Object {$_.GetCommandName()})
     Assert-WinSecWindowsUpdate ($errors.Count -eq 0 -and @($commands|Where-Object {$_ -cmatch '^(Set-|Remove-|Start-|Stop-|Restart-|Invoke-|New-Object$|Install-|Enable-|Disable-)' -and $_ -cne 'New-Object'}).Count -eq 0 -and
         (Get-Content $path -Raw) -notmatch '\.(SetValue|CreateSubKey|DeleteValue|DeleteSubKey|Search|Download|Install)\(')

@@ -7,6 +7,13 @@ function Reset-WinSecWindowsUpdateFixture {
         VersionReads=0;VersionValueReads=@();VersionClosed=0;VersionKeyFails=$false;VersionKeyMissing=$false;VersionCloseFails=$false
         VersionValues=@{CurrentBuildNumber='26100';UBR=9711;RegisteredOwner='PRIVATE-WU-OWNER'}
         RebootReads=0;RebootFails=$false;RebootValue=$false
+        NamedPolicyReads=0;NamedPolicyNames=@();NamedPolicyFailures=@();NamedPolicies=@{
+            AllowAutoUpdate=[pscustomobject]@{Area='Update';Name='AllowAutoUpdate';Kind=3;Managed=$false;UserPolicy=$false;Value=2}
+            ConfigureDeadlineForQualityUpdates=[pscustomobject]@{Area='Update';Name='ConfigureDeadlineForQualityUpdates';Kind=3;Managed=$false;UserPolicy=$false;Value=0}
+            ConfigureDeadlineForFeatureUpdates=[pscustomobject]@{Area='Update';Name='ConfigureDeadlineForFeatureUpdates';Kind=3;Managed=$false;UserPolicy=$false;Value=0}
+            IgnoreWindowsUpdateGroupPolicies=[pscustomobject]@{Area='Update';Name='IgnoreWindowsUpdateGroupPolicies';Kind=3;Managed=$false;UserPolicy=$false;Value=0}
+            SetEDURestart=[pscustomobject]@{Area='Update';Name='SetEDURestart';Kind=3;Managed=$false;UserPolicy=$false;Value=0}
+        }
         Systems=@([pscustomobject]@{Version='10.0.26100';BuildNumber='26100';OperatingSystemSKU=[uint32]48;ProductType=[uint32]1;Caption='PRIVATE-WU-CAPTION'})
         Services=@([pscustomobject]@{Name='wuauserv';State='Stopped';StartMode='Manual';StartName='PRIVATE-WU-ACCOUNT';PathName='PRIVATE-WU-PATH'})
         Values=@{
@@ -55,7 +62,9 @@ function Open-WinSecWindowsUpdatePolicyKey {
         if($Options -ne [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames -or $null -ne $Default){throw 'Unexpected registry options.'}
         $allowed=if($this.Area -ceq 'AutomaticUpdates'){@('NoAutoUpdate','AUOptions','UseWUServer')}
             else{@('DeferQualityUpdates','DeferQualityUpdatesPeriodInDays','SetDisableUXWUAccess',
-                'DoNotConnectToWindowsUpdateInternetLocations','SetPolicyDrivenUpdateSourceForQualityUpdates')}
+                'DoNotConnectToWindowsUpdateInternetLocations','SetPolicyDrivenUpdateSourceForQualityUpdates',
+                'ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
+                'SetComplianceDeadline','SetComplianceDeadlineForQU','SetComplianceDeadlineForFU','SetEDURestart')}
         if($Name -cnotin $allowed){throw 'Forbidden registry value.'}
         $id=$this.Area+'.'+$Name;$script:WU.ValueReads+=,$id
         if($script:WU.FailValues -ccontains $id){throw 'PRIVATE-WU-VALUE'}
@@ -106,4 +115,13 @@ function Get-WinSecWindowsUpdateRebootRequired {
     $script:WU.RebootReads++
     if($script:WU.RebootFails){throw 'PRIVATE-WU-REBOOT'}
     return ,$script:WU.RebootValue
+}
+
+function Read-WinSecWindowsUpdateNamedPolicy {
+    [CmdletBinding()]param([string]$Name)
+    if($Name -cnotin @('AllowAutoUpdate','ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
+        'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')){throw 'Forbidden policy name.'}
+    $script:WU.NamedPolicyReads++;$script:WU.NamedPolicyNames+=,$Name
+    if($script:WU.NamedPolicyFailures -ccontains $Name){throw 'PRIVATE-WU-NAMED-POLICY'}
+    return ,$script:WU.NamedPolicies[$Name]
 }

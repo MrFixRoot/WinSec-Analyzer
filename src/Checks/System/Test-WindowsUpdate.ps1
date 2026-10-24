@@ -106,10 +106,12 @@ function Test-WinSecWindowsUpdate {
         UBR=[pscustomobject]@{State='UNKNOWN';Value=$null}
     }
     $restart=[pscustomobject]@{Source='WUA:ISystemInformation.RebootRequired';State='UNKNOWN';Value=$null}
+    $automationPolicy=[pscustomobject]@{}
     $evidence=[pscustomobject]@{
-        SchemaVersion='1.1.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
+        SchemaVersion='1.2.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
         Scope='LOCAL_CONFIGURATION_ONLY';Platform=$platform;UpdateService=$service;PolicyRegistry=$policies
         VersionRegistry=$versionRegistry;RestartInformation=$restart
+        AutomationPolicy=$automationPolicy
         CollectionSuccessful=$false;CollectionComplete=$false;CollectionIssues=@()
         EffectivePolicyVerified=$false;UpdateSearchPerformed=$false;PatchCurrency='NOT_EVALUATED'
         ScoringEligible=$false;ComplianceAssessment='NOT_EVALUATED';CriteriaSource=$null
@@ -208,7 +210,9 @@ function Test-WinSecWindowsUpdate {
     $areas=@(
         @{Name='AutomaticUpdates';Suffix='\AU';Fields=@('NoAutoUpdate','AUOptions','UseWUServer')},
         @{Name='WindowsUpdate';Suffix='';Fields=@('DeferQualityUpdates','DeferQualityUpdatesPeriodInDays',
-            'SetDisableUXWUAccess','DoNotConnectToWindowsUpdateInternetLocations','SetPolicyDrivenUpdateSourceForQualityUpdates')}
+            'SetDisableUXWUAccess','DoNotConnectToWindowsUpdateInternetLocations','SetPolicyDrivenUpdateSourceForQualityUpdates',
+            'ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
+            'SetComplianceDeadline','SetComplianceDeadlineForQU','SetComplianceDeadlineForFU','SetEDURestart')}
     )
     foreach($area in $areas) {
         $path='SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'+$area.Suffix
@@ -257,6 +261,17 @@ function Test-WinSecWindowsUpdate {
             $restart.Value=$values[0];$restart.State='OBSERVED';$successfulSources++
         }
     } catch {$issues.Add('UPDATE_REBOOT_QUERY_FAILED')}
+    foreach($name in @('AllowAutoUpdate','ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
+        'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
+        $observation=[pscustomobject]@{Source='WINRT:NamedPolicy';Area='Update';Name=$name;State='UNKNOWN'
+            Kind='UNKNOWN';Managed=$null;Value=$null}
+        try {
+            $observations=@(Get-WinSecWindowsUpdateNamedPolicy -Name $name -ErrorAction Stop)
+            if($observations.Count -ne 1){throw 'Ambiguous named policy.'}
+            $observation=$observations[0];$successfulSources++
+        } catch {$issues.Add('UPDATE_POLICY_'+$name+'_QUERY_FAILED')}
+        $automationPolicy|Add-Member -NotePropertyName $name -NotePropertyValue $observation
+    }
     $evidence.CollectionSuccessful=($successfulSources -gt 0)
     $evidence.CollectionComplete=($issues.Count -eq 0)
     $evidence.CollectionIssues=@($issues.ToArray())
