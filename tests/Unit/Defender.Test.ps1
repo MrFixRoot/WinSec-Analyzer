@@ -1429,13 +1429,46 @@ Test-Case 'ASR null action preserves later rule positions' {
     Assert-Equal $a.Rules[2].Mode 'DISABLED'
 }
 
-Test-Case 'ASR entirely null arrays are unavailable as complete evidence' {
+Test-Case 'ASR present null pair describes an empty configured inventory' {
     $script:M.ASRIds = $null
     $script:M.ASRActions = $null
     $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
-    Assert-Equal $a.Complete $false
+    Assert-Equal $a.Available $true
+    Assert-Equal $a.Complete $true
     Assert-Equal $a.ConfiguredRuleCount 0
+    Assert-Equal @($a.Issues).Count 0
+    Assert-Equal $a.UnlistedRulesAssessed $false
+    $modes = Get-WinSecDefenderConfigurationModes -ASR $a
+    Assert-Equal $modes.AsrVulnerableDriver 'NOT_CONFIGURED'
+}
+
+foreach ($nullSide in @('Ids', 'Actions')) {
+    Test-Case ('ASR one-sided null remains incomplete: ' + $nullSide) {
+        if ($nullSide -eq 'Ids') { $script:M.ASRIds = $null }
+        else { $script:M.ASRActions = $null }
+        $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+        Assert-Equal $a.Complete $false
+        Assert-True (@($a.Issues).Count -gt 0)
+        $modes = Get-WinSecDefenderConfigurationModes -ASR $a
+        Assert-Equal $modes.AsrVulnerableDriver $null
+    }
+}
+
+Test-Case 'ASR arrays containing only null entries are not an empty configured inventory' {
+    $script:M.ASRIds = @($null)
+    $script:M.ASRActions = @($null)
+    $a = (Invoke-MockedDefender).Evidence.AttackSurfaceReduction
+    Assert-Equal $a.Complete $false
     Assert-True (@($a.Issues).Count -gt 0)
+}
+
+Test-Case 'ASR a missing property cannot become an empty configured inventory' {
+    $a = Get-WinSecDefenderASRSummary -Preference ([pscustomobject]@{
+        AttackSurfaceReductionRules_Ids = $null
+    })
+    Assert-Equal $a.Available $false
+    Assert-Equal $a.Complete $false
+    Assert-Equal $a.ConfiguredRuleCount $null
 }
 
 Test-Case 'ASR explicit empty arrays describe an empty configured inventory' {
