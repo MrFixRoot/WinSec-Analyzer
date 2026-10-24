@@ -5,6 +5,7 @@ param()
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $root 'src/Core/ScanCoordinator.ps1')
+. (Join-Path $root 'src/Services/WindowsUpdateReferenceService.ps1')
 . (Join-Path $root 'src/Checks/System/Test-WindowsUpdate.ps1')
 . (Join-Path $root 'tests/Fixtures/WindowsUpdateMemory.ps1')
 function Save-WinSecPublicHistory {throw 'Unexpected native history write.'}
@@ -14,6 +15,7 @@ $catalogPath=Join-Path $root 'config/checks.json';$scoringPath=Join-Path $root '
 $catalogHash=(Get-FileHash $catalogPath -Algorithm SHA256).Hash;$scoringHash=(Get-FileHash $scoringPath -Algorithm SHA256).Hash
 $registry=Get-WinSecCheckRegistry -ProjectRoot $root
 $check=Get-WinSecRegisteredCheck -Registry $registry -CheckId WSA-SYS-003
+$servicingCatalog=(Get-WinSecWindowsUpdateReferenceCatalog $root).Catalog
 function Assert-WinSecWUIntegration {param([bool]$Value);if(-not $Value){throw 'Windows Update integration assertion failed.'}}
 function Test-WinSecWUIntegration {
     param([string]$Name,[scriptblock]$Action)
@@ -32,7 +34,8 @@ Test-WinSecWUIntegration 'Production catalog retains pending validation and refu
     Assert-WinSecWUIntegration ($check.ImplementationStatus -ceq 'PENDING_VALIDATION' -and -not $check.ExecutionEnabled -and
         -not $check.ExecutionReady -and $check.FunctionName -ceq 'Test-WinSecWindowsUpdate')
     $caught=$false;try{$null=Get-WinSecAuditImplementation -Check $check}catch{$caught=$true}
-    Assert-WinSecWUIntegration ($caught -and $script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0)
+    Assert-WinSecWUIntegration ($caught -and $script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
+        $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0)
 }
 Test-WinSecWUIntegration 'Coordinator cannot start or publish the disabled control even when confirmation accepts' {
     $coordinator=New-WinSecScanCoordinator;$target=New-WinSecLocalTarget
@@ -42,7 +45,8 @@ Test-WinSecWUIntegration 'Coordinator cannot start or publish the disabled contr
     try{$null=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -DeviceId $target.DeviceId -ScanId wu-disabled `
         -ScopeType CONTROL -ScopeKey WSA-SYS-003 -ConfirmAction {$true}}
     catch{$caught=$true}
-    Assert-WinSecWUIntegration ($caught -and $coordinator.Sessions.Count -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0)
+    Assert-WinSecWUIntegration ($caught -and $coordinator.Sessions.Count -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
+        $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0)
 }
 Test-WinSecWUIntegration 'Audit adapter and result model preserve identity but project no raw Windows Update evidence or score' {
     $session=New-WinSecWUFixtureSession;$public=ConvertTo-WinSecPublicScanResult $session
@@ -50,20 +54,24 @@ Test-WinSecWUIntegration 'Audit adapter and result model preserve identity but p
         $public.ScopeType -ceq 'CONTROL' -and $public.ScopeKey -ceq 'WSA-SYS-003' -and $public.DeviceId -ceq $script:WU.DeviceId -and
         $public.ControlResults.Count -eq 1 -and $public.ControlResults[0].ObservedStatus -ceq 'INFORMATIONAL' -and
         $null -eq $public.OverallScore -and $public.Findings.Count -eq 0 -and $public.ReviewItems.Count -eq 0 -and
-        (ConvertTo-Json $public -Depth 32) -notmatch 'PRIVATE-WU|"Evidence"|PolicyRegistry|AUOptions|StartMode')
+        (ConvertTo-Json $public -Depth 32) -notmatch 'PRIVATE-WU|"Evidence"|PolicyRegistry|AUOptions|StartMode|VersionRegistry|RestartInformation|CurrentBuildNumber|"UBR"')
 }
 Test-WinSecWUIntegration 'Canonical public history roundtrip keeps only the existing safe contract and never recollects' {
     $session=New-WinSecWUFixtureSession;$expected=ConvertTo-WinSecPublicScanResult $session
-    $before=$script:WU.CimReads+$script:WU.KeyReads
+    $before=$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads
     $record=New-WinSecPublicHistoryRecord $session
     $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
     Assert-WinSecWUIntegration ((Get-WinSecPublicHistoryJson $expected) -ceq (Get-WinSecPublicHistoryJson $restored.PublicResult) -and
-        $before -eq ($script:WU.CimReads+$script:WU.KeyReads) -and $null -eq $restored.PublicResult.OverallScore)
+        $before -eq ($script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads) -and $null -eq $restored.PublicResult.OverallScore -and
+        (Get-WinSecPublicHistoryJson $record) -notmatch 'VersionRegistry|RestartInformation|CurrentBuildNumber|"UBR"')
 }
 Test-WinSecWUIntegration 'The session owns its input; changing provider fixture values cannot change a public snapshot' {
     $session=New-WinSecWUFixtureSession;$before=Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)
     $script:WU.Values.AutomaticUpdates.NoAutoUpdate=1;$script:WU.Services[0].StartMode='Disabled'
+    $script:WU.VersionValues.UBR=0;$script:WU.RebootValue=$true
     Assert-WinSecWUIntegration ($session.ControlResults[0].Evidence.PolicyRegistry.AutomaticUpdates.NoAutoUpdate.Value -eq 0 -and
+        $session.ControlResults[0].Evidence.VersionRegistry.UBR.Value -eq 9711 -and
+        -not $session.ControlResults[0].Evidence.RestartInformation.Value -and
         (Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)) -ceq $before)
 }
 foreach($fault in @('Device','Scan','Check','Section')) {
@@ -78,6 +86,35 @@ Test-WinSecWUIntegration 'Partial collection is not a configuration failure or a
     $script:WU.FailClasses=@('Win32_Service');$session=New-WinSecWUFixtureSession;$public=ConvertTo-WinSecPublicScanResult $session
     Assert-WinSecWUIntegration ($session.ControlResults[0].Evidence.CollectionIssues -ccontains 'UPDATE_SERVICE_QUERY_FAILED' -and
         $public.ControlResults[0].ObservedStatus -ceq 'INFORMATIONAL' -and $public.Findings.Count -eq 0 -and $null -eq $public.OverallScore)
+}
+Test-WinSecWUIntegration 'Collected and adapted telemetry reaches the pure servicing comparison without a second provider query' {
+    $script:WU.Systems[0].OperatingSystemSKU=[uint32]4
+    $session=New-WinSecWUFixtureSession;$control=$session.ControlResults[0]
+    $before=$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads
+    $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $servicingCatalog $control
+    $review=Get-WinSecWindowsUpdateServicingReference $servicingCatalog $p '2026-10-24T12:00:00Z'
+    Assert-WinSecWUIntegration ($p.Release -ceq '24H2' -and $p.Channel -ceq 'GAC' -and $p.Revision -eq 9711 -and
+        $p.RestartState -ceq 'NOT_PENDING' -and $review.SecuritySupport.State -ceq 'SUPPORTED' -and $review.SecurityBaseline.State -ceq 'MET' -and
+        $before -eq ($script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads) -and
+        $null -eq $session.ConfigurationAssessment -and $session.Findings.Count -eq 0)
+}
+foreach($fault in @('RebootPending','RebootUnavailable','RevisionUnreadable','BuildConflict')) {
+    Test-WinSecWUIntegration ('Real collector boundaries preserve unresolved servicing facts: '+$fault) {
+        $script:WU.Systems[0].OperatingSystemSKU=[uint32]4
+        switch($fault) {
+            RebootPending {$script:WU.RebootValue=$true};RebootUnavailable {$script:WU.RebootFails=$true}
+            RevisionUnreadable {$script:WU.FailValues=@('Version.UBR')}
+            BuildConflict {$script:WU.VersionValues.CurrentBuildNumber='26200'}
+        }
+        $session=New-WinSecWUFixtureSession
+        $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $servicingCatalog $session.ControlResults[0]
+        $review=Get-WinSecWindowsUpdateServicingReference $servicingCatalog $p '2026-10-24T12:00:00Z'
+        Assert-WinSecWUIntegration ($review.SecurityBaseline.State -ceq 'UNKNOWN' -and $session.Findings.Count -eq 0 -and
+            $null -eq $session.ConfigurationAssessment -and
+            (Get-WinSecPublicHistoryJson (New-WinSecPublicHistoryRecord $session)) -notmatch 'PRIVATE-WU|VersionRegistry|RestartInformation|CurrentBuildNumber|"UBR"')
+        if($fault -ceq 'BuildConflict'){Assert-WinSecWUIntegration ($review.SecuritySupport.State -ceq 'UNKNOWN')}
+        else {Assert-WinSecWUIntegration ($review.SecuritySupport.State -ceq 'SUPPORTED')}
+    }
 }
 Test-WinSecWUIntegration 'Catalog and scoring files are unchanged after all synthetic operations' {
     Assert-WinSecWUIntegration ((Get-FileHash $catalogPath -Algorithm SHA256).Hash -ceq $catalogHash -and

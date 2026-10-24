@@ -20,6 +20,17 @@ function New-WinSecWUReferencePlatform {
     [pscustomobject]@{State='OBSERVED';Version='10.0.26200';BuildNumber='26200';OperatingSystemSKU=48;ProductType=1
         Release='25H2';Channel='GAC';Revision=9711;RevisionState='OBSERVED';RestartState='NOT_PENDING'}
 }
+function New-WinSecWUReferenceControl {
+    $device='local:hw1-'+('a'*64)
+    [pscustomobject]@{CheckId='WSA-SYS-003';DeviceId=$device;ScanId='wu-reference-1';SectionKey='SystemSecurity';Status='INFORMATIONAL'
+        Evidence=[pscustomobject]@{SchemaVersion='1.1.0';CheckId='WSA-SYS-003';DeviceId=$device;ScanId='wu-reference-1'
+            Scope='LOCAL_CONFIGURATION_ONLY';CollectionSuccessful=$true;CollectionComplete=$true
+            Platform=[pscustomobject]@{State='OBSERVED';Version='10.0.26200';BuildNumber='26200';OperatingSystemSKU=48;ProductType=1}
+            VersionRegistry=[pscustomobject]@{Source='REGISTRY64:HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion';ReadState='READ'
+                CurrentBuildNumber=[pscustomobject]@{State='OBSERVED';Value='26200'}
+                UBR=[pscustomobject]@{State='OBSERVED';Value=9711}}
+            RestartInformation=[pscustomobject]@{Source='WUA:ISystemInformation.RebootRequired';State='OBSERVED';Value=$false}}}
+}
 function Test-WinSecWUReference {
     param([string]$Name,[scriptblock]$Action)
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
@@ -193,6 +204,95 @@ Test-WinSecWUReference 'Repeated comparisons leave the input catalog and platfor
     $second=Get-WinSecWindowsUpdateServicingReference $script:catalog $p $script:at
     Assert-WinSecWUReference ($second.SecuritySupport.State -ceq 'SUPPORTED' -and
         (ConvertTo-Json $script:catalog -Depth 16) -ceq $beforeC -and (ConvertTo-Json $p) -ceq $beforeP)
+}
+Test-WinSecWUReference 'The servicing adapter resolves labels from catalog facts, not a selected profile' {
+    function Get-CimInstance {throw 'Unexpected adapter query.'};function Get-Item {throw 'Unexpected adapter I/O.'}
+    $control=New-WinSecWUReferenceControl;$before=ConvertTo-Json $control -Depth 12
+    $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control
+    Assert-WinSecWUReference ($p.State -ceq 'OBSERVED' -and $p.Release -ceq '25H2' -and $p.Channel -ceq 'GAC' -and
+        $p.RevisionState -ceq 'OBSERVED' -and $p.Revision -eq 9711 -and $p.RestartState -ceq 'NOT_PENDING' -and
+        (ConvertTo-Json $control -Depth 12) -ceq $before)
+    $review=Get-WinSecWindowsUpdateServicingReference $script:catalog $p $script:at
+    Assert-WinSecWUReference ($review.SecuritySupport.State -ceq 'SUPPORTED' -and $review.SecurityBaseline.State -ceq 'MET')
+}
+foreach($context in @(@(125,'LTSC'),@(126,'LTSC'),@(191,'LTSC'),@(48,'GAC'),@(4,'GAC'))) {
+    Test-WinSecWUReference ('The adapter distinguishes channel by exact supported SKU: '+$context[0]) {
+        $control=New-WinSecWUReferenceControl;$control.Evidence.Platform.OperatingSystemSKU=$context[0]
+        $control.Evidence.Platform.Version='10.0.26100';$control.Evidence.Platform.BuildNumber='26100'
+        $control.Evidence.VersionRegistry.CurrentBuildNumber.Value='26100'
+        $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control
+        Assert-WinSecWUReference ($p.State -ceq 'OBSERVED' -and $p.Release -ceq '24H2' -and $p.Channel -ceq $context[1])
+    }
+}
+foreach($field in @('CheckId','DeviceId','ScanId')) {
+    Test-WinSecWUReference ('Foreign identity aborts servicing adaptation: '+$field) {
+        $control=New-WinSecWUReferenceControl;$control.Evidence.$field='FOREIGN'
+        Assert-WinSecWUReferenceThrows {ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control}
+    }
+}
+foreach($fault in @('Error','ObservedError','OtherSection','OldSchema','OtherScope','CollectionFalse','CollectionType','BuildMismatch',
+    'RegistryBuildType','RegistryUnknown','OtherRegistry','CimVersion','CimUnknown','OtherSku','Server','FutureBuild','LtscRelease')) {
+    Test-WinSecWUReference ('The servicing adapter preserves unresolved platform provenance: '+$fault) {
+        $control=New-WinSecWUReferenceControl
+        switch($fault) {
+            Error {$control.Status='ERROR'};ObservedError {$control|Add-Member NoteProperty ObservedStatus 'ERROR'}
+            OtherSection {$control.SectionKey='Other'};OldSchema {$control.Evidence.SchemaVersion='1.0.0'}
+            OtherScope {$control.Evidence.Scope='OTHER'};CollectionFalse {$control.Evidence.CollectionSuccessful=$false}
+            CollectionType {$control.Evidence.CollectionSuccessful='True'}
+            BuildMismatch {$control.Evidence.VersionRegistry.CurrentBuildNumber.Value='26100'}
+            RegistryBuildType {$control.Evidence.VersionRegistry.CurrentBuildNumber.Value=26200}
+            RegistryUnknown {$control.Evidence.VersionRegistry.ReadState='UNKNOWN'}
+            OtherRegistry {$control.Evidence.VersionRegistry.Source='PRIVATE-WU-OTHER-SOURCE'}
+            CimVersion {$control.Evidence.Platform.Version='10.0.26100'};CimUnknown {$control.Evidence.Platform.State='UNKNOWN'}
+            OtherSku {$control.Evidence.Platform.OperatingSystemSKU=188};Server {$control.Evidence.Platform.ProductType=3}
+            FutureBuild {$control.Evidence.Platform.BuildNumber='99999';$control.Evidence.Platform.Version='10.0.99999'
+                $control.Evidence.VersionRegistry.CurrentBuildNumber.Value='99999'}
+            LtscRelease {$control.Evidence.Platform.OperatingSystemSKU=191}
+        }
+        $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control
+        Assert-WinSecWUReference ($p.State -ceq 'UNKNOWN' -and $p.RevisionState -ceq 'UNKNOWN' -and $p.RestartState -ceq 'UNKNOWN' -and
+            (ConvertTo-Json $p) -notmatch 'PRIVATE-WU')
+    }
+}
+foreach($fault in @('Null','Text','Boolean','Array','Negative','Fraction','Unobserved','Getter')) {
+    Test-WinSecWUReference ('Invalid revision provenance cannot hide independently verified support context: '+$fault) {
+        $control=New-WinSecWUReferenceControl
+        switch($fault) {
+            Null {$control.Evidence.VersionRegistry.UBR.Value=$null};Text {$control.Evidence.VersionRegistry.UBR.Value='9711'}
+            Boolean {$control.Evidence.VersionRegistry.UBR.Value=$true};Array {$control.Evidence.VersionRegistry.UBR.Value=@(9711)}
+            Negative {$control.Evidence.VersionRegistry.UBR.Value=-1};Fraction {$control.Evidence.VersionRegistry.UBR.Value=9711.5}
+            Unobserved {$control.Evidence.VersionRegistry.UBR.State='UNKNOWN'}
+            Getter {$control.Evidence.VersionRegistry.UBR.PSObject.Properties.Remove('Value')
+                $control.Evidence.VersionRegistry.UBR|Add-Member ScriptProperty Value {throw 'Getter must not execute.'}}
+        }
+        $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control
+        Assert-WinSecWUReference ($p.State -ceq 'OBSERVED' -and $p.RevisionState -ceq 'UNKNOWN' -and $null -eq $p.Revision)
+        $review=Get-WinSecWindowsUpdateServicingReference $script:catalog $p $script:at
+        Assert-WinSecWUReference ($review.SecuritySupport.State -ceq 'SUPPORTED' -and $review.SecurityBaseline.State -ceq 'UNKNOWN')
+    }
+}
+foreach($fault in @('Pending','Unobserved','Null','Text','OtherSource')) {
+    Test-WinSecWUReference ('An incomplete reboot source never becomes confirmed update completion: '+$fault) {
+        $control=New-WinSecWUReferenceControl
+        switch($fault) {
+            Pending {$control.Evidence.RestartInformation.Value=$true};Unobserved {$control.Evidence.RestartInformation.State='UNKNOWN'}
+            Null {$control.Evidence.RestartInformation.Value=$null};Text {$control.Evidence.RestartInformation.Value='False'}
+            OtherSource {$control.Evidence.RestartInformation.Source='OTHER'}
+        }
+        $p=ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control
+        $state=if($fault -ceq 'Pending'){'PENDING'}else{'UNKNOWN'}
+        Assert-WinSecWUReference ($p.State -ceq 'OBSERVED' -and $p.RestartState -ceq $state -and $p.RevisionState -ceq 'OBSERVED')
+        $review=Get-WinSecWindowsUpdateServicingReference $script:catalog $p $script:at
+        Assert-WinSecWUReference ($review.SecurityBaseline.State -ceq 'UNKNOWN' -and $review.SecurityBaseline.Reason -ceq 'UPDATE_COMPLETION_UNVERIFIED')
+    }
+}
+Test-WinSecWUReference 'Declared getters cannot masquerade as an absent optional status or source identity' {
+    $control=New-WinSecWUReferenceControl
+    $control|Add-Member ScriptProperty ObservedStatus {throw 'Getter must not execute.'}
+    Assert-WinSecWUReferenceThrows {ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control}
+    $control=New-WinSecWUReferenceControl;$control.Evidence.PSObject.Properties.Remove('CheckId')
+    $control.Evidence|Add-Member ScriptProperty CheckId {throw 'Getter must not execute.'}
+    Assert-WinSecWUReferenceThrows {ConvertTo-WinSecWindowsUpdateServicingPlatform $script:catalog $control}
 }
 [Console]::WriteLine(('Windows Update servicing: {0} passed, {1} failed.' -f $script:passed,$script:failed))
 if($script:failed){throw 'Windows Update servicing tests failed.'}

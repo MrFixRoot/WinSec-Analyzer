@@ -130,6 +130,89 @@ function Assert-WinSecWindowsUpdateReferenceCatalog {
     }
 }
 
+function Get-WinSecWindowsUpdateReferenceValue {
+    param([AllowNull()][object]$InputObject,[string]$Name)
+    if($null -eq $InputObject){return $null}
+    if($InputObject -is [System.Collections.IDictionary]) {
+        if($InputObject.Contains($Name)){return ,$InputObject[$Name]}
+        return $null
+    }
+    $property=$InputObject.PSObject.Properties[$Name]
+    if($null -ne $property) {
+        if($property.MemberType -ne 'NoteProperty'){throw 'Invalid Windows Update servicing property.'}
+        return ,$property.Value
+    }
+    return $null
+}
+
+function ConvertTo-WinSecWindowsUpdateServicingPlatform {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Catalog,[Parameter(Mandatory)][object]$ControlResult)
+    Assert-WinSecWindowsUpdateReferenceCatalog $Catalog
+    $platform=[pscustomobject]@{State='UNKNOWN';Version=$null;BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null
+        Release=$null;Channel=$null;Revision=$null;RevisionState='UNKNOWN';RestartState='UNKNOWN'}
+    $evidence=Get-WinSecWindowsUpdateReferenceValue $ControlResult 'Evidence'
+    foreach($field in @('CheckId','DeviceId','ScanId')) {
+        $expected=Get-WinSecWindowsUpdateReferenceValue $ControlResult $field
+        $actual=Get-WinSecWindowsUpdateReferenceValue $evidence $field
+        $pattern=switch($field){CheckId {'\AWSA-SYS-003\z'};DeviceId {'\Alocal:hw1-[a-f0-9]{64}\z'};ScanId {'\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z'}}
+        if($expected -isnot [string] -or $expected -cnotmatch $pattern -or $actual -isnot [string] -or $actual -cne $expected) {
+            throw 'Invalid or foreign Windows Update servicing identity.'
+        }
+    }
+    $status=Get-WinSecWindowsUpdateReferenceValue $ControlResult 'Status'
+    $observed=Get-WinSecWindowsUpdateReferenceValue $ControlResult 'ObservedStatus'
+    $section=Get-WinSecWindowsUpdateReferenceValue $ControlResult 'SectionKey'
+    $schema=Get-WinSecWindowsUpdateReferenceValue $evidence 'SchemaVersion'
+    $scope=Get-WinSecWindowsUpdateReferenceValue $evidence 'Scope'
+    $successful=Get-WinSecWindowsUpdateReferenceValue $evidence 'CollectionSuccessful'
+    if($status -isnot [string] -or $status -cne 'INFORMATIONAL' -or
+        ($null -ne $observed -and ($observed -isnot [string] -or $observed -cne 'INFORMATIONAL')) -or
+        $section -isnot [string] -or $section -cne 'SystemSecurity' -or
+        $schema -isnot [string] -or $schema -cne '1.1.0' -or $scope -isnot [string] -or $scope -cne 'LOCAL_CONFIGURATION_ONLY' -or
+        $successful -isnot [bool] -or -not $successful){return $platform}
+    $cim=Get-WinSecWindowsUpdateReferenceValue $evidence 'Platform'
+    $registry=Get-WinSecWindowsUpdateReferenceValue $evidence 'VersionRegistry'
+    try {
+        Assert-WinSecWindowsUpdateReferenceFields $cim @('State','Version','BuildNumber','OperatingSystemSKU','ProductType')
+        Assert-WinSecWindowsUpdateReferenceFields $registry @('Source','ReadState','CurrentBuildNumber','UBR')
+        Assert-WinSecWindowsUpdateReferenceFields $registry.CurrentBuildNumber @('State','Value')
+    } catch {return $platform}
+    if($cim.State -isnot [string] -or $cim.State -cne 'OBSERVED' -or $cim.Version -isnot [string] -or
+        $cim.BuildNumber -isnot [string] -or $cim.BuildNumber -cnotmatch '\A[1-9][0-9]{4}\z' -or
+        $cim.Version -cne ('10.0.'+$cim.BuildNumber) -or
+        -not (Test-WinSecWindowsUpdateReferenceInteger $cim.OperatingSystemSKU 65535) -or
+        -not (Test-WinSecWindowsUpdateReferenceInteger $cim.ProductType 3) -or $cim.ProductType -ne 1 -or
+        $registry.Source -isnot [string] -or $registry.Source -cne 'REGISTRY64:HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -or
+        $registry.ReadState -isnot [string] -or $registry.ReadState -cne 'READ' -or
+        $registry.CurrentBuildNumber.State -isnot [string] -or $registry.CurrentBuildNumber.State -cne 'OBSERVED' -or
+        $registry.CurrentBuildNumber.Value -isnot [string] -or $registry.CurrentBuildNumber.Value -cne $cim.BuildNumber) {return $platform}
+    $releases=@($Catalog.Releases|Where-Object {$_.Build -eq [long]$cim.BuildNumber})
+    $groups=@($Catalog.EditionGroups|Where-Object {$_.Skus -contains $cim.OperatingSystemSKU})
+    if($releases.Count -ne 1 -or $groups.Count -ne 1 -or
+        @($releases[0].Support|Where-Object {$_.EditionGroup -ceq $groups[0].Key}).Count -ne 1){return $platform}
+    $platform.State='OBSERVED';$platform.Version=$cim.Version;$platform.BuildNumber=$cim.BuildNumber
+    $platform.OperatingSystemSKU=$cim.OperatingSystemSKU;$platform.ProductType=$cim.ProductType
+    # Labels/channel come from the reviewed catalog, never an assumed profile.
+    $platform.Release=$releases[0].Release;$platform.Channel=$groups[0].Channel
+    $revisionValid=$false
+    try {
+        Assert-WinSecWindowsUpdateReferenceFields $registry.UBR @('State','Value')
+        $revisionValid=($registry.UBR.State -is [string] -and $registry.UBR.State -ceq 'OBSERVED' -and
+            (Test-WinSecWindowsUpdateReferenceInteger $registry.UBR.Value))
+    } catch {$revisionValid=$false}
+    if($revisionValid){$platform.Revision=[long]$registry.UBR.Value;$platform.RevisionState='OBSERVED'}
+    $restart=Get-WinSecWindowsUpdateReferenceValue $evidence 'RestartInformation'
+    $restartValid=$false
+    try {
+        Assert-WinSecWindowsUpdateReferenceFields $restart @('Source','State','Value')
+        $restartValid=($restart.Source -is [string] -and $restart.Source -ceq 'WUA:ISystemInformation.RebootRequired' -and
+            $restart.State -is [string] -and $restart.State -ceq 'OBSERVED' -and $restart.Value -is [bool])
+    } catch {$restartValid=$false}
+    if($restartValid){$platform.RestartState=if($restart.Value){'PENDING'}else{'NOT_PENDING'}}
+    return $platform
+}
+
 function Get-WinSecWindowsUpdateServicingReference {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Catalog,[AllowNull()][object]$Platform,

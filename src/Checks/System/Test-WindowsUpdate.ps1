@@ -41,6 +41,44 @@ function Open-WinSecWindowsUpdatePolicyKey {
     finally {$baseKey.Dispose()}
 }
 
+function Open-WinSecWindowsUpdateVersionKey {
+    [CmdletBinding()]
+    param()
+    $baseKey=[Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::LocalMachine,[Microsoft.Win32.RegistryView]::Registry64)
+    try {return $baseKey.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion',$false)}
+    finally {$baseKey.Dispose()}
+}
+
+function Close-WinSecWindowsUpdateSystemInfo {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$SystemInfo)
+    if([Runtime.InteropServices.Marshal]::IsComObject($SystemInfo)) {
+        $null=[Runtime.InteropServices.Marshal]::FinalReleaseComObject($SystemInfo)
+    }
+}
+
+function Get-WinSecWindowsUpdateRebootRequired {
+    [CmdletBinding()]
+    param()
+    $information=$null;$value=$null;$failed=$false
+    try {
+        # This private COM instance only exposes the read-only reboot getter here.
+        # No Update.Session, search, detection, download, installation or restart.
+        $information=New-Object -ComObject 'Microsoft.Update.SystemInfo' -ErrorAction Stop
+        $value=$information.RebootRequired
+        if($value -isnot [bool]){throw 'Invalid reboot telemetry.'}
+    } catch {$failed=$true}
+    finally {
+        if($null -ne $information) {
+            try {Close-WinSecWindowsUpdateSystemInfo -SystemInfo $information -ErrorAction Stop}
+            catch {$failed=$true}
+        }
+    }
+    if($failed){throw 'Windows Update reboot information could not be read or released.'}
+    return $value
+}
+
 function Test-WinSecWindowsUpdate {
     [CmdletBinding()]
     param(
@@ -62,9 +100,16 @@ function Test-WinSecWindowsUpdate {
     $platform=[pscustomobject]@{Version=$null;BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null;State='UNKNOWN'}
     $service=[pscustomobject]@{Name='wuauserv';State='UNKNOWN';StartMode='UNKNOWN';Source='CIM:Win32_Service'}
     $policies=[pscustomobject]@{}
+    $versionRegistry=[pscustomobject]@{
+        Source='REGISTRY64:HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion';ReadState='UNKNOWN'
+        CurrentBuildNumber=[pscustomobject]@{State='UNKNOWN';Value=$null}
+        UBR=[pscustomobject]@{State='UNKNOWN';Value=$null}
+    }
+    $restart=[pscustomobject]@{Source='WUA:ISystemInformation.RebootRequired';State='UNKNOWN';Value=$null}
     $evidence=[pscustomobject]@{
-        SchemaVersion='1.0.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
+        SchemaVersion='1.1.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
         Scope='LOCAL_CONFIGURATION_ONLY';Platform=$platform;UpdateService=$service;PolicyRegistry=$policies
+        VersionRegistry=$versionRegistry;RestartInformation=$restart
         CollectionSuccessful=$false;CollectionComplete=$false;CollectionIssues=@()
         EffectivePolicyVerified=$false;UpdateSearchPerformed=$false;PatchCurrency='NOT_EVALUATED'
         ScoringEligible=$false;ComplianceAssessment='NOT_EVALUATED';CriteriaSource=$null
@@ -92,6 +137,51 @@ function Test-WinSecWindowsUpdate {
         $platform.Version=$version;$platform.BuildNumber=$build;$platform.OperatingSystemSKU=$sku
         $platform.ProductType=$type;$platform.State='OBSERVED';$successfulSources++
     } catch {$issues.Add($failure)}
+
+    # Read only the build/revision, never registered owner or licensing material.
+    $key=$null
+    try {
+        $key=Open-WinSecWindowsUpdateVersionKey -ErrorAction Stop
+        if($null -eq $key) {
+            $issues.Add('OS_VERSION_KEY_MISSING')
+        } else {
+            $versionRegistry.ReadState='READ'
+            foreach($field in @('CurrentBuildNumber','UBR')) {
+                try {
+                    $value=$key.GetValue($field,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                    if($null -eq $value) {
+                        $versionRegistry.$field.State='NOT_PRESENT';$issues.Add('OS_VERSION_'+$field+'_MISSING');continue
+                    }
+                    $kind=$key.GetValueKind($field)
+                    if($field -ceq 'CurrentBuildNumber') {
+                        if($kind -ne [Microsoft.Win32.RegistryValueKind]::String -or $value -isnot [string] -or
+                            $value -cnotmatch '\A[1-9][0-9]{4}\z') {
+                            $issues.Add('OS_VERSION_'+$field+'_INVALID');continue
+                        }
+                    } else {
+                        if($kind -ne [Microsoft.Win32.RegistryValueKind]::DWord -or
+                            ($value -isnot [int] -and $value -isnot [uint32]) -or $value -lt 0) {
+                            $issues.Add('OS_VERSION_'+$field+'_INVALID');continue
+                        }
+                        $value=[long]$value
+                    }
+                    $versionRegistry.$field.Value=$value;$versionRegistry.$field.State='OBSERVED'
+                } catch {$issues.Add('OS_VERSION_'+$field+'_READ_FAILED')}
+            }
+            if($versionRegistry.CurrentBuildNumber.State -ceq 'OBSERVED' -and $platform.State -ceq 'OBSERVED' -and
+                $versionRegistry.CurrentBuildNumber.Value -cne $platform.BuildNumber) {
+                $issues.Add('OS_VERSION_BUILD_MISMATCH')
+            }
+            if($versionRegistry.CurrentBuildNumber.State -ceq 'OBSERVED' -and $versionRegistry.UBR.State -ceq 'OBSERVED') {
+                $successfulSources++
+            }
+        }
+    } catch {$issues.Add('OS_VERSION_KEY_READ_FAILED')}
+    finally {
+        if($null -ne $key) {
+            try {$key.Dispose()} catch {$issues.Add('OS_VERSION_KEY_CLOSE_FAILED')}
+        }
+    }
 
     $failure='UPDATE_SERVICE_QUERY_FAILED'
     try {
@@ -159,6 +249,14 @@ function Test-WinSecWindowsUpdate {
             }
         }
     }
+    try {
+        $values=@(Get-WinSecWindowsUpdateRebootRequired -ErrorAction Stop)
+        if($values.Count -ne 1 -or $values[0] -isnot [bool]) {
+            $issues.Add('UPDATE_REBOOT_TELEMETRY_INVALID')
+        } else {
+            $restart.Value=$values[0];$restart.State='OBSERVED';$successfulSources++
+        }
+    } catch {$issues.Add('UPDATE_REBOOT_QUERY_FAILED')}
     $evidence.CollectionSuccessful=($successfulSources -gt 0)
     $evidence.CollectionComplete=($issues.Count -eq 0)
     $evidence.CollectionIssues=@($issues.ToArray())

@@ -4,6 +4,9 @@ function Reset-WinSecWindowsUpdateFixture {
         DeviceId=('local:hw1-'+('a'*64));LocalIds=@('local:hw1-'+('a'*64));IdentityFails=$false
         IdentityReads=0;CimReads=0;KeyReads=0;FailClasses=@();FailKeys=@();MissingKeys=@()
         FailValues=@();FailClose=@();Closed=@();ValueReads=@();Kinds=@{}
+        VersionReads=0;VersionValueReads=@();VersionClosed=0;VersionKeyFails=$false;VersionKeyMissing=$false;VersionCloseFails=$false
+        VersionValues=@{CurrentBuildNumber='26100';UBR=9711;RegisteredOwner='PRIVATE-WU-OWNER'}
+        RebootReads=0;RebootFails=$false;RebootValue=$false
         Systems=@([pscustomobject]@{Version='10.0.26100';BuildNumber='26100';OperatingSystemSKU=[uint32]48;ProductType=[uint32]1;Caption='PRIVATE-WU-CAPTION'})
         Services=@([pscustomobject]@{Name='wuauserv';State='Stopped';StartMode='Manual';StartName='PRIVATE-WU-ACCOUNT';PathName='PRIVATE-WU-PATH'})
         Values=@{
@@ -69,4 +72,38 @@ function Open-WinSecWindowsUpdatePolicyKey {
         if($script:WU.FailClose -ccontains $this.Area){throw 'PRIVATE-WU-CLOSE'}
     }
     return $key
+}
+
+function Open-WinSecWindowsUpdateVersionKey {
+    [CmdletBinding()]param()
+    $script:WU.VersionReads++
+    if($script:WU.VersionKeyFails){throw 'PRIVATE-WU-VERSION-KEY'}
+    if($script:WU.VersionKeyMissing){return $null}
+    $key=[pscustomobject]@{Area='Version'}
+    $key|Add-Member ScriptMethod GetValue {
+        param($Name,$Default,$Options)
+        if($Name -cnotin @('CurrentBuildNumber','UBR') -or $null -ne $Default -or
+            $Options -ne [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames){throw 'Forbidden version value.'}
+        $script:WU.VersionValueReads+=,$Name
+        if($script:WU.FailValues -ccontains ('Version.'+$Name)){throw 'PRIVATE-WU-VERSION-VALUE'}
+        return ,$script:WU.VersionValues[$Name]
+    }
+    $key|Add-Member ScriptMethod GetValueKind {
+        param($Name)
+        if($script:WU.Kinds.ContainsKey('Version.'+$Name)){return $script:WU.Kinds['Version.'+$Name]}
+        if($Name -ceq 'CurrentBuildNumber'){return [Microsoft.Win32.RegistryValueKind]::String}
+        return [Microsoft.Win32.RegistryValueKind]::DWord
+    }
+    $key|Add-Member ScriptMethod Dispose {
+        $script:WU.VersionClosed++
+        if($script:WU.VersionCloseFails){throw 'PRIVATE-WU-VERSION-CLOSE'}
+    }
+    return $key
+}
+
+function Get-WinSecWindowsUpdateRebootRequired {
+    [CmdletBinding()]param()
+    $script:WU.RebootReads++
+    if($script:WU.RebootFails){throw 'PRIVATE-WU-REBOOT'}
+    return ,$script:WU.RebootValue
 }
