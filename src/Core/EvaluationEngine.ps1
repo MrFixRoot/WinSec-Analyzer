@@ -36,6 +36,8 @@
 
 . (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
 
+. (Join-Path $PSScriptRoot 'WindowsUpdateCriterionEvidence.ps1')
+
 function Get-WinSecEvaluationProperty {
     [CmdletBinding()]
     param(
@@ -416,6 +418,12 @@ function Invoke-WinSecCriterionEvaluation {
         return $output
     }
 
+    if($CheckId -ceq 'WSA-SYS-003') {
+        # Pure derivation shared by initial evaluation and provenance replay.
+        # No I/O, provider calls, caller verdicts or mutation of original evidence.
+        $Evidence=Get-WinSecWindowsUpdateCriterionEvidence -Criterion $Criterion -Evidence $Evidence `
+            -TargetContext $TargetContext -DeviceId $DeviceId -ScanId $ScanId
+    }
     $resolved = Resolve-WinSecEvaluationPath `
         -Evidence $Evidence -Path $output.EvidencePath
 

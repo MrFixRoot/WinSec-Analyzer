@@ -1,6 +1,7 @@
 # Versioned configuration scores and public criterion manifest. No Windows queries.
 . (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
 . (Join-Path $PSScriptRoot 'BitLockerCriterionPrerequisites.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdateCriterionEvidence.ps1')
 . (Join-Path $PSScriptRoot 'CriterionWeight.ps1')
 function Assert-WinSecConfigurationFields {
     param([object]$Value,[string[]]$Fields)
@@ -331,6 +332,9 @@ function Assert-WinSecConfigurationProvenance {
                 (Get-WinSecCriterionWeight $rules[0]) -ne $criterion.Weight){throw 'Configuration criterion weight differs from its approved source.'}
             if($control.CheckId -ceq 'WSA-SYS-002' -and $criterion.CriterionId -clike 'WSA-BLK-BASE-*') {
                 Assert-WinSecBitLockerScoredCollection -ControlResult $collectors[0]
+            }
+            if($control.CheckId -ceq 'WSA-SYS-003') {
+                Assert-WinSecWindowsUpdateScoredCollection -ControlResult $collectors[0] -Session $Session
             }
             $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily='Windows';OSRelease=$criterion.OSRelease;Edition=$criterion.Edition;Profile=$criterion.Profile}
             $result=Invoke-WinSecCriterionEvaluation -Criterion $rules[0] -Evidence $collectors[0].Evidence -TargetContext $context `

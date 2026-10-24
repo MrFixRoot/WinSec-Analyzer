@@ -97,8 +97,11 @@ Test-WinSecWeightedIntegration 'Mutating caller-owned catalogs cannot change an 
     $f.Catalogs['WSA-SYS-001'].Catalog.Criteria[0].Weight=99
     Assert-WinSecWeightedIntegration ((Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)) -ceq (Get-WinSecPublicHistoryJson $public))
 }
-Test-WinSecWeightedIntegration 'Generic arithmetic support does not provide an installed Windows Update catalog or execution permission' {
-    Assert-WinSecWeightedIntegration ($null -eq (Get-WinSecAssessmentCatalog $root WSA-SYS-003 -Profile WSA-W11-24H2-PRO-DEF-BASE))
+Test-WinSecWeightedIntegration 'Installed Windows Update criteria do not grant execution permission' {
+    $update=Get-WinSecAssessmentCatalog $root WSA-SYS-003 -Profile WSA-W11-24H2-PRO-DEF-BASE
+    Assert-WinSecWeightedIntegration ($update.Catalog.Criteria.Count -eq 3 -and
+        (($update.Catalog.Criteria.Weight -join '|') -ceq '15|35|50') -and
+        (Test-WinSecCriteriaCatalog $update.Catalog).ReadyForScoring)
     $check=Get-WinSecRegisteredCheck (Get-WinSecCheckRegistry $root) WSA-SYS-003
     Assert-WinSecWeightedIntegration (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and
         $check.ImplementationStatus -ceq 'PENDING_VALIDATION')

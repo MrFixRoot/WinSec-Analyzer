@@ -376,6 +376,9 @@ function Assert-WinSecFindingGuidanceProvenance {
     if($Finding.CheckId -ceq 'WSA-SYS-002' -and $Guidance.CriterionId -clike 'WSA-BLK-BASE-*') {
         Assert-WinSecBitLockerScoredCollection -ControlResult $control[0]
     }
+    if($Finding.CheckId -ceq 'WSA-SYS-003') {
+        Assert-WinSecWindowsUpdateScoredCollection -ControlResult $control[0] -Session $Session
+    }
     $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily=$Guidance.OSFamily;
         OSRelease=$Guidance.OSRelease;Edition=$Guidance.Edition;Profile=$Guidance.Profile}
     $verified=Invoke-WinSecCriterionEvaluation -Criterion $rule[0] -Evidence $control[0].Evidence -TargetContext $context `

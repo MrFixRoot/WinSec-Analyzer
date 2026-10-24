@@ -1,0 +1,135 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogId": "WSA-W11-24H2-PRO-WUP-BASE",
+  "CatalogVersion": "1.0.0",
+  "CheckId": "WSA-SYS-003",
+  "Status": "APPROVED",
+  "EvaluationEnabled": true,
+  "ScoringEnabled": true,
+  "DeviceChangesAllowed": false,
+  "Description": "Owner-approved 15/35/50 policy. Pure derived evidence from a pinned dated servicing reference and original local collection. Unknown applicable criteria prevent a score. Production execution remains disabled pending native validation.",
+  "ApprovalReference": "D-058: automation 15, OS cumulative security baseline within seven days 35, supported Windows release/edition/channel 50. No global scoring or native execution authorization.",
+  "Criteria": [
+    {
+      "CriterionId": "WSA-WUP-BASE-001",
+      "CheckId": "WSA-SYS-003",
+      "Area": "Automation",
+      "Name": "Automatic download and installation available",
+      "EvidencePath": "WindowsUpdate.Automation",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Weight": 15,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "1.0.0",
+        "ControlId": "WSA-WUP-BASE-001",
+        "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-update"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit 15/35/50 policy approval D-058",
+        "ReviewedAtUTC": "2026-10-24T00:00:00Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26100",
+        "Edition": "SKU:48",
+        "Profile": "WSA-W11-24H2-PRO-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "windows-update-local-evidence"
+      ],
+      "Interpretation": "Service Manual/Auto is allowed; Stopped alone is not a failure. Require resolved applicable policy. Conflicts, unsupported providers and unresolved overrides remain UNKNOWN.",
+      "Recommendation": "Review the effective update policy and service configuration with the administrator. Plan automatic download and installation using supported management tools; resolve conflicting policies before making manual changes.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-WUP-BASE-002",
+      "CheckId": "WSA-SYS-003",
+      "Area": "SecurityBaseline",
+      "Name": "Reviewed Windows OS cumulative security baseline completed",
+      "EvidencePath": "WindowsUpdate.SecurityBaseline",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Weight": 35,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "1.0.0",
+        "ControlId": "WSA-WUP-BASE-002",
+        "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit 15/35/50 policy approval D-058",
+        "ReviewedAtUTC": "2026-10-24T00:00:00Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26100",
+        "Edition": "SKU:48",
+        "Profile": "WSA-W11-24H2-PRO-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "windows-update-local-evidence"
+      ],
+      "Interpretation": "Only the reviewed Windows OS cumulative security baseline is compared, with a seven-day publication-to-completion deadline. This does not inventory .NET, Office, drivers or every applicable update. Unknown revision, completion, applicability or reference freshness blocks a score.",
+      "Recommendation": "Review the referenced cumulative Windows OS security update with the administrator. Validate applicability, compatibility and approved maintenance/restart arrangements before installing manually. This check does not assert that all other products are patched.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    },
+    {
+      "CriterionId": "WSA-WUP-BASE-003",
+      "CheckId": "WSA-SYS-003",
+      "Area": "SecuritySupport",
+      "Name": "Windows release and edition within security support",
+      "EvidencePath": "WindowsUpdate.SecuritySupport",
+      "Operator": "Equals",
+      "ExpectedValue": true,
+      "Weight": 50,
+      "Approved": true,
+      "Source": {
+        "Framework": "LOCAL_POLICY",
+        "Version": "1.0.0",
+        "ControlId": "WSA-WUP-BASE-003",
+        "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
+        "Url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
+      },
+      "Verification": {
+        "Status": "VERIFIED",
+        "ReviewedBy": "Project owner; explicit 15/35/50 policy approval D-058",
+        "ReviewedAtUTC": "2026-10-24T00:00:00Z"
+      },
+      "Applicability": {
+        "OSFamily": "Windows",
+        "OSRelease": "Windows 11 10.0.26100",
+        "Edition": "SKU:48",
+        "Profile": "WSA-W11-24H2-PRO-DEF-BASE"
+      },
+      "ActivationDependencies": [
+        "windows-update-local-evidence"
+      ],
+      "Interpretation": "Resolve exact observed build, SKU and servicing channel against dated lifecycle reference data at collection time. Unknown context and ambiguous date boundaries remain UNKNOWN; no implicit ESU entitlement.",
+      "Recommendation": "Review the lifecycle reference for the installed Windows release, edition and servicing channel. Plan migration to a supported release with the administrator, including application compatibility and recovery arrangements.",
+      "FrameworkMappings": {
+        "CISBenchmarks": [],
+        "CISControls": [],
+        "NISTCSF": [],
+        "MITREATTACK": []
+      }
+    }
+  ],
+  "ReviewOnly": []
+}

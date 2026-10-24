@@ -2,6 +2,7 @@
 . (Join-Path $PSScriptRoot 'DefenderProfileRegistry.ps1')
 . (Join-Path $PSScriptRoot 'DefenderCriteriaRevision.ps1')
 . (Join-Path $PSScriptRoot 'BitLockerCriteriaService.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdateCriteriaService.ps1')
 function Get-WinSecInstalledAssessmentProfiles {
     [CmdletBinding()]
     param([string]$ProjectRoot = ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))))
@@ -12,6 +13,10 @@ function Get-WinSecBaseAssessmentCatalog {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$CheckId,
         [string]$Profile)
+    if($CheckId -ceq 'WSA-SYS-003') {
+        if(-not $PSBoundParameters.ContainsKey('Profile')){return $null}
+        return Get-WinSecWindowsUpdateAssessmentCatalog -ProjectRoot $ProjectRoot -Profile $Profile
+    }
     if($CheckId -ceq 'WSA-SYS-002') {
         if(-not $PSBoundParameters.ContainsKey('Profile')){return $null}
         return Get-WinSecBitLockerAssessmentCatalog -ProjectRoot $ProjectRoot -Profile $Profile
@@ -49,7 +54,7 @@ function Get-WinSecAssessmentCatalog {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$CheckId,[string]$Profile)
     $snapshot=Get-WinSecBaseAssessmentCatalog @PSBoundParameters
-    if($CheckId -ceq 'WSA-SYS-002' -or $null -eq $snapshot -or -not $PSBoundParameters.ContainsKey('Profile')){return $snapshot}
+    if($CheckId -cin @('WSA-SYS-002','WSA-SYS-003') -or $null -eq $snapshot -or -not $PSBoundParameters.ContainsKey('Profile')){return $snapshot}
     Add-WinSecDefenderCriteriaRevision -ProjectRoot $ProjectRoot -Snapshot $snapshot -Profile $Profile
 }
 
@@ -101,7 +106,7 @@ function Get-WinSecAssessmentProfilePlan {
             throw 'Invalid assessment profile control selection.'
         }
         $snapshot = Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId)
-        if ($checkId -cin @('WSA-SYS-001','WSA-SYS-002') -and @((Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
+        if ($checkId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003') -and @((Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
             $snapshot=Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId -Profile $Profile)
         }
         $snapshots[$checkId] = $snapshot
@@ -146,7 +151,7 @@ function Get-WinSecAssessmentProfileOptions {
         # Reuse the exact approval and metadata contract of the coordinator.
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
     }
-    if ($CheckIds -ccontains 'WSA-SYS-001' -or $CheckIds -ccontains 'WSA-SYS-002') {
+    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}).Count) {
         $installed = @(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)
         $expanded = @($installed | Where-Object {$null -eq $_.FileName})
         $template = $null
@@ -158,6 +163,12 @@ function Get-WinSecAssessmentProfileOptions {
         $revision=$null;$bitlocker=$null
         if($CheckIds -ccontains 'WSA-SYS-001'){$revision=Get-WinSecDefenderCriteriaRevision $ProjectRoot}
         if($CheckIds -ccontains 'WSA-SYS-002'){$bitlocker=Get-WinSecBitLockerCriteriaTemplate $ProjectRoot}
+        $update=$null;$reference=$null;$referenceContent=$null
+        if($CheckIds -ccontains 'WSA-SYS-003') {
+            $update=Get-WinSecWindowsUpdateCriteriaTemplate $ProjectRoot
+            $reference=Get-WinSecWindowsUpdateReferenceCatalog $ProjectRoot
+            $referenceContent=Get-WinSecWindowsUpdateReferenceFingerprint $reference.Catalog
+        }
         foreach ($definition in $installed) {
             if ($names.Contains($definition.Profile)) { continue }
             if ($null -ne $definition.FileName) {
@@ -178,6 +189,12 @@ function Get-WinSecAssessmentProfileOptions {
                     CatalogSha256=(Get-WinSecBitLockerCriteriaFingerprint $bitlocker.Sha256 $definition.MatrixSha256 $definition.Profile);
                     OSFamily='Windows';OSRelease=$definition.OSRelease;Edition=$definition.Edition})
             }
+            if($CheckIds -ccontains 'WSA-SYS-003') {
+                $policies+=@([pscustomobject]@{CheckId='WSA-SYS-003';CatalogId=($definition.Profile -creplace '-DEF-BASE\z','-WUP-BASE');
+                    CatalogVersion=('1.0.0+'+$reference.Catalog.CatalogVersion);
+                    CatalogSha256=(Get-WinSecWindowsUpdateCriteriaFingerprint $update.Sha256 $definition.MatrixSha256 $reference.Sha256 $referenceContent $definition.Profile);
+                    OSFamily='Windows';OSRelease=$definition.OSRelease;Edition=$definition.Edition})
+            }
             Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$definition.Profile;Policies=$policies})
         }
     }
@@ -191,6 +208,9 @@ function Resolve-WinSecAssessmentDependencies {
     )
     $dependencies = if ($null -eq $DeclaredDependencies) { @{} } else { Copy-WinSecResultData $DeclaredDependencies }
     $control = Copy-WinSecResultData $ControlResult
+    if((Get-WinSecResultField $control 'CheckId') -ceq 'WSA-SYS-003') {
+        return ,(Resolve-WinSecWindowsUpdateDependencies -ControlResult $control -DeclaredDependencies $dependencies)
+    }
     if((Get-WinSecResultField $control 'CheckId') -ceq 'WSA-SYS-002') {
         return ,(Resolve-WinSecBitLockerDependencies -ControlResult $control -DeclaredDependencies $dependencies)
     }

@@ -258,7 +258,7 @@ Test-WinSecAssessment 'Other controls do not inherit Defender runtime eligibilit
     Assert-WinSecAssessment ($r.Count -eq 4 -and -not $r.Contains('active-antivirus-mode') -and
         $r['other-required-review'] -ceq $false -and $r['bitlocker-os-volume'] -ceq $false -and
         $r['bitlocker-stable-conversion'] -ceq $false -and $r['bitlocker-valid-protection'] -ceq $false)
-    $control.CheckId='WSA-SYS-003';$control.Evidence.CheckId='WSA-SYS-003'
+    $control.CheckId='WSA-NET-001';$control.Evidence.CheckId='WSA-NET-001'
     $r=Resolve-WinSecAssessmentDependencies $control @{'other-required-review'=$false}
     Assert-WinSecAssessment ($r.Count -eq 1 -and -not $r.Contains('active-antivirus-mode') -and $r['other-required-review'] -ceq $false)
 }
