@@ -340,7 +340,7 @@ Test-WinSecConfigIntegration 'Verified platform exclusion reaches scan, history,
     $script:syntheticExclusion=$true
     try {
         $ctx=New-WinSecConfigIntegrationContext;$p=Invoke-WinSecConfigIntegrationScan $ctx
-        Assert-WinSecConfigIntegration ($p.ConfigurationAssessment.MethodologyVersion -ceq '1.1.0' -and
+        Assert-WinSecConfigIntegration ($p.ConfigurationAssessment.MethodologyVersion -ceq '1.2.0' -and
             $p.ConfigurationAssessment.Controls[0].Value -eq 85.71 -and $p.ConfigurationAssessment.Controls[0].EvaluatedCriteria -eq 7 -and $p.Findings.Count -eq 1)
         $restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
         $state=New-WinSecNavigationState;$state.Screen='Findings';$state.FindingsScope='Control';$state.SelectedDeviceId=$p.DeviceId

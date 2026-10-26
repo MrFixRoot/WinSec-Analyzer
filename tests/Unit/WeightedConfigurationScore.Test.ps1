@@ -142,11 +142,11 @@ Test-WinSecWeighted 'Older arithmetic still ignores weights and does not silentl
     $f=New-WinSecWeightedConfigurationFixture;$f.Policy.Policy.methodologyVersion='1.1.0';$f.Policy.Policy.controlMethod='PASS_CRITERIA_FRACTION'
     Assert-WinSecWeightedRejected {Invoke-WinSecWeightedConfigurationFixture $f}
 }
-Test-WinSecWeighted 'Installed scoring and production execution remain unchanged' {
+Test-WinSecWeighted 'Installed individual scoring is weighted while global scoring and pending execution stay blocked' {
     $p=Get-WinSecConfigurationScoringPolicy $root;$registry=Get-WinSecCheckRegistry $root
     $rootPolicy=ConvertFrom-WinSecStoredJson (Get-Content (Join-Path $root 'config/scoring.json') -Raw -Encoding UTF8)
     $check=Get-WinSecRegisteredCheck $registry WSA-SYS-003
-    Assert-WinSecWeighted ($p.Policy.methodologyVersion -ceq '1.1.0' -and -not $rootPolicy.enabled -and
+    Assert-WinSecWeighted ($p.Policy.methodologyVersion -ceq '1.2.0' -and $p.Policy.controlMethod -ceq 'WEIGHTED_PASS_CRITERIA_FRACTION' -and -not $rootPolicy.enabled -and
         $rootPolicy.activationStatus -ceq 'PENDING_APPROVED_CRITERIA' -and -not $check.ExecutionEnabled -and -not $check.ExecutionReady)
 }
 Write-Host ('Weighted configuration scoring: {0} passed, {1} failed.' -f $script:passed,$script:failed)

@@ -16,6 +16,12 @@ function Assert-WinSecConfirmationIntegration {
     param([bool]$Condition, [string]$Message = 'Confirmation integration assertion failed.')
     if (-not $Condition) { throw $Message }
 }
+function Get-CimInstance {
+    [CmdletBinding()]
+    param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
+    Assert-WinSecConfirmationIntegration ($Namespace -ceq 'root/cimv2' -and $ClassName -ceq 'Win32_ComputerSystemProduct')
+    [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
 function Test-WinSecConfirmationIntegrationCase {
     param([string]$Name, [scriptblock]$Action)
     $script:auditCalls = 0

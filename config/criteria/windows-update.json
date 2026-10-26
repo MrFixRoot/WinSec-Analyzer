@@ -1,7 +1,7 @@
 {
   "SchemaVersion": "1.0.0",
   "CatalogId": "WSA-W11-24H2-PRO-WUP-BASE",
-  "CatalogVersion": "1.0.0",
+  "CatalogVersion": "1.1.0",
   "CheckId": "WSA-SYS-003",
   "Status": "APPROVED",
   "EvaluationEnabled": true,
@@ -22,7 +22,7 @@
       "Approved": true,
       "Source": {
         "Framework": "LOCAL_POLICY",
-        "Version": "1.0.0",
+        "Version": "1.1.0",
         "ControlId": "WSA-WUP-BASE-001",
         "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
         "Url": "https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-update"
@@ -41,7 +41,7 @@
       "ActivationDependencies": [
         "windows-update-local-evidence"
       ],
-      "Interpretation": "Service Manual/Auto is allowed; Stopped alone is not a failure. Require resolved applicable policy. Conflicts, unsupported providers and unresolved overrides remain UNKNOWN.",
+      "Interpretation": "Service Manual/Auto is allowed; Stopped alone is not a failure. Resolve applicable automatic-update policy, validated MDM deadlines by update type and observed inactive modifiers. Ignore GPO only with the reviewed 24H2/25H2 build revision and explicit equivalent MDM policy. This tests configuration, not actual installation or deadline compliance. Conflicts, Home provider coverage, active GPO deadlines and unresolved overrides remain UNKNOWN.",
       "Recommendation": "Review the effective update policy and service configuration with the administrator. Plan automatic download and installation using supported management tools; resolve conflicting policies before making manual changes.",
       "FrameworkMappings": {
         "CISBenchmarks": [],
@@ -62,7 +62,7 @@
       "Approved": true,
       "Source": {
         "Framework": "LOCAL_POLICY",
-        "Version": "1.0.0",
+        "Version": "1.1.0",
         "ControlId": "WSA-WUP-BASE-002",
         "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
         "Url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
@@ -102,7 +102,7 @@
       "Approved": true,
       "Source": {
         "Framework": "LOCAL_POLICY",
-        "Version": "1.0.0",
+        "Version": "1.1.0",
         "ControlId": "WSA-WUP-BASE-003",
         "Title": "WinSec owner-approved Windows Update policy; Microsoft technical basis",
         "Url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"

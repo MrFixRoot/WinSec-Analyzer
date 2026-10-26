@@ -31,7 +31,7 @@ function Get-WinSecWindowsUpdateCriteriaTemplate {
         }
         $sha=[Security.Cryptography.SHA256]::Create()
         $hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','')
-        if($catalog.SchemaVersion -cne '1.0.0' -or $catalog.CatalogVersion -cne '1.0.0' -or
+        if($catalog.SchemaVersion -cne '1.0.0' -or $catalog.CatalogVersion -cne '1.1.0' -or
             $catalog.CheckId -cne 'WSA-SYS-003' -or $catalog.Criteria -isnot [array] -or $catalog.Criteria.Count -ne 3 -or
             -not (Test-WinSecCriteriaCatalog $catalog).ReadyForScoring){throw 'Unapproved Windows Update policy.'}
         for($i=0;$i -lt 3;$i++) {
@@ -71,7 +71,7 @@ function Get-WinSecWindowsUpdateAssessmentCatalog {
     $catalog=Copy-WinSecResultData $template.Catalog
     $catalog.CatalogId=$Profile -creplace '-DEF-BASE\z','-WUP-BASE'
     if($catalog.CatalogId -ceq $Profile){throw 'Unsupported Windows Update context identifier.'}
-    $catalog.CatalogVersion='1.0.0+'+$reference.Catalog.CatalogVersion
+    $catalog.CatalogVersion=$catalog.CatalogVersion+'+'+$reference.Catalog.CatalogVersion
     foreach($rule in $catalog.Criteria) {
         $rule.Applicability=[pscustomobject]@{OSFamily='Windows';OSRelease=$definition.OSRelease;Edition=$definition.Edition;Profile=$Profile}
         $rule.Source.Version=$catalog.CatalogVersion

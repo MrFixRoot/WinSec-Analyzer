@@ -23,7 +23,7 @@ function Test-WinSecWUCriteria {
 Test-WinSecWUCriteria 'Installed approved three-rule policy preserves exact weights and pinned dated references' {
     $f=New-WinSecWindowsUpdateAssessmentFixture;$c=$f.Catalogs['WSA-SYS-003'].Catalog
     Assert-WinSecWUCriteria ((Test-WinSecCriteriaCatalog $c).ReadyForScoring -and ($c.Criteria.Weight -join '|') -ceq '15|35|50' -and
-        $c.CatalogVersion -ceq '1.0.0+2026.10.24.1' -and
+        $c.CatalogVersion -ceq '1.1.0+2026.10.24.1' -and
         (ConvertTo-WinSecWindowsUpdateReferenceUtc $c.Criteria[0].WindowsUpdateReference.Catalog.AsOfUTC).ToString('yyyy-MM-dd') -ceq '2026-10-24')
 }
 foreach($change in @(
@@ -41,7 +41,7 @@ foreach($change in @(
         Assert-WinSecWUCriteriaRejected {Get-WinSecWindowsUpdateCriteriaTemplate $root}
     }
 }
-Test-WinSecWUCriteria 'Three verified positives score 100 in isolated weighted policy without mutating evidence' {
+Test-WinSecWUCriteria 'Three verified positives score 100 with installed weighted policy without mutating evidence' {
     $f=New-WinSecWindowsUpdateAssessmentFixture;$before=Get-WinSecPublicHistoryJson $f.Audit
     $reads=$script:WU.CimReads+$script:WU.NamedPolicyReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads
     $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
@@ -58,6 +58,42 @@ foreach($spec in @(@{Auto=$false;Patch=$true;Expected=85},@{Auto=$true;Patch=$fa
         Assert-WinSecWUCriteria ($r.Summary.Controls[0].Value -eq $spec.Expected -and $r.Summary.Controls[0].Coverage -eq 100 -and
             @($r.Assessment.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq @($r.Assessment.EvaluationResults[0].Evaluations|Where-Object Status -CEQ FAIL).Count)
     }
+}
+Test-WinSecWUCriteria 'The actual installed policy and hash reach the Windows Update assessment fixture' {
+    $f=New-WinSecWindowsUpdateAssessmentFixture
+    Assert-WinSecWUCriteria ($f.Policy.Sha256 -ceq (Get-FileHash (Join-Path $root 'config/scoring.json') -Algorithm SHA256).Hash -and
+        $f.Policy.Policy.methodologyVersion -ceq '1.2.0' -and $f.Policy.Policy.controlMethod -ceq 'WEIGHTED_PASS_CRITERIA_FRACTION')
+}
+foreach($patched in @($true,$false)) {
+    Test-WinSecWUCriteria 'Managed deadlines resolve automation without granting points for uninstalled patches' {
+        $script:WU.MissingKeys=@('AutomaticUpdates','WindowsUpdate')
+        $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=5
+        foreach($name in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {
+            $script:WU.NamedPolicies[$name].Managed=$true;$script:WU.NamedPolicies[$name].Value=30
+        }
+        if(-not $patched){$script:WU.VersionValues.UBR=9000}
+        $r=Invoke-WinSecWindowsUpdateAssessmentFixture (New-WinSecWindowsUpdateAssessmentFixture)
+        $expected=if($patched){100}else{65}
+        Assert-WinSecWUCriteria ($r.Summary.Controls[0].Value -eq $expected -and
+            $r.Assessment.EvaluationResults[0].Evaluations[0].Status -ceq 'PASS' -and
+            $r.Assessment.EvaluationResults[0].Evaluations[1].Status -ceq $(if($patched){'PASS'}else{'FAIL'}))
+    }
+}
+Test-WinSecWUCriteria 'A partial deadline over manual updating remains unresolved in the complete score' {
+    $script:WU.MissingKeys=@('AutomaticUpdates','WindowsUpdate')
+    $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=0
+    $script:WU.NamedPolicies.ConfigureDeadlineForQualityUpdates.Managed=$true
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture (New-WinSecWindowsUpdateAssessmentFixture)
+    Assert-WinSecWUCriteria ($null -eq $r.Summary.Controls[0].Value -and
+        ($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'UNKNOWN|PASS|PASS' -and
+        @($r.Assessment.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0)
+}
+Test-WinSecWUCriteria 'Reviewed MDM precedence produces an automation failure rather than an invented GPO success' {
+    $script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Managed=$true;$script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Value=1
+    $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=5
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture (New-WinSecWindowsUpdateAssessmentFixture)
+    Assert-WinSecWUCriteria ($r.Summary.Controls[0].Value -eq 85 -and
+        ($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'FAIL|PASS|PASS')
 }
 foreach($fault in @('RevisionMissing','RevisionNewer','RestartPending','RestartUnknown','PolicyUnknown','PolicyConflict','Home','PlatformMismatch','CatalogExpired','BeforeCatalog','SupportBoundary')) {
     Test-WinSecWUCriteria ('Unresolved applicable criterion prevents the note without fake failure: '+$fault) {
@@ -135,11 +171,12 @@ Test-WinSecWUCriteria 'Profile discovery includes 101 exact Windows contexts and
         Assert-WinSecWUCriteria ($p.Policies[0].CatalogSha256 -ceq $plan.Preview.Policies[0].CatalogSha256)
     }
 }
-Test-WinSecWUCriteria 'Installed global scoring, individual policy and execution guard remain unchanged' {
+Test-WinSecWUCriteria 'Installed individual scoring supports weights without enabling global scoring or the pending check' {
     $check=Get-WinSecRegisteredCheck (Get-WinSecCheckRegistry $root) WSA-SYS-003
     $global=ConvertFrom-WinSecStoredJson (Get-Content (Join-Path $root 'config/scoring.json') -Raw)
     Assert-WinSecWUCriteria (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and $check.ImplementationStatus -ceq 'PENDING_VALIDATION' -and
-        -not $global.enabled -and $global.activationStatus -ceq 'PENDING_APPROVED_CRITERIA' -and $global.configurationScoring.methodologyVersion -ceq '1.1.0')
+        -not $global.enabled -and $global.activationStatus -ceq 'PENDING_APPROVED_CRITERIA' -and
+        $global.configurationScoring.methodologyVersion -ceq '1.2.0' -and $global.configurationScoring.controlMethod -ceq 'WEIGHTED_PASS_CRITERIA_FRACTION')
 }
 Write-Host ('Windows Update criteria: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if($script:failed){throw 'Windows Update criteria tests failed.'}

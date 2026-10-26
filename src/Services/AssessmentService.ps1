@@ -191,7 +191,7 @@ function Get-WinSecAssessmentProfileOptions {
             }
             if($CheckIds -ccontains 'WSA-SYS-003') {
                 $policies+=@([pscustomobject]@{CheckId='WSA-SYS-003';CatalogId=($definition.Profile -creplace '-DEF-BASE\z','-WUP-BASE');
-                    CatalogVersion=('1.0.0+'+$reference.Catalog.CatalogVersion);
+                    CatalogVersion=($update.Catalog.CatalogVersion+'+'+$reference.Catalog.CatalogVersion);
                     CatalogSha256=(Get-WinSecWindowsUpdateCriteriaFingerprint $update.Sha256 $definition.MatrixSha256 $reference.Sha256 $referenceContent $definition.Profile);
                     OSFamily='Windows';OSRelease=$definition.OSRelease;Edition=$definition.Edition})
             }

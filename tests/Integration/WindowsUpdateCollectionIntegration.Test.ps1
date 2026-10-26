@@ -131,7 +131,7 @@ foreach($case in @('Automatic','Manual','Conflict','Unavailable','Deadline','Ove
         }
         $session=New-WinSecWUFixtureSession;$before=$script:WU.NamedPolicyReads
         $review=Get-WinSecWindowsUpdateAutomationReview $servicingCatalog $session.ControlResults[0]
-        $expected=switch($case){Manual {'NOT_AUTOMATIC'};{$_ -in @('Automatic','Default')} {'AUTOMATIC'};default {'UNKNOWN'}}
+        $expected=switch($case){Manual {'NOT_AUTOMATIC'};{$_ -in @('Automatic','Default','Deadline')} {'AUTOMATIC'};default {'UNKNOWN'}}
         Assert-WinSecWUIntegration ($review.State -ceq $expected -and $script:WU.NamedPolicyReads -eq $before -and $before -eq 5 -and
             $session.Findings.Count -eq 0 -and $null -eq $session.ConfigurationAssessment -and
             (Get-WinSecPublicHistoryJson (New-WinSecPublicHistoryRecord $session)) -notmatch 'AutomationPolicy|NamedPolicy|PRIVATE-WU')

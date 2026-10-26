@@ -32,7 +32,7 @@ Test-WinSecWUAssessmentIntegration 'Original collection produces legitimate patc
     $copy=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $json)
     Assert-WinSecWUAssessmentIntegration ($public.ConfigurationAssessment.Controls[0].Value -eq 65 -and
         $public.Findings.Count -eq 1 -and $public.Findings[0].Guidance.CriterionId -ceq 'WSA-WUP-BASE-002' -and
-        $public.Findings[0].Guidance.CatalogVersion -ceq '1.0.0+2026.10.24.1' -and $null -eq $public.OverallScore -and
+        $public.Findings[0].Guidance.CatalogVersion -ceq '1.1.0+2026.10.24.1' -and $null -eq $public.OverallScore -and
         (Get-WinSecPublicHistoryJson $copy.PublicResult) -ceq (Get-WinSecPublicHistoryJson $public) -and
         $json -notmatch 'PRIVATE-WU|"Evidence"|PolicyRegistry|VersionRegistry|AutomationPolicy|NamedPolicy|WindowsUpdateReference|ObservedValue')
 }
@@ -45,6 +45,34 @@ Test-WinSecWUAssessmentIntegration 'Current criteria/reference files and provide
     function Get-CimInstance {throw 'Unexpected provider read.'}
     $copy=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
     Assert-WinSecWUAssessmentIntegration ($copy.PublicResult.ConfigurationAssessment.Controls[0].Value -eq 100 -and -not $copy.PublicResult.ContainsRawEvidence)
+}
+Test-WinSecWUAssessmentIntegration 'An earlier public criterion version survives newer installed policy without being relabelled' {
+    $script:WU.VersionValues.UBR=9000
+    $f=New-WinSecWindowsUpdateAssessmentFixture
+    # Synthetic historical catalog snapshot, not an edit of an installed file.
+    $f.Catalogs['WSA-SYS-003'].Catalog.CatalogVersion='1.0.0+2026.10.24.1'
+    $f.Catalogs['WSA-SYS-003'].Sha256='C'*64
+    foreach($rule in $f.Catalogs['WSA-SYS-003'].Catalog.Criteria){$rule.Source.Version='1.0.0+2026.10.24.1'}
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    $record=New-WinSecPublicHistoryRecord (New-WinSecWindowsUpdateAssessmentSession $f $r)
+    $before=Get-WinSecPublicHistoryJson $record
+    function Get-WinSecWindowsUpdateCriteriaTemplate {throw 'Unexpected historical catalog replacement.'}
+    function Get-WinSecWindowsUpdateReferenceCatalog {throw 'Unexpected historical reference replacement.'}
+    $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $before)
+    Assert-WinSecWUAssessmentIntegration ($restored.PublicResult.ConfigurationAssessment.Controls[0].Value -eq 65 -and
+        $restored.PublicResult.ConfigurationAssessment.Controls[0].Criteria[0].CatalogVersion -ceq '1.0.0+2026.10.24.1' -and
+        $restored.PublicResult.Findings[0].Guidance.CatalogVersion -ceq '1.0.0+2026.10.24.1' -and
+        (Get-WinSecPublicHistoryJson $record) -ceq $before)
+}
+Test-WinSecWUAssessmentIntegration 'Changing deadline evidence after scoring rejects its published score and guidance' {
+    $script:WU.MissingKeys=@('AutomaticUpdates','WindowsUpdate')
+    $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=5
+    foreach($name in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {$script:WU.NamedPolicies[$name].Managed=$true}
+    $f=New-WinSecWindowsUpdateAssessmentFixture;$r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    $session=New-WinSecWindowsUpdateAssessmentSession $f $r
+    Assert-WinSecWUAssessmentIntegration ((ConvertTo-WinSecPublicScanResult $session).ConfigurationAssessment.Controls[0].Value -eq 100)
+    $session.ControlResults[0].Evidence.AutomationPolicy.ConfigureDeadlineForFeatureUpdates.Managed=$false
+    Assert-WinSecWUAssessmentRejected {ConvertTo-WinSecPublicScanResult $session}
 }
 Test-WinSecWUAssessmentIntegration 'Existing control and Findings consumers receive the actual three criterion states' {
     $script:WU.Services[0].StartMode='Disabled'

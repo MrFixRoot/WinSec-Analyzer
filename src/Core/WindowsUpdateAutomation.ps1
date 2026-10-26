@@ -53,10 +53,6 @@ function Get-WinSecWindowsUpdateAutomationReview {
             } else {return $result}
         }
     }
-    foreach($field in @('SetComplianceDeadline','SetComplianceDeadlineForQU','SetComplianceDeadlineForFU')) {
-        if($update.$field.State -ceq 'CONFIGURED'){$result.Reason='DEADLINE_POLICY_REQUIRES_REVIEW';return $result}
-    }
-    if($update.SetEDURestart.State -ceq 'CONFIGURED'){$result.Reason='OVERRIDE_POLICY_REQUIRES_REVIEW';return $result}
     foreach($name in @('AllowAutoUpdate','ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates',
         'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
         $policy=$named.$name
@@ -67,18 +63,57 @@ function Get-WinSecWindowsUpdateAutomationReview {
             $policy.Managed -isnot [bool] -or ($policy.Kind -ceq 'Int32' -and $policy.Value -isnot [int]) -or
             ($policy.Kind -cne 'Int32' -and $null -ne $policy.Value)){return $result}
         if($name -cin @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates') -and
-            ($policy.Managed -or $update.$name.State -ceq 'CONFIGURED')) {
-            $result.Reason='DEADLINE_POLICY_REQUIRES_REVIEW';return $result
+            ($policy.Kind -cne 'Int32' -or $policy.Value -lt 0 -or $policy.Value -gt 30)) {
+            $result.Reason='DEADLINE_POLICY_INVALID';return $result
         }
         if($name -cin @('IgnoreWindowsUpdateGroupPolicies','SetEDURestart') -and
-            ($policy.Managed -or $policy.Kind -cne 'Int32' -or $policy.Value -ne 0)) {
+            ($policy.Kind -cne 'Int32' -or $policy.Value -notin @(0,1) -or
+             (-not $policy.Managed -and $policy.Value -ne 0))) {
             $result.Reason='OVERRIDE_POLICY_REQUIRES_REVIEW';return $result
+        }
+    }
+    $ignoreGp=($named.IgnoreWindowsUpdateGroupPolicies.Managed -and $named.IgnoreWindowsUpdateGroupPolicies.Value -eq 1)
+    if($ignoreGp -and ($platform.BuildNumber -cnotin @('26100','26200') -or
+        $platform.RevisionState -cne 'OBSERVED' -or $platform.Revision -lt 8973)) {
+        # KB5101684 documents these exact two branches. Do not transpose UBR
+        # thresholds to 26H1/26H2 or infer support from an MDM declaration.
+        $result.Reason='GROUP_POLICY_OVERRIDE_PLATFORM_UNVERIFIED';return $result
+    }
+    if($named.SetEDURestart.Value -ne 0 -or (-not $ignoreGp -and
+        $update.SetEDURestart.State -ceq 'CONFIGURED' -and $update.SetEDURestart.Value -ne 0)) {
+        $result.Reason='OVERRIDE_POLICY_REQUIRES_REVIEW';return $result
+    }
+    if(-not $ignoreGp) {
+        # Legacy combined policy is not mapped by the reviewed current ADMX.
+        if($update.SetComplianceDeadline.State -ceq 'CONFIGURED') {
+            $result.Reason='DEADLINE_POLICY_REQUIRES_REVIEW';return $result
+        }
+        $allDisabled=$true
+        foreach($field in @('SetComplianceDeadlineForQU','SetComplianceDeadlineForFU')) {
+            if($update.$field.State -ceq 'CONFIGURED' -and $update.$field.Value -ne 0) {
+                $result.Reason='DEADLINE_POLICY_REQUIRES_REVIEW';return $result
+            }
+            if($update.$field.State -cne 'CONFIGURED'){$allDisabled=$false}
+        }
+        foreach($field in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {
+            if($update.$field.State -ceq 'CONFIGURED' -and (-not $allDisabled -or $update.$field.Value -gt 30)) {
+                # A detached registry value is not proof of an active deadline.
+                # Only explicit disabled parent policies resolve stale values.
+                $result.Reason='DEADLINE_POLICY_REQUIRES_REVIEW';return $result
+            }
         }
     }
     $auto=$named.AllowAutoUpdate
     if($auto.Kind -cne 'Int32' -or $auto.Value -lt 0 -or $auto.Value -gt 5){return $result}
+    $qualityDeadline=$named.ConfigureDeadlineForQualityUpdates.Managed
+    $featureDeadline=$named.ConfigureDeadlineForFeatureUpdates.Managed
     $gpMode=$null
-    if($gp.NoAutoUpdate.State -ceq 'CONFIGURED' -and $gp.NoAutoUpdate.Value -eq 1) {$gpMode=$false}
+    if($ignoreGp) {
+        if(-not $auto.Managed -and -not ($qualityDeadline -and $featureDeadline)) {
+            $result.Reason='MDM_EQUIVALENT_POLICY_UNVERIFIED';return $result
+        }
+    }
+    elseif($gp.NoAutoUpdate.State -ceq 'CONFIGURED' -and $gp.NoAutoUpdate.Value -eq 1) {$gpMode=$false}
     elseif($gp.NoAutoUpdate.State -ceq 'CONFIGURED' -and $gp.NoAutoUpdate.Value -eq 0 -and $gp.AUOptions.State -ceq 'CONFIGURED') {
         if($gp.AUOptions.Value -eq 4){$gpMode=$true}
         elseif($gp.AUOptions.Value -in @(2,3)){$gpMode=$false}
@@ -87,7 +122,20 @@ function Get-WinSecWindowsUpdateAutomationReview {
         $result.Reason='GROUP_POLICY_MODE_UNRESOLVED';return $result
     }
     $enabled=$null
-    if($auto.Managed) {
+    if($qualityDeadline -or $featureDeadline) {
+        $bothDeadlines=($qualityDeadline -and $featureDeadline)
+        $baseMode=if($auto.Managed){$auto.Value -in @(1,2,3,4)}
+            elseif($null -ne $gpMode){$gpMode}
+            elseif($auto.Value -eq 2){$true}else{$null}
+        if(-not $bothDeadlines -and ($null -eq $baseMode -or -not $baseMode)) {
+            $result.Reason='PARTIAL_DEADLINE_COVERAGE';return $result
+        }
+        if($null -ne $gpMode -and -not $gpMode) {$result.Reason='GROUP_POLICY_MDM_CONFLICT';return $result}
+        # Deadlines guarantee configured automation for their own update type,
+        # including day zero. They do not prove patch installation or a 7-day SLA.
+        $enabled=$true;$result.Reason='MANAGED_DEADLINES_RESOLVED'
+    }
+    elseif($auto.Managed) {
         $mdmMode=($auto.Value -in @(1,2,3,4))
         if($null -ne $gpMode -and $gpMode -ne $mdmMode) {$result.Reason='GROUP_POLICY_MDM_CONFLICT';return $result}
         $enabled=$mdmMode;$result.Reason='MANAGED_POLICY_RESOLVED'

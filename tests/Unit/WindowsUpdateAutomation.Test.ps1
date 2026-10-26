@@ -122,29 +122,124 @@ foreach($policy in @('AllowAutoUpdate','ConfigureDeadlineForQualityUpdates','Con
     }
 }
 foreach($policy in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {
-    Test-WinSecWUAutomation ('Managed deadline overrides are not ignored when interpreting AllowAutoUpdate: '+$policy) {
+    Test-WinSecWUAutomation ('A managed deadline preserves automatic configuration of the other update type: '+$policy) {
         $script:WU.NamedPolicies[$policy].Managed=$true
         $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
-        Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'DEADLINE_POLICY_REQUIRES_REVIEW')
+        Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC' -and $r.Reason -ceq 'MANAGED_DEADLINES_RESOLVED')
     }
 }
 foreach($policy in @('IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
     Test-WinSecWUAutomation ('Unresolved policy overrides cannot silently reverse a GPO verdict: '+$policy) {
         $script:WU.NamedPolicies[$policy].Managed=$true;$script:WU.NamedPolicies[$policy].Value=1
         $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
-        Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'OVERRIDE_POLICY_REQUIRES_REVIEW')
+        $reason=if($policy -ceq 'IgnoreWindowsUpdateGroupPolicies'){'MDM_EQUIVALENT_POLICY_UNVERIFIED'}else{'OVERRIDE_POLICY_REQUIRES_REVIEW'}
+        Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq $reason)
     }
 }
-Test-WinSecWUAutomation 'Observed GPO education override requires separate review even when its value is zero' {
+Test-WinSecWUAutomation 'Observed GPO education value zero is inactive rather than an unresolved override' {
     $script:WU.Values.WindowsUpdate.SetEDURestart=0
     $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
-    Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'OVERRIDE_POLICY_REQUIRES_REVIEW')
+    Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC' -and $r.Reason -ceq 'GROUP_POLICY_RESOLVED')
 }
 foreach($field in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates','SetComplianceDeadline','SetComplianceDeadlineForQU','SetComplianceDeadlineForFU')) {
-    Test-WinSecWUAutomation ('Any observed GPO deadline data requires separate interpretation: '+$field) {
+    Test-WinSecWUAutomation ('GPO deadline values distinguish disabled reviewed parents from unresolved data: '+$field) {
         $script:WU.Values.WindowsUpdate[$field]=0
         $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+        if($field -in @('SetComplianceDeadlineForQU','SetComplianceDeadlineForFU')) {
+            Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC')
+        } else {Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'DEADLINE_POLICY_REQUIRES_REVIEW')}
+    }
+}
+foreach($mode in @(0,2,5)) {
+    foreach($days in @(0,30)) {
+        Test-WinSecWUAutomation ('Both managed deadlines cover manual or disabled base mode without imposing an SLA: '+$mode+'/'+$days) {
+            $script:WU.MissingKeys=@('AutomaticUpdates','WindowsUpdate')
+            $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=$mode
+            foreach($name in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {
+                $script:WU.NamedPolicies[$name].Managed=$true;$script:WU.NamedPolicies[$name].Value=$days
+            }
+            $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+            Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC' -and $r.Reason -ceq 'MANAGED_DEADLINES_RESOLVED')
+        }
+    }
+}
+foreach($policy in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {
+    foreach($mode in @(0,5)) {
+        Test-WinSecWUAutomation ('One deadline cannot declare the other manual update type automatic: '+$policy+'/'+$mode) {
+            $script:WU.MissingKeys=@('AutomaticUpdates','WindowsUpdate')
+            $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=$mode
+            $script:WU.NamedPolicies[$policy].Managed=$true
+            $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+            Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'PARTIAL_DEADLINE_COVERAGE')
+        }
+    }
+    foreach($days in @(-1,31)) {
+        Test-WinSecWUAutomation ('Out-of-range managed deadline is not evidence of automation: '+$policy+'/'+$days) {
+            $script:WU.NamedPolicies[$policy].Managed=$true;$script:WU.NamedPolicies[$policy].Value=$days
+            $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+            Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'DEADLINE_POLICY_INVALID')
+        }
+    }
+}
+Test-WinSecWUAutomation 'MDM deadline and disabled GPO conflict is not assigned an invented precedence' {
+    $script:WU.Values.AutomaticUpdates.NoAutoUpdate=1
+    foreach($name in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {$script:WU.NamedPolicies[$name].Managed=$true}
+    $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+    Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'GROUP_POLICY_MDM_CONFLICT')
+}
+Test-WinSecWUAutomation 'Both explicit MDM deadlines can supply the equivalent policy when reviewed ignore-GPO is active' {
+    $script:WU.Values.AutomaticUpdates.NoAutoUpdate=1
+    $script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Managed=$true;$script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Value=1
+    foreach($name in @('ConfigureDeadlineForQualityUpdates','ConfigureDeadlineForFeatureUpdates')) {$script:WU.NamedPolicies[$name].Managed=$true}
+    $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+    Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC' -and $r.Reason -ceq 'MANAGED_DEADLINES_RESOLVED')
+}
+foreach($field in @('SetComplianceDeadline','SetComplianceDeadlineForQU','SetComplianceDeadlineForFU')) {
+    Test-WinSecWUAutomation ('An active GPO deadline remains unresolved without reviewed effective-policy semantics: '+$field) {
+        $script:WU.Values.WindowsUpdate[$field]=1
+        $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
         Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'DEADLINE_POLICY_REQUIRES_REVIEW')
+    }
+}
+Test-WinSecWUAutomation 'Explicitly disabled quality and feature GPO parents disambiguate stale child deadline values' {
+    $script:WU.Values.WindowsUpdate.SetComplianceDeadlineForQU=0;$script:WU.Values.WindowsUpdate.SetComplianceDeadlineForFU=0
+    $script:WU.Values.WindowsUpdate.ConfigureDeadlineForQualityUpdates=7;$script:WU.Values.WindowsUpdate.ConfigureDeadlineForFeatureUpdates=30
+    $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+    Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC')
+    $script:WU.Values.WindowsUpdate.Remove('SetComplianceDeadlineForQU')
+    $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+    Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN')
+}
+foreach($policy in @('IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
+    Test-WinSecWUAutomation ('Managed policy value zero has its documented inactive meaning: '+$policy) {
+        $script:WU.NamedPolicies[$policy].Managed=$true;$script:WU.NamedPolicies[$policy].Value=0
+        $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+        Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC')
+    }
+}
+foreach($build in @('26100','26200')) {
+    foreach($revision in @(8972,8973,9711)) {
+        foreach($mode in @(0,2,5)) {
+            Test-WinSecWUAutomation ('Reviewed ignore-GPO applicability boundary and equivalent MDM mode: '+$build+'.'+$revision+'/'+$mode) {
+                $script:WU.Systems[0].Version='10.0.'+$build;$script:WU.Systems[0].BuildNumber=$build
+                $script:WU.VersionValues.CurrentBuildNumber=$build;$script:WU.VersionValues.UBR=$revision
+                $script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Managed=$true;$script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Value=1
+                $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true;$script:WU.NamedPolicies.AllowAutoUpdate.Value=$mode
+                $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+                $expected=if($revision -lt 8973){'UNKNOWN'}elseif($mode -eq 2){'AUTOMATIC'}else{'NOT_AUTOMATIC'}
+                Assert-WinSecWUAutomation ($r.State -ceq $expected)
+            }
+        }
+    }
+}
+foreach($build in @('22631','26300','28000')) {
+    Test-WinSecWUAutomation ('An ignore-GPO branch threshold is not extrapolated to another Windows release: '+$build) {
+        $script:WU.Systems[0].Version='10.0.'+$build;$script:WU.Systems[0].BuildNumber=$build
+        $script:WU.VersionValues.CurrentBuildNumber=$build;$script:WU.VersionValues.UBR=99999
+        $script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Managed=$true;$script:WU.NamedPolicies.IgnoreWindowsUpdateGroupPolicies.Value=1
+        $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true
+        $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
+        Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'GROUP_POLICY_OVERRIDE_PLATFORM_UNVERIFIED')
     }
 }
 foreach($fault in @('MissingNoAuto','MissingOption','NoAutoRange','UnknownGpo','FutureMdm','InvalidMdm','UnmanagedNonDefault','OldSchema','Source','Type','Flag')) {

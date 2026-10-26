@@ -1,5 +1,5 @@
 # Requires WindowsUpdateMemory providers, loaded AFTER product definitions.
-# No permission/catalog enabling. Only the isolated score-policy copy is 1.2.0.
+# No permission/catalog enabling. Uses the actual installed scoring snapshot.
 function New-WinSecWindowsUpdateAssessmentFixture {
     param([string]$Profile='WSA-W11-25H2-PRO-DEF-BASE')
     $project=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -13,7 +13,6 @@ function New-WinSecWindowsUpdateAssessmentFixture {
     $context=[pscustomobject]@{DeviceId=$raw.DeviceId;ScanId=$raw.ScanId;OSFamily=$scope.OSFamily;
         OSRelease=$scope.OSRelease;Edition=$scope.Edition;Profile=$Profile}
     $policy=Copy-WinSecResultData (Get-WinSecConfigurationScoringPolicy $project)
-    $policy.Policy.methodologyVersion='1.2.0';$policy.Policy.controlMethod='WEIGHTED_PASS_CRITERIA_FRACTION';$policy.Sha256='E'*64
     [pscustomobject]@{Root=$project;Registry=$registry;Context=$context;Policy=$policy;Catalogs=@{'WSA-SYS-003'=$snapshot}
         Audit=[pscustomobject]@{DeviceId=$raw.DeviceId;ScanId=$raw.ScanId;CatalogVersion=$registry.CatalogVersion;ControlResults=@($control)}}
 }
