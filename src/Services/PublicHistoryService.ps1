@@ -38,6 +38,14 @@ function ConvertFrom-WinSecPublicHistoryRecord {
     if ($null -ne (Get-WinSecResultField $p 'ConfigurationAssessment')) {
         $p.ConfigurationAssessment=ConvertTo-WinSecPublicConfigurationAssessment $p.ConfigurationAssessment $p
     }
+    # The JSON reader can return UTC DateTime values. Canonicalize the optional
+    # typed extension before verifying the digest, just like existing timestamps.
+    foreach($review in @($p.ReviewItems)) {
+        if($null -ne (Get-WinSecResultField $review 'WindowsUpdateSetting')) {
+            $safeReview=ConvertTo-WinSecWindowsUpdateReviewItem $review $p
+            $review.WindowsUpdateSetting=$safeReview.WindowsUpdateSetting
+        }
+    }
     foreach ($finding in @($p.Findings)) {
         if ($null -ne (Get-WinSecResultField $finding 'Guidance')) {
             $finding.Guidance = ConvertTo-WinSecPublicFindingGuidance -Finding $finding -Guidance $finding.Guidance

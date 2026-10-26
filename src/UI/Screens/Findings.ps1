@@ -526,8 +526,10 @@ function Get-WinSecSelectedFindings {
         }
         $reviewIds[$review.ReviewId]=$true
         $owner=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId}
+        if($null -ne $ConfigurationAssessment){$owner|Add-Member ConfigurationAssessment (Copy-WinSecResultData $ConfigurationAssessment)}
         if($null -ne $review.BitLockerSetting){$safe=ConvertTo-WinSecBitLockerReviewItem $review $owner}
         elseif($null -ne $review.DefenderSetting){$safe=ConvertTo-WinSecDefenderReviewItem $review $owner}
+        elseif($null -ne $review.WindowsUpdateSetting){$safe=ConvertTo-WinSecWindowsUpdateReviewItem $review $owner}
         else{continue}
         if($section.Key -ceq 'SystemSecurity' -and ($context.Scope -ceq 'Section' -or
             ($null -ne $control -and $control.CheckId -ceq $safe.CheckId))) {$safe}
@@ -538,6 +540,11 @@ function Get-WinSecSelectedFindings {
         $scoreKey=if ($scoreScope -ceq 'CONTROL' -and $null -ne $control) {$control.CheckId} else {$section.Key}
         $view.Score=Get-WinSecConfigurationScoreText $ConfigurationAssessment $scoreScope $scoreKey
         $view.CheckRows=@(Get-WinSecConfigurationRows $ConfigurationAssessment $scoreScope $scoreKey)
+    }
+    $updateRows=@(ConvertTo-WinSecWindowsUpdateReviewRows @($view.ReviewItems|Where-Object {$null -ne $_.WindowsUpdateSetting}))
+    foreach($row in $view.CheckRows|Where-Object CheckId -CEQ 'WSA-SYS-003') {
+        $detail=@($updateRows|Where-Object CriterionId -CEQ $row.CriterionId)
+        if($detail.Count -eq 1){$row.Finding=$detail[0].Finding;$row.Description=$detail[0].Description}
     }
     $gradedIds=@($view.CheckRows | ForEach-Object {$_.CriterionId})
     $displayReviews=@($view.ReviewItems|Where-Object {
@@ -550,7 +557,8 @@ function Get-WinSecSelectedFindings {
     $diagnostics=@($view.Findings|Where-Object {$null -eq $_.Guidance -or $gradedIds -cnotcontains $_.Guidance.CriterionId})
     $displayNumber=0
     $reviewRows=@(ConvertTo-WinSecDefenderReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.DefenderSetting}))+
-        @(ConvertTo-WinSecBitLockerReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.BitLockerSetting}))
+        @(ConvertTo-WinSecBitLockerReviewRows -ReviewItems @($displayReviews|Where-Object {$null -ne $_.BitLockerSetting}))+
+        @($updateRows|Where-Object {$gradedIds -cnotcontains $_.CriterionId})
     $view.Rows=@(foreach($row in @($view.CheckRows)+$diagnostics+$reviewRows) {
         $definitions=@($registry.Checks|Where-Object {$_.CheckId -ceq $row.CheckId})
         if($definitions.Count -ne 1){throw 'Unknown or ambiguous finding display control.'}

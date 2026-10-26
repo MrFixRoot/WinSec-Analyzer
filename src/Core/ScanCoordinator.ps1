@@ -457,6 +457,11 @@ function ConvertTo-WinSecCoordinatedSession {
         -ReviewItems @(foreach ($control in $AuditResult.ControlResults) {
             New-WinSecDefenderReviewItems -ControlResult $control
             New-WinSecBitLockerReviewItems -ControlResult $control
+            if($control.CheckId -ceq 'WSA-SYS-003' -and $null -ne $Assessment) {
+                $selection=@($Assessment.CriteriaSelections|Where-Object CheckId -CEQ 'WSA-SYS-003')
+                if($selection.Count -gt 1){throw 'Ambiguous Windows Update review selection.'}
+                if($selection.Count -eq 1){New-WinSecWindowsUpdateReviewItems $control $selection[0]}
+            }
         }) `
         -CatalogVersion ([string]$AuditResult.CatalogVersion)
 

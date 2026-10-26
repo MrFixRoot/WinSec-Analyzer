@@ -45,10 +45,11 @@ function New-WinSecFindingsMarkdown {
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
     $reviews=@()
     if($null -ne $copy.ReviewItems) {
-        if($copy.ReviewItems -isnot [array] -or $copy.ReviewItems.Count -gt 135){throw 'Invalid review export collection.'}
+        if($copy.ReviewItems -isnot [array] -or $copy.ReviewItems.Count -gt 138){throw 'Invalid review export collection.'}
         $reviewIds=@{}
         $reviews=@(foreach($review in $copy.ReviewItems) {
             $safe=if($null -ne $review.BitLockerSetting){ConvertTo-WinSecBitLockerReviewItem $review $copy}
+                elseif($null -ne $review.WindowsUpdateSetting){ConvertTo-WinSecWindowsUpdateReviewItem $review $copy}
                 else{ConvertTo-WinSecDefenderReviewItem $review $copy}
             if($reviewIds.ContainsKey($safe.ReviewId) -or
                 ($copy.ScopeType -ceq 'CONTROL' -and $copy.ScopeKey -cne $safe.CheckId) -or
@@ -182,6 +183,11 @@ function New-WinSecFindingsMarkdown {
     }
     if($null -ne $configuration) {
         $checkRows=@(Get-WinSecConfigurationRows $configuration $copy.ScopeType $copy.ScopeKey)
+        $updateRows=@(ConvertTo-WinSecWindowsUpdateReviewRows @($reviews|Where-Object {$null -ne $_.WindowsUpdateSetting}))
+        foreach($row in $checkRows|Where-Object CheckId -CEQ 'WSA-SYS-003') {
+            $detail=@($updateRows|Where-Object CriterionId -CEQ $row.CriterionId)
+            if($detail.Count -eq 1){$row.Finding=$detail[0].Finding}
+        }
         if($checkRows.Count -eq 0 -and $copy.Findings.Count -eq 0 -and $reviews.Count -eq 0){throw 'No configuration checks in this report scope.'}
         $lines.Add('');$lines.Add('## Configuration checks');$lines.Add('')
         $lines.Add('| ID | Control | Configuration | State | Configuration % | Referenced framework control | Applicability |')
@@ -313,6 +319,26 @@ function New-WinSecFindingsMarkdown {
             $lines.Add('  Source: '+$ref.Url)
         }
         $lines.Add('These references contextualize encryption at rest. They do not impose an automatic 128-versus-256-bit grade or declare a framework violation from an informational observation. Original historical scores and criteria remain unchanged on re-export.')
+    }
+    $updateReviews=@($reviews|Where-Object {$null -ne $_.WindowsUpdateSetting})
+    if($updateReviews.Count) {
+        $lines.Add('');$lines.Add('## Windows Update diagnostic context');$lines.Add('')
+        $lines.Add('These observations explain the original three criteria; they add no findings or points. UNKNOWN is unresolved, not a confirmed failure. The patch criterion covers only the reviewed cumulative Windows OS security baseline, not every applicable update. Automation settings do not prove patches were installed.')
+        $lines.Add('');$lines.Add('| Control | Observed state | Reason | Explanation |');$lines.Add('| --- | --- | --- | --- |')
+        foreach($review in $updateReviews) {
+            $s=$review.WindowsUpdateSetting
+            $values=@(($review.CheckId+' / '+$s.CriterionId),$s.State,$s.Reason,
+                (Get-WinSecWindowsUpdateReviewDescription $s.CriterionId $s.State $s.Reason))
+            $lines.Add('| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |')
+        }
+        $lines.Add('')
+        foreach($review in $updateReviews) {
+            $s=$review.WindowsUpdateSetting
+            $lines.Add((ConvertTo-WinSecMarkdownText ($s.CriterionId+'; reference version: '+$s.ReferenceVersion+
+                '; SHA256: '+$s.ReferenceSha256+'; reference window UTC: '+$s.ReferenceAsOfUTC+' to '+$s.ReferenceValidUntilUTC+
+                ' (exclusive); evaluated UTC: '+$s.EvaluatedAtUTC)))
+        }
+        $lines.Add('Re-export preserves the recorded diagnostic reasons and reference window. It does not query Windows or reassess historical results against current reference data. Framework mappings remain pending individual review.')
     }
     return [pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;Markdown=($lines -join "`n") + "`n"}
 }

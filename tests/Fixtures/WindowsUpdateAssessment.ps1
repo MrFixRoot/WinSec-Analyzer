@@ -30,6 +30,7 @@ function New-WinSecWindowsUpdateAssessmentSession {
     New-WinSecResultSession -DeviceId $f.Context.DeviceId -ScanId $f.Context.ScanId -ScopeType CONTROL -ScopeKey WSA-SYS-003 `
         -ExpectedCheckIds @('WSA-SYS-003') -ControlResults $f.Audit.ControlResults -EvaluationResults $r.Assessment.EvaluationResults `
         -CriteriaSelections $r.Assessment.CriteriaSelections -Findings $r.Assessment.Findings -ConfigurationAssessment $r.Summary `
+        -ReviewItems @(New-WinSecWindowsUpdateReviewItems $f.Audit.ControlResults[0] $r.Assessment.CriteriaSelections[0]) `
         -CatalogVersion $f.Registry.CatalogVersion -ExecutionStatus COMPLETED `
         -StartedAtUTC '2026-10-24T11:59:00Z' -CompletedAtUTC '2026-10-24T12:01:00Z'
 }

@@ -30,6 +30,7 @@
 . (Join-Path $PSScriptRoot 'ConfigurationScore.ps1')
 . (Join-Path $PSScriptRoot 'DefenderReviewModel.ps1')
 . (Join-Path $PSScriptRoot 'BitLockerReviewModel.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdateReviewModel.ps1')
 
 function Get-WinSecResultField {
     [CmdletBinding()]
@@ -854,6 +855,7 @@ function ConvertTo-WinSecPublicScanResult {
             }
         }
     )
+    $windowsUpdateExpected = $null
     $reviews = @(
         foreach ($item in $Session.ReviewItems) {
             $safeReview = [pscustomobject]@{
@@ -877,6 +879,28 @@ function ConvertTo-WinSecPublicScanResult {
                     $expected=@(New-WinSecBitLockerReviewItems $source[0]|Where-Object ReviewId -CEQ $safeReview.ReviewId)
                     if($expected.Count -ne 1 -or $expected[0].Status -cne $safeReview.Status -or
                         $expected[0].BitLockerSetting.Value -cne $safeReview.BitLockerSetting.Value){throw 'Untrusted BitLocker review observation.'}
+                }
+            }
+            if ($null -ne (Get-WinSecResultField $item 'WindowsUpdateSetting')) {
+                $safeReview = ConvertTo-WinSecWindowsUpdateReviewItem $item $Session
+                $source=@($Session.ControlResults|Where-Object CheckId -CEQ 'WSA-SYS-003')
+                if($source.Count -ne 1){throw 'Missing Windows Update review source.'}
+                if($null -ne (Get-WinSecResultField $source[0] 'Evidence')) {
+                    Assert-WinSecWindowsUpdateScoredCollection $source[0] $Session
+                    if($null -eq $windowsUpdateExpected) {
+                        $selection=@($Session.CriteriaSelections|Where-Object CheckId -CEQ 'WSA-SYS-003')
+                        if($selection.Count -ne 1){throw 'Missing Windows Update review selection.'}
+                        $windowsUpdateExpected=@(New-WinSecWindowsUpdateReviewItems $source[0] $selection[0])
+                    }
+                    $expected=@($windowsUpdateExpected|Where-Object ReviewId -CEQ $safeReview.ReviewId)
+                    if($expected.Count -ne 1){throw 'Untrusted Windows Update review observation.'}
+                    foreach($field in $safeReview.WindowsUpdateSetting.PSObject.Properties.Name) {
+                        if($safeReview.WindowsUpdateSetting.$field -cne $expected[0].WindowsUpdateSetting.$field) {
+                            throw 'Windows Update review differs from its original collection or reference.'
+                        }
+                    }
+                } elseif($Session.CriteriaSelections.Count -gt 0 -or $Session.EvaluationResults.Count -gt 0) {
+                    throw 'Windows Update review is missing its original evidence.'
                 }
             }
             $safeReview

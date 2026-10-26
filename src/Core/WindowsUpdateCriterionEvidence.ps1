@@ -49,7 +49,7 @@ function Resolve-WinSecWindowsUpdateDependencies {
     return ,$dependencies
 }
 
-function Get-WinSecWindowsUpdateCriterionEvidence {
+function Get-WinSecWindowsUpdateCriterionReview {
     [CmdletBinding()]
     param([object]$Criterion,[object]$Evidence,[object]$TargetContext,[string]$DeviceId,[string]$ScanId)
     $id=Get-WinSecWindowsUpdateReferenceValue $Criterion 'CriterionId'
@@ -69,18 +69,37 @@ function Get-WinSecWindowsUpdateCriterionEvidence {
     $control=[pscustomobject]@{CheckId='WSA-SYS-003';DeviceId=$DeviceId;ScanId=$ScanId;SectionKey='SystemSecurity'
         Status='INFORMATIONAL';Evidence=$Evidence}
     $dependencies=Resolve-WinSecWindowsUpdateDependencies $control
-    $view=[pscustomobject]@{WindowsUpdate=[pscustomobject]@{Automation=$null;SecurityBaseline=$null;SecuritySupport=$null}}
+    $view=[pscustomobject]@{}
+    foreach($topic in @('Automation','SecurityBaseline','SecuritySupport')) {
+        $view|Add-Member -NotePropertyName $topic -NotePropertyValue ([pscustomobject]@{State='UNKNOWN';Reason='COLLECTION_UNVERIFIED'})
+    }
     if(-not $dependencies['windows-update-local-evidence']){return $view}
     $platform=ConvertTo-WinSecWindowsUpdateServicingPlatform $reference.Catalog $control
     # A selected profile does not prove the observed Windows build or SKU.
     if($platform.State -cne 'OBSERVED' -or $TargetContext.OSFamily -cne 'Windows' -or
         $TargetContext.OSRelease -cne ('Windows 11 '+$platform.Version) -or
         $TargetContext.Edition -cne ('SKU:'+$platform.OperatingSystemSKU) -or
-        $TargetContext.DeviceId -cne $DeviceId -or $TargetContext.ScanId -cne $ScanId) {return $view}
+        $TargetContext.DeviceId -cne $DeviceId -or $TargetContext.ScanId -cne $ScanId) {
+        foreach($topic in @('Automation','SecurityBaseline','SecuritySupport')) {$view.$topic.Reason='PLATFORM_UNVERIFIED'}
+        return $view
+    }
     $review=Get-WinSecWindowsUpdateServicingReference $reference.Catalog $platform $Evidence.CollectedAtUTC
-    if($review.SecuritySupport.Reason -cin @('CATALOG_NOT_YET_VALID','CATALOG_EXPIRED')){return $view}
-    $automation=Get-WinSecWindowsUpdateAutomationReview $reference.Catalog $control
-    if($automation.State -cin @('AUTOMATIC','NOT_AUTOMATIC')){$view.WindowsUpdate.Automation=($automation.State -ceq 'AUTOMATIC')}
+    if($review.SecuritySupport.Reason -cin @('CATALOG_NOT_YET_VALID','CATALOG_EXPIRED')) {
+        foreach($topic in @('Automation','SecurityBaseline','SecuritySupport')) {$view.$topic.Reason=$review.SecuritySupport.Reason}
+        return $view
+    }
+    $view.Automation=Get-WinSecWindowsUpdateAutomationReview $reference.Catalog $control
+    $view.SecurityBaseline=[pscustomobject]@{State=$review.SecurityBaseline.State;Reason=$review.SecurityBaseline.Reason}
+    $view.SecuritySupport=[pscustomobject]@{State=$review.SecuritySupport.State;Reason=$review.SecuritySupport.Reason}
+    return $view
+}
+
+function Get-WinSecWindowsUpdateCriterionEvidence {
+    [CmdletBinding()]
+    param([object]$Criterion,[object]$Evidence,[object]$TargetContext,[string]$DeviceId,[string]$ScanId)
+    $review=Get-WinSecWindowsUpdateCriterionReview @PSBoundParameters
+    $view=[pscustomobject]@{WindowsUpdate=[pscustomobject]@{Automation=$null;SecurityBaseline=$null;SecuritySupport=$null}}
+    if($review.Automation.State -cin @('AUTOMATIC','NOT_AUTOMATIC')){$view.WindowsUpdate.Automation=($review.Automation.State -ceq 'AUTOMATIC')}
     if($review.SecurityBaseline.State -cin @('MET','MISSING')){$view.WindowsUpdate.SecurityBaseline=($review.SecurityBaseline.State -ceq 'MET')}
     if($review.SecuritySupport.State -cin @('SUPPORTED','OUT_OF_SUPPORT')){$view.WindowsUpdate.SecuritySupport=($review.SecuritySupport.State -ceq 'SUPPORTED')}
     return $view

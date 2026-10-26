@@ -423,6 +423,9 @@ function Get-WinSecCLIActiveAssessment {
             if ($null -ne (Get-WinSecCLIValue $review 'BitLockerSetting')) {
                 $null = ConvertTo-WinSecBitLockerReviewItem $review $publicResult
             }
+            if ($null -ne (Get-WinSecCLIValue $review 'WindowsUpdateSetting')) {
+                $null = ConvertTo-WinSecWindowsUpdateReviewItem $review $publicResult
+            }
         }
 
         # ----------------------------------------------------
