@@ -437,7 +437,6 @@ $disabledBlocks = @(
 
         return (
             $condition -match 'PendingCommand' -and
-            $condition -match "'ExportTXT'" -and
             $condition -match "'SelectSetting'"
         )
     }, $true)
@@ -449,13 +448,13 @@ if ($disabledBlocks.Count -eq 1) {
     $condition = $disabledBlocks[0].Clauses[0].Item1.Extent.Text
 
     $unsupportedCommandsSafe = (
-        $condition -notmatch "'Rescan'"
+        $condition -notmatch "'Rescan'|'ExportTXT'|'ExportMD'"
     )
 }
 
 Assert-WinSecUnit `
     -Condition $unsupportedCommandsSafe `
-    -Description 'Export and settings remain disabled separately'
+    -Description 'Settings remain disabled separately from implemented scan and export commands'
 
 # ------------------------------------------------------------
 # TEST 17 - NO EVIDENCE PERSISTENCE REQUEST

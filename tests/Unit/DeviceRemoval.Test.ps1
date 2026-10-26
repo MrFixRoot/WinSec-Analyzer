@@ -36,7 +36,7 @@ function Test-WinSecRemovalCase {
     catch { $script:failed++; Write-Host "[FAIL] $Name : $($_.Exception.Message)" }
 }
 function Invoke-WinSecReportRemovalPlanFixture {
-    param([switch]$Corrupt,[switch]$Linked,[switch]$Foreign)
+    param([switch]$Corrupt,[switch]$Linked,[switch]$Foreign,[switch]$Text)
     $script:reportRemovalRoot=Join-Path $root ('reports/exports/' + (Get-WinSecEvidenceHash 'local:OLD-FIXTURE'))
     $script:reportRemovalFile=Join-Path $script:reportRemovalRoot 'synthetic.md'
     $script:reportRemovalLinked=[bool]$Linked
@@ -44,6 +44,11 @@ function Invoke-WinSecReportRemovalPlanFixture {
     $meta=[ordered]@{SchemaVersion='1.0.0';DeviceId=if($Foreign){'local:OTHER'}else{'local:OLD-FIXTURE'};
         ScanId='scan-1';ContentSha256=(Get-WinSecReportTextHash $body)}
     $script:reportRemovalText="<!-- WinSec public report`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
+    if($Text) {
+        $script:reportRemovalFile=Join-Path $script:reportRemovalRoot 'synthetic.txt'
+        # Legacy fixture assembled independently; no TXT writer remains.
+        $script:reportRemovalText="WinSec public text report`n"+(ConvertTo-Json $meta -Compress)+"`n`n"+$body
+    }
     if($Corrupt){$script:reportRemovalText+='corrupt'}
     $script:reportRemovalTestPath=(Get-Command Test-Path).ScriptBlock
     $script:reportRemovalGetItem=(Get-Command Get-Item).ScriptBlock
@@ -97,6 +102,19 @@ Test-WinSecRemovalCase 'Corrupt or foreign Markdown prevents removal before conf
 }
 Test-WinSecRemovalCase 'Linked Markdown export storage rejects removal without traversing it' {
     Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Linked}
+    Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Removal plan accepts legacy TXT ownership without exposing a TXT export API' {
+    foreach($name in @('New-WinSecFindingsText','New-WinSecTextArtifactContent','Write-WinSecTextArtifact','Export-WinSecFindingsText')) {
+        Assert-WinSecRemoval ($null -eq (Get-Command $name -ErrorAction SilentlyContinue))
+    }
+    $plan=Invoke-WinSecReportRemovalPlanFixture -Text
+    Assert-WinSecRemoval ($plan.Files.Count -eq 1 -and $plan.Files[0].Path.EndsWith('.txt') -and $script:coordinator.Sessions.Count -eq 2)
+}
+Test-WinSecRemovalCase 'Corrupt foreign or linked TXT rejects removal before confirmation' {
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Text -Corrupt}
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Text -Foreign}
+    Assert-WinSecRemovalThrows {Invoke-WinSecReportRemovalPlanFixture -Text -Linked}
     Assert-WinSecRemoval ($script:coordinator.Sessions.Count -eq 2)
 }
 function Invoke-WinSecRemovalFixture {

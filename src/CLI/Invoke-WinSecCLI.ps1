@@ -2423,12 +2423,10 @@ function Invoke-WinSecCLI {
 
         if (
             $navigationState.PendingCommand -in @(
-                'ExportTXT',
                 'SelectSetting'
             )
         ) {
-            # Export and settings editing remain disabled
-            # until their implementations are connected.
+            # Settings editing remains disabled until connected.
 
             $navigationState.PendingCommand = $null
             $navigationState.PendingScope = $null

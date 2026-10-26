@@ -135,8 +135,11 @@ function Get-WinSecDeviceRemovalPlan {
                 if ($item.PSIsContainer) { $pending.Push($item.FullName) }
                 else {
                     if ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($storageRoot)) -ceq 'exports') {
-                        if ([IO.Path]::GetExtension($item.FullName) -cne '.md' -or $item.Length -gt 1048576) { throw 'Unrecognized device export.' }
-                        $null=ConvertFrom-WinSecMarkdownArtifact -Text (Get-Content -LiteralPath $item.FullName -Raw -Encoding UTF8 -ErrorAction Stop) -DeviceId $DeviceId
+                        $extension=[IO.Path]::GetExtension($item.FullName)
+                        if ($extension -cnotin @('.md','.txt') -or $item.Length -gt 1048576) { throw 'Unrecognized device export.' }
+                        $content=Get-Content -LiteralPath $item.FullName -Raw -Encoding UTF8 -ErrorAction Stop
+                        if($extension -ceq '.txt'){$null=ConvertFrom-WinSecTextArtifact -Text $content -DeviceId $DeviceId}
+                        else{$null=ConvertFrom-WinSecMarkdownArtifact -Text $content -DeviceId $DeviceId}
                     }
                     if ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($storageRoot)) -ceq 'scans') {
                         Assert-WinSecStoredScanRemovalOwnership -Path $item.FullName -DeviceId $DeviceId

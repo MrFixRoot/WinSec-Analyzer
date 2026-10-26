@@ -68,6 +68,19 @@ Test-WinSecScopedKeys 'Findings disables R and H; P exports only when enabled' {
     $key=[pscustomobject]@{VirtualKeyCode=80;Character='P';ControlKeyState=0;KeyDown=$true}
     Assert-WinSecScopedKeys ((ConvertTo-WinSecKeyboardAction -KeyInfo $key -Screen Findings -EnableExport) -ceq 'ExportMD')
 }
+Test-WinSecScopedKeys 'Removed TXT shortcut cannot export even with export eligibility' {
+    foreach($screen in @('Devices','MainMenu','Section','Results','Findings')) {
+        $key=[pscustomobject]@{VirtualKeyCode=84;Character='T';ControlKeyState=0;KeyDown=$true}
+        Assert-WinSecScopedKeys ((ConvertTo-WinSecKeyboardAction -KeyInfo $key -Screen $screen -EnableExport) -ceq 'None')
+    }
+}
+Test-WinSecScopedKeys 'Legacy TXT navigation requests cannot queue an export' {
+    foreach($screen in @('Devices','MainMenu','Section','Results','Findings')) {
+        $state=New-WinSecNavigationState;$state.Screen=$screen
+        $null=Invoke-WinSecNavigationAction -State $state -Action ExportTXT -SectionCount 5 -ControlCount 3
+        Assert-WinSecScopedKeys ($null -eq $state.PendingCommand -and $null -eq $state.PendingScope -and $state.Screen -ceq $screen)
+    }
+}
 Test-WinSecScopedKeys 'Device scan follows highlighted row even before opening it' {
     $state=[pscustomobject]@{Screen='Devices';DeviceIndex=1;SelectedDeviceId='local:OLD'}
     $id=Get-WinSecCLIScanDeviceId $state @([pscustomobject]@{DeviceId='local:OLD'},[pscustomobject]@{DeviceId='local:NEW'})
