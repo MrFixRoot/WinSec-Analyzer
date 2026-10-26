@@ -1,4 +1,5 @@
 # Per-operation profile selection. UI data and keyboard only; no collection.
+. (Join-Path $PSScriptRoot '../../Services/WindowsUpdateProfileRegistry.ps1')
 function Show-WinSecAssessmentProfileSelection {
     [CmdletBinding()]
     param(
@@ -47,6 +48,14 @@ function Show-WinSecAssessmentProfileSelection {
     $matrix = $null
     if (@($options | Where-Object {$_.Profile -cmatch '^WSA-W11-'}).Count) {
         $matrix = (Get-WinSecDefenderProfileMatrix -ProjectRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..')))).Matrix
+    }
+    $variants=@{}
+    if(@($options|Where-Object {$_.Policies.CheckId -ccontains 'WSA-SYS-003'}).Count) {
+        $variantCatalog=(Get-WinSecWindowsUpdateVariantCatalog -ProjectRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..')))).Catalog
+        foreach($profile in $options) {
+            $update=@($profile.Policies|Where-Object CheckId -CEQ 'WSA-SYS-003')
+            if($update.Count) {$variants[$profile.Profile]=Get-WinSecWindowsUpdateProfileVariant -Catalog $variantCatalog -Matrix $matrix -Policy $update[0]}
+        }
     }
     $groups = New-Object 'System.Collections.Generic.List[object]'
     $groupMap = @{}
@@ -114,6 +123,13 @@ function Show-WinSecAssessmentProfileSelection {
                 $details += 'Criteria: {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion
                 $details += 'Criteria SHA256: ' + $policy.CatalogSha256
                 $details += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
+            }
+            if($variants.ContainsKey($selected.Profile)) {
+                $variant=$variants[$selected.Profile]
+                $details += 'Windows Update variant: '+$variant.Label+' / '+$variant.Channel
+                $details += 'Policy model: '+$variant.DeadlineModel
+                $details += 'Support dates follow edition, release and channel. Criteria weights: 15/35/50.'
+                $details += 'Policy support depends on installed revision. Unknown data is not a failure.'
             }
             $details += 'Applicability and prerequisites are checked during the scan.'
         }
