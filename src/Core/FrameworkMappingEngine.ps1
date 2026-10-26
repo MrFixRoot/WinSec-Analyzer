@@ -445,6 +445,13 @@ function Get-WinSecFrameworkMappings {
                 }
                 if ($null -ne $criterionIds -and
                     ($criterionIds -isnot [array] -or $criterionIds.Count -eq 0 -or $criterionIds -cnotcontains $CriterionId)) { continue }
+                # Update mappings explain only the three approved local criteria.
+                # Removing criterionIds must not widen a reference to the whole check.
+                if($CheckId -ceq 'WSA-SYS-003' -and
+                    ($CriterionId -cnotin @('WSA-WUP-BASE-001','WSA-WUP-BASE-002','WSA-WUP-BASE-003') -or
+                    $null -eq $criterionIds -or
+                    @($criterionIds|Select-Object -Unique).Count -ne $criterionIds.Count -or
+                    @($criterionIds|Where-Object {$_ -cnotin @('WSA-WUP-BASE-001','WSA-WUP-BASE-002','WSA-WUP-BASE-003')}).Count)) { continue }
 
                 # Validate framework-specific requirements
                 $valid = Test-WinSecFrameworkReference `

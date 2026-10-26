@@ -97,7 +97,7 @@ foreach($framework in @('cis-controls','nist-csf','mitre-attack')) {
             $markdown.Contains('AUTOMATIC') -and $markdown.Contains((ConvertTo-WinSecMarkdownText 'REVIEWED_OS_BASELINE_COMPLETED')) -and
             $markdown.Contains((ConvertTo-WinSecMarkdownText 'WITHIN_REVIEWED_SUPPORT_PERIOD')) -and
             $markdown.Contains($p.ReviewItems[0].WindowsUpdateSetting.ReferenceSha256) -and $markdown.Contains('not every applicable update') -and
-            $markdown.Contains('pending individual review') -and $before -ceq (Get-WinSecPublicHistoryJson $selection))
+            $markdown.Contains('not a framework requirement') -and $before -ceq (Get-WinSecPublicHistoryJson $selection))
         for($i=0;$i -lt $rows.Count;$i++) {
             if(-not $rows[$i].StartsWith('|')){continue}
             if($i -eq 0 -or -not $rows[$i-1].StartsWith('|')){Assert-WinSecUpdateReviewIntegration ($i -gt 0 -and [string]::IsNullOrWhiteSpace($rows[$i-1]))}

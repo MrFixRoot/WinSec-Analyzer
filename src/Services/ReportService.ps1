@@ -102,7 +102,7 @@ function New-WinSecFindingsMarkdown {
         })}
         Assert-WinSecConfigurationProvenance ([pscustomobject]@{Findings=$copy.Findings;EvaluationResults=@();CriteriaSelections=@()}) $visibleConfiguration
     }
-    # Leer sólo el marco elegido; el API anterior conserva la vista de los cuatro.
+    # Leer sólo el marco elegido; el API anterior conserva la vista de los tres.
     $frameworks = @()
     $hashes = @()
     $installation=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -338,7 +338,18 @@ function New-WinSecFindingsMarkdown {
                 '; SHA256: '+$s.ReferenceSha256+'; reference window UTC: '+$s.ReferenceAsOfUTC+' to '+$s.ReferenceValidUntilUTC+
                 ' (exclusive); evaluated UTC: '+$s.EvaluatedAtUTC)))
         }
-        $lines.Add('Re-export preserves the recorded diagnostic reasons and reference window. It does not query Windows or reassess historical results against current reference data. Framework mappings remain pending individual review.')
+        $lines.Add('Re-export preserves the recorded diagnostic reasons and reference window. It does not query Windows or reassess historical results against current reference data.')
+    }
+    if($updateReviews.Count -gt 0 -or @($copy.Findings|Where-Object CheckId -CEQ 'WSA-SYS-003').Count -gt 0 -or
+        @($configuration.Controls|Where-Object {$_.CheckId -ceq 'WSA-SYS-003' -and @($_.Criteria).Count -gt 0}).Count -gt 0) {
+        $lines.Add('')
+        $lines.Add('Framework references contextualize confirmed deviations only; they do not certify compliance or detect an attack. The 15/35/50 weights and seven-day baseline deadline are approved local policy, not a framework requirement. Other products and the full enterprise patch process are not assessed.')
+        $updateDeviations=@($deviations|Where-Object CheckId -CEQ 'WSA-SYS-003')
+        if($updateDeviations.Count -eq 0) {
+            $lines.Add('No confirmed Windows Update deviations require framework recommendations in this selection. Unresolved diagnostic states must be reviewed without inventing a failed framework control.')
+        } elseif(@($updateDeviations|Where-Object {@($referencesByFinding[$_.FindingId]).Count -eq 0}).Count) {
+            $lines.Add('One or more confirmed Windows Update deviations have no reviewed mapping in the selected catalog; framework recommendations remain pending for those deviations.')
+        }
     }
     return [pscustomobject]@{SchemaVersion='1.0.0';DeviceId=$copy.DeviceId;ScanId=$copy.ScanId;Markdown=($lines -join "`n") + "`n"}
 }
