@@ -30,7 +30,7 @@ function New-WinSecRemovalInstallation {
     $script:devices=@(Get-WinSecCLIDevices -ProjectRoot $sandbox -Devices (Import-WinSecDeviceInventory -ProjectRoot $sandbox).targets)
     $script:coordinator=New-WinSecScanCoordinator -ProjectRoot $sandbox
     $script:coordinator.RequireDeviceInventory=$true
-    $script:historyPaths=@{}; $script:evidencePaths=@{}
+    $script:historyPaths=@{}; $script:evidencePaths=@{};$script:technicalPaths=@{}
     foreach ($device in $script:devices) {
         $id=$device.DeviceId; $hash=Get-WinSecEvidenceHash $id
         $scanDir=Join-Path $sandbox ('data/scans/'+$hash)
@@ -42,6 +42,30 @@ function New-WinSecRemovalInstallation {
         [IO.File]::WriteAllText($evidencePath,'SYNTHETIC-STORAGE-TEST',[Text.Encoding]::UTF8)
         $script:historyPaths[$id]=$scanPath; $script:evidencePaths[$id]=$evidencePath
         $script:coordinator.Sessions[(Get-WinSecScanSessionKey $id 'scan-fixture')]=[pscustomobject]@{DeviceId=$id; ScanId='scan-fixture'}
+        $exports=Join-Path $sandbox ('reports/exports/'+$hash)
+        $null=[IO.Directory]::CreateDirectory($exports)
+        $script:technicalPaths[$id]=@()
+        foreach($check in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')) {
+            $stamp=[datetime]::UtcNow.AddMinutes(-1).ToString('o')
+            $report=[pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion='1.0.0';DeviceId=$id;ScanId='scan-fixture';
+                CheckId=$check;SectionKey='SystemSecurity';ScopeType='SECTION';ScopeKey='SystemSecurity';
+                DeviceName='SYNTHETIC';Hostname='SYNTHETIC';Profile='UNRESOLVED';ObservedOSRelease='UNRESOLVED';ObservedEdition='UNRESOLVED';
+                StartedAtUTC=$stamp;CompletedAtUTC=$stamp;CollectedAtUTC=$stamp;GeneratedAtUTC=$stamp;CollectorStatus='ERROR';
+                Rows=@(Get-WinSecTechnicalDefinitions $check|ForEach-Object {
+                    [pscustomobject]@{SettingId=$_.Id;Value=$null;State='NOT_COLLECTED';Reason='UNAVAILABLE'}
+                })}
+            $body=ConvertTo-WinSecTechnicalBody $report
+            $meta=@{SchemaVersion='1.0.0';DeviceId=$id;ScanId='scan-fixture';CheckId=$check;ScopeType='SECTION';ScopeKey='SystemSecurity';ContentSha256=(Get-WinSecReportTextHash $body)}
+            $text="WinSec technical scan report`n"+(ConvertTo-Json $meta -Compress)+"`n`n"+$body
+            $technical=Join-Path $exports ($check+'.txt')
+            [IO.File]::WriteAllText($technical,$text,[Text.Encoding]::UTF8)
+            $script:technicalPaths[$id]+=$technical
+        }
+        # Independently constructed legacy fixtures must remain recognizable.
+        $body="# Synthetic public report`n"
+        $meta=@{SchemaVersion='1.0.0';DeviceId=$id;ScanId='scan-fixture';ContentSha256=(Get-WinSecReportTextHash $body)}|ConvertTo-Json -Compress
+        [IO.File]::WriteAllText((Join-Path $exports 'legacy.txt'),("WinSec public text report`n"+$meta+"`n`n"+$body),[Text.Encoding]::UTF8)
+        [IO.File]::WriteAllText((Join-Path $exports 'public.md'),("<!-- WinSec public report`n"+$meta+"`n-->`n"+$body),[Text.Encoding]::UTF8)
     }
     $script:consent=$true
 }
@@ -94,6 +118,25 @@ try {
     function Show-WinSecCLICurrentScreen { param($State,$Context) $script:startup=$Context; $State.ExitRequested=$true }
     New-WinSecRemovalInstallation
     $inventoryPath=Join-Path $sandbox 'data/devices.json'
+    Test-WinSecRemovalIntegrationCase 'Removal recognizes all three technical reports together with legacy TXT and Markdown' {
+        $plan=Get-WinSecDeviceRemovalPlan $sandbox $script:first.DeviceId $script:coordinator $script:devices
+        foreach($path in $script:technicalPaths[$script:first.DeviceId]) {
+            Assert-WinSecRemovalIntegration (@($plan.Files|Where-Object Path -CEQ $path).Count -eq 1)
+        }
+        Assert-WinSecRemovalIntegration (@($plan.Files|Where-Object {$_.Path.EndsWith('legacy.txt') -or $_.Path.EndsWith('public.md')}).Count -eq 2)
+    }
+    Test-WinSecRemovalIntegrationCase 'Corrupt and foreign technical TXT reject removal before confirmation and preserve every file' {
+        $path=$script:technicalPaths[$script:first.DeviceId][0];$original=[IO.File]::ReadAllBytes($path)
+        $foreign=[IO.File]::ReadAllBytes($script:technicalPaths[$script:second.DeviceId][0])
+        try {
+            foreach($bytes in @([Text.Encoding]::UTF8.GetBytes('invalid technical file'),$foreign)) {
+                [IO.File]::WriteAllBytes($path,$bytes);$script:confirmCount=0;$caught=$false
+                try {$null=Invoke-WinSecNativeRemoval -Confirm {$script:confirmCount++;$true}} catch {$caught=$true}
+                Assert-WinSecRemovalIntegration ($caught -and $script:confirmCount -eq 0)
+                foreach($owner in $script:technicalPaths.Keys){foreach($file in $script:technicalPaths[$owner]){Assert-WinSecRemovalIntegration ([IO.File]::Exists($file))}}
+            }
+        } finally {[IO.File]::WriteAllBytes($path,$original)}
+    }
     Test-WinSecRemovalIntegrationCase 'Atomic replacement retries transient 1175 errors within a bounded unchanged snapshot' {
         $inv=Import-WinSecDeviceInventory $sandbox
         $lease=Open-WinSecDeviceInventoryStore $sandbox
@@ -210,6 +253,8 @@ try {
             -not [IO.File]::Exists($script:upperEvidencePath))
     }
     Test-WinSecRemovalIntegrationCase 'Deleting one hardware identity preserves all data of the other device' {
+        foreach($path in $script:technicalPaths[$script:first.DeviceId]){Assert-WinSecRemovalIntegration (-not [IO.File]::Exists($path))}
+        foreach($path in $script:technicalPaths[$script:second.DeviceId]){Assert-WinSecRemovalIntegration ([IO.File]::Exists($path))}
         Assert-WinSecRemovalIntegration ([IO.File]::Exists($script:historyPaths[$script:second.DeviceId]) -and
             [IO.File]::Exists($script:evidencePaths[$script:second.DeviceId]) -and $script:coordinator.Sessions.Count -eq 1)
         $caught=$false

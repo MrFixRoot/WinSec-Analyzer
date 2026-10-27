@@ -7,6 +7,17 @@ function Show-WinSecScanConfirmation {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Request)
     $Request=Copy-WinSecResultData $Request
+    $technicalLines=@()
+    if($null -ne $Request.TechnicalReports) {
+        $t=$Request.TechnicalReports
+        Assert-WinSecConfigurationFields $t @('SchemaVersion','CatalogVersion','Mode','Count','Directory','PolicySha256')
+        if($t.SchemaVersion -cne '1.0.0' -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
+            ($t.Count -isnot [int] -and $t.Count -isnot [long]) -or $t.Count -lt 0 -or
+            $t.Count -ne @($Request.Checks).Count -or $t.Directory -isnot [string] -or
+            $t.Directory -cne ('reports/exports/'+(Get-WinSecEvidenceHash $Request.DeviceId)) -or
+            $t.PolicySha256 -isnot [string] -or $t.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid technical report confirmation.'}
+        $technicalLines=@(('Automatic technical TXT: '+$t.Count+' (one per executed control)'),('Output: '+$t.Directory),('Technical catalog: '+$t.CatalogVersion+' | hash: '+$t.PolicySha256))
+    }
 
     if ($Request.Operation -cne 'SCAN' -or $Request.ReadOnly -cne $true -or
         $Request.Checks -isnot [array] -or
@@ -139,6 +150,7 @@ function Show-WinSecScanConfirmation {
             'Raw evidence storage: NOT REQUESTED'
             ('Executable controls: {0}' -f @($Request.Checks).Count)
         )
+        $lines += $technicalLines
         $lines += $profileLines
         foreach ($check in $Request.Checks) {
             $lines += '{0} | {1} | {2}' -f $check.CheckId, $check.SectionKey, $check.Name

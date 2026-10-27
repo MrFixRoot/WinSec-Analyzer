@@ -87,10 +87,13 @@ function Export-WinSecFindingsMarkdown {
 }
 
 # Legacy TXT reader for ownership checks during confirmed device deletion only.
-# Reports are generated exclusively as Markdown.
+# The retired public TXT writer remains absent. Technical TXT has its own format.
 function ConvertFrom-WinSecTextArtifact {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId)
+    if($Text.StartsWith("WinSec technical scan report`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecTechnicalArtifact -Text $Text -DeviceId $DeviceId
+    }
     if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
         $Text -cnotmatch '\AWinSec public text report\n([^\r\n]+)\n\n([\s\S]*)\z'){throw 'Unrecognized public text report.'}
     $metadataJson=$Matches[1];$body=$Matches[2]
@@ -106,3 +109,5 @@ function ConvertFrom-WinSecTextArtifact {
     }
     return $meta
 }
+
+. (Join-Path $PSScriptRoot 'TechnicalReportService.ps1')

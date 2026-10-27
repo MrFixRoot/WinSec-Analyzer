@@ -381,6 +381,11 @@ foreach ($path in @(
 
 . $script:CoordinatorPath
 
+# Hardware identity is a provider boundary too. Keep these unit tests independent
+# of the workstation and reject every accidental native query.
+function Get-WinSecLocalHardwareDeviceId { 'local:hw1-'+('d'*64) }
+function Get-CimInstance { throw 'Unexpected native query in coordinator unit tests.' }
+
 # ============================================================
 # GROUP 1: COMPONENT CONTRACTS
 # ============================================================

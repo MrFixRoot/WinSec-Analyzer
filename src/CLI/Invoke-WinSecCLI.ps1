@@ -1757,6 +1757,12 @@ function Invoke-WinSecCLILocalRescan {
         if ($scope.ScopeType -ceq 'DEVICE') {$Context.LastScanMessage='Device scan completed. Configuration results recorded; overall device score: NOT_SCORED.'}
         else {$Context.LastScanMessage='{0} scan completed. Configuration score: {1}.' -f $scope.Label,(Get-WinSecConfigurationScoreText $configuration $scope.ScopeType $scope.ScopeKey)}
     }
+    $technical=Get-WinSecCLIValue $coordinator LastTechnicalReports
+    if($null -ne $technical -and $technical.DeviceId -ceq $deviceId -and $technical.ScanId -ceq $scanId) {
+        if($technical.Status -ceq 'SAVED') {
+            $Context.LastScanMessage += ' Technical TXT files saved: '+@($technical.Files).Count+' (reports/exports).'
+        } else {$Context.LastScanMessage += ' WARNING: technical TXT export '+$technical.Status+'; saved '+@($technical.Files).Count+', failed '+@($technical.FailedCheckIds).Count+'.'}
+    }
     # Return only an owned copy of the validated public projection.
     if ($State.Screen -ceq 'Devices') {
         $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
@@ -2035,6 +2041,7 @@ function Invoke-WinSecCLI {
     }
     # Evaluation is distinct from numeric scoring. Draft criteria stay blocked.
     $scanCoordinator.AssessmentEnabled = $true
+    $scanCoordinator.TechnicalReportsEnabled = $true
 
     # Production security invariants.
 

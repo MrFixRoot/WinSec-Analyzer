@@ -119,6 +119,11 @@ if (@($parseErrors).Count -gt 0) {
 
 . $cliPath
 . $coordinatorPath
+function Get-WinSecInitializationHardwareFixture { 'local:hw1-'+('d'*64) }
+# CLI device discovery reloads target functions in its own scope; the alias keeps
+# that provider boundary synthetic too.
+Set-Alias -Name Get-WinSecLocalHardwareDeviceId -Value Get-WinSecInitializationHardwareFixture -Scope Script
+function Get-CimInstance { throw 'Unexpected native query in initialization tests.' }
 
 # ------------------------------------------------------------
 # TEST 3: Coordinator initialization

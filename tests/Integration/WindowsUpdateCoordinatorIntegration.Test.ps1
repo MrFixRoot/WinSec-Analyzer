@@ -14,6 +14,19 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
 $script:production=Get-WinSecCheckRegistry $root
 $script:auditReader=(Get-Command Invoke-WinSecAudit).ScriptBlock
 $script:wuCimReader=(Get-Command Get-CimInstance).ScriptBlock
+$script:technicalWriter=(Get-Command Write-WinSecTechnicalArtifact).ScriptBlock
+$script:reportInstallation=(Get-Command Get-WinSecReportInstallation).ScriptBlock
+function Get-WinSecReportInstallation {
+    param($ProjectRoot)
+    if($script:technicalRoot -and $ProjectRoot -ceq $script:technicalRoot){return $ProjectRoot}
+    & $script:reportInstallation @PSBoundParameters
+}
+function Write-WinSecTechnicalArtifact {
+    param($ProjectRoot,$Report)
+    if(-not $script:technicalRoot){throw 'Unexpected technical report write.'}
+    if($Report.CheckId -ceq $script:technicalFailure){throw 'Synthetic technical disk failure.'}
+    & $script:technicalWriter -ProjectRoot $script:technicalRoot -Report $Report
+}
 $script:aliases=New-Object 'System.Collections.Generic.List[string]'
 # Alias boundaries survive the collector's function-only implementation scope.
 foreach($name in @('Get-WinSecLocalHardwareDeviceId','Open-WinSecWindowsUpdatePolicyKey',
@@ -146,6 +159,7 @@ function Test-WinSecUpdateCoordinator {
     $script:WU.Systems[0].Version='10.0.26200';$script:WU.Systems[0].BuildNumber='26200'
     $script:WU.VersionValues.CurrentBuildNumber='26200'
     $script:sequence=0;$script:defenderReads=0;$script:volumeReads=0;$script:volumeMethods=0;$script:osReads=0;$script:store=@{}
+    $script:technicalRoot=$null;$script:technicalFailure=''
     $script:progress=New-Object 'System.Collections.Generic.List[object]'
     $script:keys=New-Object 'System.Collections.Generic.Queue[object]'
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
@@ -153,7 +167,117 @@ function Test-WinSecUpdateCoordinator {
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
     catch{$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+' : '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace)}
 }
+function Test-WinSecTechnicalCoordinator {
+    param([string]$Name,[scriptblock]$TechnicalCaseBody)
+    Test-WinSecUpdateCoordinator ('Technical TXT: '+$Name) {
+        $script:technicalRoot=Join-Path ([IO.Path]::GetTempPath()) ('WinSec-TC-'+[guid]::NewGuid().ToString('N'))
+        $null=[IO.Directory]::CreateDirectory($script:technicalRoot)
+        try {& $TechnicalCaseBody} finally {
+            $absolute=[IO.Path]::GetFullPath($script:technicalRoot)
+            $parent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
+            if(-not [string]::Equals([IO.Path]::GetDirectoryName($absolute),$parent,[StringComparison]::OrdinalIgnoreCase) -or
+                [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-TC-[a-f0-9]{32}\z'){throw 'Unsafe technical coordinator cleanup.'}
+            Remove-Item -LiteralPath $absolute -Recurse -Force
+        }
+    }
+}
 try {
+    Test-WinSecTechnicalCoordinator 'section and rescan write three separate files with original identities; control writes one' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $first=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeType SECTION -ScopeKey SystemSecurity -Id technical-section -ConfirmAction {
+            param($request)
+            Assert-WinSecUpdateCoordinator ($request.TechnicalReports.Count -eq 3 -and $request.TechnicalReports.Mode -ceq 'PER_EXECUTED_CONTROL')
+            $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+            $accepted=Show-WinSecScanConfirmation $request
+            Assert-WinSecUpdateCoordinator (($script:lines -join '|') -match 'Automatic technical TXT: 3')
+            return $accepted
+        }
+        $receipt=$ctx.ScanCoordinator.LastTechnicalReports
+        Assert-WinSecUpdateCoordinator ($null -ne $first -and $receipt.Status -ceq 'SAVED' -and $receipt.Files.Count -eq 3)
+        $originals=@{}
+        foreach($file in $receipt.Files) {
+            $text=[IO.File]::ReadAllText($file.Path);$originals[$file.Path]=$text
+            $m=ConvertFrom-WinSecTextArtifact $text $first.DeviceId
+            Assert-WinSecUpdateCoordinator ($m.ScanId -ceq $first.ScanId -and $m.CheckId -ceq $file.CheckId -and
+                $m.ScopeType -ceq 'SECTION' -and $m.ScopeKey -ceq 'SystemSecurity' -and
+                $text -notmatch 'PRIVATE-SYSTEM-SECURITY|RecoveryPassword|ExclusionPath')
+        }
+        $before=$script:store['technical-section']
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeType SECTION -ScopeKey SystemSecurity -Id technical-rescan
+        Assert-WinSecUpdateCoordinator ($ctx.ScanCoordinator.LastTechnicalReports.Files.Count -eq 3 -and $script:store['technical-section'] -ceq $before)
+        foreach($path in $originals.Keys){Assert-WinSecUpdateCoordinator ([IO.File]::ReadAllText($path) -ceq $originals[$path])}
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeKey WSA-SYS-002 -Id technical-control
+        $receipt=$ctx.ScanCoordinator.LastTechnicalReports
+        Assert-WinSecUpdateCoordinator ($receipt.Status -ceq 'SAVED' -and $receipt.Files.Count -eq 1 -and $receipt.Files[0].CheckId -ceq 'WSA-SYS-002' -and
+            @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 7)
+        $m=ConvertFrom-WinSecTextArtifact ([IO.File]::ReadAllText($receipt.Files[0].Path)) $first.DeviceId
+        Assert-WinSecUpdateCoordinator ($m.ScopeType -ceq 'CONTROL' -and $m.ScopeKey -ceq 'WSA-SYS-002')
+    }
+    Test-WinSecTechnicalCoordinator 'device scan creates three artifacts; normal coordinators never request persistence' {
+        $ctx=New-WinSecUpdateCoordinatorContext
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id no-technical-output
+        Assert-WinSecUpdateCoordinator ($null -eq $ctx.ScanCoordinator.LastTechnicalReports -and
+            @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 0)
+        $ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id technical-device -ScopeType DEVICE -ScopeKey ALL
+        Assert-WinSecUpdateCoordinator ($ctx.ScanCoordinator.LastTechnicalReports.Status -ceq 'SAVED' -and $ctx.ScanCoordinator.LastTechnicalReports.Files.Count -eq 3)
+    }
+    Test-WinSecTechnicalCoordinator 'cancellation before and during collection writes no files and preserves history' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id rejected-technical -ConfirmAction {$false}
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id cancelled-technical -ScopeType SECTION -ScopeKey SystemSecurity -CancellationAction {$script:defenderReads -gt 0}
+        Assert-WinSecUpdateCoordinator ($script:store.Count -eq 0 -and $ctx.ScanCoordinator.Sessions.Count -eq 0 -and
+            @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 0)
+    }
+    Test-WinSecTechnicalCoordinator 'a technical disk failure is visible without changing the completed public session' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true;$script:technicalFailure='WSA-SYS-002'
+        $p=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id technical-partial -ScopeType SECTION -ScopeKey SystemSecurity
+        $receipt=$ctx.ScanCoordinator.LastTechnicalReports
+        Assert-WinSecUpdateCoordinator ($null -ne $p -and $p.ExecutionStatus -ceq 'COMPLETED' -and
+            $script:store.ContainsKey('technical-partial') -and $receipt.Status -ceq 'PARTIAL' -and $receipt.Files.Count -eq 2 -and
+            ($receipt.FailedCheckIds -join '|') -ceq 'WSA-SYS-002' -and $script:store['technical-partial'] -notmatch 'TechnicalReports|TechnicalRows|DefenderPreferences')
+    }
+    Test-WinSecTechnicalCoordinator 'changing the confirmed output mode rejects publication' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        Assert-WinSecUpdateCoordinatorRejected {
+            Invoke-WinSecUpdateCoordinatorFixture $ctx -Id technical-tamper -ConfirmAction {
+                param($request);$ctx.ScanCoordinator.TechnicalReportsEnabled=$false;$true
+            }
+        }
+        Assert-WinSecUpdateCoordinator ($script:store.Count -eq 0 -and @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 0)
+    }
+    Test-WinSecTechnicalCoordinator 'small confirmation and changed output directory cannot authorize writing' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $empty=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey NetworkSecurity
+        Assert-WinSecUpdateCoordinator ($empty.CheckIds.Count -eq 0 -and (ConvertFrom-Json $empty.RequestJson).TechnicalReports.Count -eq 0)
+        $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=12}
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0})
+        $p=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id small-technical -ConfirmAction {param($request);Show-WinSecScanConfirmation $request}
+        Assert-WinSecUpdateCoordinator ($null -eq $p -and @($script:lines|Where-Object {$_.Length -gt 39}).Count -eq 0)
+        Assert-WinSecUpdateCoordinatorRejected {
+            Invoke-WinSecUpdateCoordinatorFixture $ctx -Id changed-technical -ConfirmAction {
+                param($request);$request.TechnicalReports.Directory='reports/exports/foreign';Show-WinSecScanConfirmation $request
+            }
+        }
+        Assert-WinSecUpdateCoordinator ($script:store.Count -eq 0 -and $script:osReads -eq 0 -and @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 0)
+    }
+    Test-WinSecTechnicalCoordinator 'CLI section scan announces saved files and partial failures separately from the score' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $state=New-WinSecNavigationState;$state.Screen='MainMenu';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        function Show-WinSecAssessmentProfileSelection {
+            param($Request,$Profiles,$CurrentSystemLabel)
+            [pscustomobject]@{Confirmed=$true;Selection=@($Profiles|Where-Object Profile -CEQ WSA-W11-25H2-PRO-DEF-BASE)[0]}
+        }
+        foreach($failure in @('','WSA-SYS-002')) {
+            $script:technicalFailure=$failure
+            $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+            $p=Invoke-WinSecCLILocalRescan -State $state -Context $ctx
+            Assert-WinSecUpdateCoordinator ($null -ne $p -and $ctx.LastScanMessage.Contains('Configuration score: 66.67/100'))
+            if($failure){Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('WARNING: technical TXT export PARTIAL; saved 2, failed 1.'))}
+            else{Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('Technical TXT files saved: 3'))}
+        }
+    }
     Test-WinSecUpdateCoordinator 'Production enables exactly the three individually validated System Security controls' {
         $ready=@($script:production.Checks|Where-Object ExecutionReady)
         Assert-WinSecUpdateCoordinator ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
