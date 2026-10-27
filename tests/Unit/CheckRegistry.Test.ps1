@@ -366,7 +366,7 @@ try {
 
 
     Invoke-WinSecRegistryTest `
-        -Name 'Only individually validated Defender and BitLocker are executable' `
+        -Name 'Only individually validated System Security controls are executable' `
         -Test {
 
             $summary = Get-WinSecCheckRegistrySummary `
@@ -378,17 +378,17 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 10
+                -Expected 9
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `
-                -Expected 2
+                -Expected 3
 
             Assert-WinSecEqual `
                 -Actual $summary.Ready `
-                -Expected 2
+                -Expected 3
             $executable=@($script:BaseRegistry.Checks|Where-Object ExecutionEnabled)
-            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002'
+            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
             foreach ($check in $executable) {
                 Assert-WinSecEqual -Actual $check.ImplementationStatus -Expected 'VALIDATED'
                 Assert-WinSecEqual -Actual $check.ExecutionReady -Expected $true
@@ -456,8 +456,8 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $ready.Count `
-                -Expected 2
-            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002'
+                -Expected 3
+            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
         }
 
 

@@ -1,5 +1,5 @@
 # Collector -> audit adapter -> ResultModel -> public history, entirely in memory.
-# Production Windows Update stays disabled; no permission or catalog fixture overrides.
+# Production readiness and an explicitly disabled in-memory fixture are tested separately.
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
@@ -31,14 +31,21 @@ function New-WinSecWUFixtureSession {
         -CompletedAtUTC ([datetime]::UtcNow.ToString('o')) -ExecutionStatus COMPLETED -ExpectedCheckIds @('WSA-SYS-003') `
         -ControlResults @($record) -ScopeType CONTROL -ScopeKey WSA-SYS-003 -CatalogVersion $registry.CatalogVersion
 }
-Test-WinSecWUIntegration 'Production catalog retains pending validation and refuses implementation execution' {
-    Assert-WinSecWUIntegration ($check.ImplementationStatus -ceq 'PENDING_VALIDATION' -and -not $check.ExecutionEnabled -and
-        -not $check.ExecutionReady -and $check.FunctionName -ceq 'Test-WinSecWindowsUpdate')
-    $caught=$false;try{$null=Get-WinSecAuditImplementation -Check $check}catch{$caught=$true}
-    Assert-WinSecWUIntegration ($caught -and $script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
+Test-WinSecWUIntegration 'Production implementation is validated but loading it does not collect evidence' {
+    Assert-WinSecWUIntegration ($check.ImplementationStatus -ceq 'VALIDATED' -and $check.ExecutionEnabled -and
+        $check.ExecutionReady -and $check.FunctionName -ceq 'Test-WinSecWindowsUpdate')
+    $implementation=Get-WinSecAuditImplementation -Check $check
+    Assert-WinSecWUIntegration ($implementation -is [scriptblock] -and $script:WU.IdentityReads -eq 0 -and $script:WU.CimReads -eq 0 -and $script:WU.KeyReads -eq 0 -and
         $script:WU.VersionReads -eq 0 -and $script:WU.RebootReads -eq 0 -and $script:WU.NamedPolicyReads -eq 0)
 }
 Test-WinSecWUIntegration 'Coordinator cannot start or publish the disabled control even when confirmation accepts' {
+    function Get-WinSecCheckRegistry {
+        param($ProjectRoot)
+        $copy=Copy-WinSecResultData $registry
+        $disabled=$copy.Checks|Where-Object CheckId -CEQ 'WSA-SYS-003'
+        $disabled.ExecutionEnabled=$false;$disabled.ExecutionReady=$false;$disabled.RegistryStatus='DISABLED'
+        return $copy
+    }
     $coordinator=New-WinSecScanCoordinator;$target=New-WinSecLocalTarget
     $coordinator.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $coordinator.PublicHistoryEnabled=$false

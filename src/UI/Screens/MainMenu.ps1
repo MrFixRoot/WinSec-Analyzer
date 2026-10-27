@@ -27,7 +27,9 @@ function Get-WinSecMainMenuSections {
     param(
         [AllowEmptyCollection()]
         [object[]]$SectionResults = @(),
-        [AllowNull()][object]$ConfigurationAssessment = $null
+        [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$SectionViews = @(),
+        [string]$DeviceId = ''
     )
 
     # Main security categories
@@ -123,14 +125,51 @@ function Get-WinSecMainMenuSections {
         $resultsByKey[$key] = $status
     }
 
+    $sourceRows=@{}
+    if($SectionViews.Count -gt $definitions.Count){throw 'Too many section views.'}
+    foreach($inputView in $SectionViews) {
+        $view=Copy-WinSecResultData $inputView
+        Assert-WinSecConfigurationFields $view @('SectionKey','DeviceId','ScanId','ScopeType','ScopeKey','SectionResults','ConfigurationAssessment')
+        if($DeviceId -isnot [string] -or [string]::IsNullOrWhiteSpace($DeviceId) -or $view.DeviceId -isnot [string] -or
+            $view.DeviceId -cne $DeviceId -or $view.SectionKey -isnot [string] -or $view.SectionKey -cnotin $definitions.Key -or
+            $sourceRows.ContainsKey($view.SectionKey) -or $view.ScanId -isnot [string] -or
+            -not (Test-WinSecTargetIdentifier $view.ScanId) -or $view.SectionResults -isnot [array] -or
+            $view.ScopeType -isnot [string] -or $view.ScopeKey -isnot [string] -or
+            -not (($view.ScopeType -ceq 'SECTION' -and $view.ScopeKey -ceq $view.SectionKey) -or
+                ($view.ScopeType -ceq 'DEVICE' -and $view.ScopeKey -ceq 'ALL'))) {throw 'Invalid section view ownership or scope.'}
+        foreach($record in $view.SectionResults) {
+            $recordDeviceId=Get-WinSecResultField $record 'DeviceId'
+            $recordScanId=Get-WinSecResultField $record 'ScanId'
+            if($recordDeviceId -isnot [string] -or $recordDeviceId -cne $DeviceId -or
+                $recordScanId -isnot [string] -or $recordScanId -cne $view.ScanId){throw 'Foreign section view record.'}
+        }
+        $configuration=$null
+        if($null -ne $view.ConfigurationAssessment) {
+            $owner=[pscustomobject]@{DeviceId=$DeviceId;ScanId=$view.ScanId;ScopeType=$view.ScopeType;ScopeKey=$view.ScopeKey;
+                CatalogVersion=$view.ConfigurationAssessment.CatalogVersion}
+            $configuration=ConvertTo-WinSecPublicConfigurationAssessment $view.ConfigurationAssessment $owner
+        }
+        $sourceRows[$view.SectionKey]=@(Get-WinSecMainMenuSections -SectionResults $view.SectionResults `
+            -ConfigurationAssessment $configuration|Where-Object Key -CEQ $view.SectionKey)[0]
+    }
     foreach ($definition in $definitions) {
         $status = 'PENDING'
         if ($resultsByKey.ContainsKey($definition.Key)) { $status = $resultsByKey[$definition.Key] }
+        if($null -ne $ConfigurationAssessment) {
+            $sectionState=@($ConfigurationAssessment.Sections|Where-Object SectionKey -CEQ $definition.Key)
+            if($sectionState.Count -eq 1 -and $sectionState[0].Status -cin @('COMPLETE','NOT_APPLICABLE')) {
+                $status=$sectionState[0].Status
+            }
+        }
 
         # ----------------------------------------------------
         # Return normalized section
         # ----------------------------------------------------
 
+        if($sourceRows.ContainsKey($definition.Key)) {
+            $sourceRows[$definition.Key]
+            continue
+        }
         [PSCustomObject]@{
             Id     = $definition.Id
             Key    = $definition.Key
@@ -267,6 +306,7 @@ function Show-WinSecMainMenu {
         [object[]]$SectionResults = @(),
 
         [AllowNull()][object]$ConfigurationAssessment = $null,
+        [AllowEmptyCollection()][object[]]$SectionViews = @(),
         [string]$ScanId = '',
         [Nullable[int]]$OverallScore = $null,
 
@@ -288,8 +328,14 @@ function Show-WinSecMainMenu {
         throw 'Invalid unscored MainMenu summary.'
     }
     if ($null -ne $ConfigurationAssessment) {Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId}
+    $viewDeviceId=''
+    if($SectionViews.Count -gt 0) {
+        if($null -eq $NavigationState -or $NavigationState.SelectedDeviceId -isnot [string]){throw 'Section views require a device context.'}
+        $viewDeviceId=$NavigationState.SelectedDeviceId
+    }
     $sections = @(
-        Get-WinSecMainMenuSections -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment
+        Get-WinSecMainMenuSections -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment `
+            -SectionViews $SectionViews -DeviceId $viewDeviceId
     )
 
     # --------------------------------------------------------

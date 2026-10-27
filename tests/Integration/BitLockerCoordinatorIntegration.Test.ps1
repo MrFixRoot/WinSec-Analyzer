@@ -96,8 +96,8 @@ Test-WinSecBitLockerIntegrationCase 'Production BitLocker is individually valida
     $check=@($script:production.Checks|Where-Object CheckId -CEQ 'WSA-SYS-002')[0]
     Assert-WinSecBitLockerIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED')
 }
-foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002'},
-    @{T='SECTION';K='SystemSecurity';Ids='WSA-SYS-001|WSA-SYS-002'},
+foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
+    @{T='SECTION';K='SystemSecurity';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
     @{T='CONTROL';K='WSA-SYS-002';Ids='WSA-SYS-002'})) {
     Test-WinSecBitLockerIntegrationCase ('Production catalog selects exact approved controls before cancellation: '+$scope.T) {
         $script:useProductionRegistry=$true

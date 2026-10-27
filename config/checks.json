@@ -124,9 +124,9 @@
       "description": "Assess Windows Update security-related configuration.",
       "order": 3,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/System/Test-WindowsUpdate.ps1",
         "function": "Test-WinSecWindowsUpdate"

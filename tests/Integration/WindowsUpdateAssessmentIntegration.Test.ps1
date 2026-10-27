@@ -185,11 +185,12 @@ foreach($fault in @('Reason','Source','Support','Diagnostic')) {
         Assert-WinSecWUAssessmentRejected {ConvertTo-WinSecPublicScanResult $public}
     }
 }
-Test-WinSecWUAssessmentIntegration 'Installing criteria grants no production execution permission or automatic audit' {
+Test-WinSecWUAssessmentIntegration 'Loading the validated implementation performs no automatic audit' {
     Reset-WinSecWindowsUpdateFixture
     $registry=Get-WinSecCheckRegistry $root;$check=Get-WinSecRegisteredCheck $registry WSA-SYS-003
-    Assert-WinSecWUAssessmentRejected {Get-WinSecAuditImplementation $check $root}
-    Assert-WinSecWUAssessmentIntegration (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and
+    $implementation=Get-WinSecAuditImplementation -Check $check
+    Assert-WinSecWUAssessmentIntegration ($implementation -is [scriptblock] -and $check.ExecutionEnabled -and $check.ExecutionReady -and
+        $check.ImplementationStatus -ceq 'VALIDATED' -and
         ($script:WU.IdentityReads+$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads+$script:WU.NamedPolicyReads) -eq 0)
 }
 Write-Host ('Windows Update assessment integration: {0} passed, {1} failed.' -f $script:passed,$script:failed)

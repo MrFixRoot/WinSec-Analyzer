@@ -787,6 +787,29 @@ function Get-WinSecCLIControlViews {
     return $views
 }
 
+function Get-WinSecCLISectionViews {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+    # Each dashboard row retains its own validated source session. These views
+    # never become a device assessment, a combined score or an export source.
+    $sections=@(Get-WinSecMainMenuSections)
+    for($i=0;$i -lt $sections.Count;$i++) {
+        $selection=[pscustomobject]@{Screen='Findings';FindingsScope='Section';
+            SelectedDeviceId=$State.SelectedDeviceId;SectionIndex=$i;ControlIndex=0}
+        $assessment=Get-WinSecCLIActiveAssessment -State $selection -Context $Context
+        if($assessment.Warning){throw 'Ambiguous section table assessment.'}
+        if([string]::IsNullOrWhiteSpace($assessment.ScanId)){continue}
+        $sourceType=Get-WinSecCLIValue $assessment 'SourceScopeType'
+        $sourceKey=Get-WinSecCLIValue $assessment 'SourceScopeKey'
+        # Legacy unscoped data keeps its existing unscored presentation; it
+        # cannot supply a new row with an invented section/device scope.
+        if($null -eq $sourceType -and $null -eq $sourceKey){continue}
+        [pscustomobject]@{SectionKey=$sections[$i].Key;DeviceId=$State.SelectedDeviceId;ScanId=$assessment.ScanId;
+            ScopeType=$sourceType;ScopeKey=$sourceKey;
+            SectionResults=@($assessment.SectionResults);ConfigurationAssessment=(Get-WinSecCLIValue $assessment 'ConfigurationAssessment')}
+    }
+}
+
 function Get-WinSecCLISystemLabel {
     [CmdletBinding()]
     param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
@@ -913,6 +936,7 @@ function Show-WinSecCLICurrentScreen {
                 -OverallScore $assessment.OverallScore `
                 -OverallStatus $assessment.OverallStatus `
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
+                -SectionViews @(Get-WinSecCLISectionViews -State $State -Context $Context) `
                 -Version $Context.Version `
                 -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) `
                 @scanPresentation

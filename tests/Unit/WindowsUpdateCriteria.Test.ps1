@@ -189,10 +189,10 @@ Test-WinSecWUCriteria 'Profile discovery includes 101 exact Windows contexts and
         Assert-WinSecWUCriteria ($p.Policies[0].CatalogSha256 -ceq $plan.Preview.Policies[0].CatalogSha256)
     }
 }
-Test-WinSecWUCriteria 'Installed individual scoring supports weights without enabling global scoring or the pending check' {
+Test-WinSecWUCriteria 'Individually validated Windows Update supports approved weights while global scoring stays disabled' {
     $check=Get-WinSecRegisteredCheck (Get-WinSecCheckRegistry $root) WSA-SYS-003
     $global=ConvertFrom-WinSecStoredJson (Get-Content (Join-Path $root 'config/scoring.json') -Raw)
-    Assert-WinSecWUCriteria (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and $check.ImplementationStatus -ceq 'PENDING_VALIDATION' -and
+    Assert-WinSecWUCriteria ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
         -not $global.enabled -and $global.activationStatus -ceq 'PENDING_APPROVED_CRITERIA' -and
         $global.configurationScoring.methodologyVersion -ceq '1.2.0' -and $global.configurationScoring.controlMethod -ceq 'WEIGHTED_PASS_CRITERIA_FRACTION')
 }

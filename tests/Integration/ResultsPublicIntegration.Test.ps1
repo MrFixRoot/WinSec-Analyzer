@@ -35,9 +35,9 @@ function Set-WinSecResultsTestTerminal {
 }
 $catalog=Get-Content -LiteralPath (Join-Path $root 'config/checks.json') -Raw|ConvertFrom-Json
 $enabled=@($catalog.checks|Where-Object {$_.execution.enabled -eq $true})
-if($enabled.Count -ne 2 -or (($enabled.checkId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002' -or
+if($enabled.Count -ne 3 -or (($enabled.checkId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabled | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0){
-    throw 'Only validated Defender and BitLocker may be enabled in production.'
+    throw 'Only validated System Security controls may be enabled in production.'
 }
 $deviceId='local:RESULTS-PUBLIC';$scanId='results-public-1'
 $collectors=@(foreach($check in $catalog.checks){
