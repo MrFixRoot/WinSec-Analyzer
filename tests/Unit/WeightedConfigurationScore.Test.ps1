@@ -142,13 +142,13 @@ Test-WinSecWeighted 'Older arithmetic still ignores weights and does not silentl
     $f=New-WinSecWeightedConfigurationFixture;$f.Policy.Policy.methodologyVersion='1.1.0';$f.Policy.Policy.controlMethod='PASS_CRITERIA_FRACTION'
     Assert-WinSecWeightedRejected {Invoke-WinSecWeightedConfigurationFixture $f}
 }
-Test-WinSecWeighted 'Legacy weighted methodology remains readable with five validated controls and global scoring blocked' {
+Test-WinSecWeighted 'Legacy weighted methodology remains readable with six validated controls and global scoring blocked' {
     $p=Get-WinSecConfigurationScoringPolicy $root;$registry=Get-WinSecCheckRegistry $root
     $rootPolicy=ConvertFrom-WinSecStoredJson (Get-Content (Join-Path $root 'config/scoring.json') -Raw -Encoding UTF8)
     $enabled=@($registry.Checks|Where-Object ExecutionEnabled)
     Assert-WinSecWeighted ($p.Policy.methodologyVersion -ceq '1.2.0' -and $p.Policy.controlMethod -ceq 'WEIGHTED_PASS_CRITERIA_FRACTION' -and -not $rootPolicy.enabled -and
         $rootPolicy.activationStatus -ceq 'PENDING_APPROVED_CRITERIA' -and
-        (($enabled.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+        (($enabled.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
         @($enabled|Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -eq 0)
 }
 Write-Host ('Weighted configuration scoring: {0} passed, {1} failed.' -f $script:passed,$script:failed)

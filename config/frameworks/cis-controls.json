@@ -59,6 +59,7 @@
         }
     ],
     "mappings": [
+        {"checkId":"WSA-NET-004","references":[{"id":"4.8","controlId":"4","safeguardId":"4.8","title":"Uninstall or Disable Unnecessary Services on Enterprise Assets and Software","url":"https://cas.docs.cisecurity.org/en/latest/source/Controls4/","criterionIds":["WSA-PRT-REVIEW-001","WSA-PRT-REVIEW-002"],"description":"A local endpoint inventory supports reviewing unnecessary services. A non-loopback binding is review context, not proof that the service is unnecessary, reachable or noncompliant.","recommendation":"Compare every binding with the approved service inventory and business need. Have authorized administrators remove unnecessary services and review host filtering; retain justified exceptions and reassess through a confirmed scan."}]},
         {
             "checkId": "WSA-NET-003",
             "references": [

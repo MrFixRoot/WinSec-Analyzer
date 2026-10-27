@@ -79,7 +79,7 @@ foreach($framework in @('nist-csf','cis-controls','mitre-attack')){
     Test-Rdp ('Saved RDP data generates contextual warnings with reviewed references: '+$framework) {
         $a=New-WinSecRdpFixtureAnalysis $root $framework;$md=New-WinSecFrameworkMarkdown $a
         Assert-Rdp ($a.Rows.Count -eq 8 -and @($a.Rows|Where-Object {$_.References.Count -eq 0}).Count -eq 0 -and
-            $md -notmatch 'PRIVATE-|NOT_SCORED|/100' -and $a.RuleCatalogVersion -ceq '1.4.0')
+            $md -notmatch 'PRIVATE-|NOT_SCORED|/100' -and $a.RuleCatalogVersion -ceq '1.5.0')
     }
 }
 Test-Rdp 'Disabled Home unknown and conflicting hosts cannot produce listener-security warnings' {

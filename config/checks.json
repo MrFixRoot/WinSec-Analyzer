@@ -200,12 +200,12 @@
       "controlKey": "RemoteDesktop",
       "sectionKey": "NetworkSecurity",
       "name": "Remote Desktop",
-      "description": "Assess Remote Desktop security configuration, including applicable protection settings.",
+      "description": "Collect local Remote Desktop services, listener configuration and reviewed machine policies for framework review, preserving unknown readings and coverage limits.",
       "order": 3,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Network/Test-RDP.ps1",
         "function": "Test-WinSecRDP"

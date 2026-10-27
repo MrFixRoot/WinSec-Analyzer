@@ -366,7 +366,7 @@ try {
 
 
     Invoke-WinSecRegistryTest `
-        -Name 'Only individually validated System Security, Firewall and SMBv1 controls are executable' `
+        -Name 'Only individually validated System Security, Firewall, SMBv1 and Remote Desktop controls are executable' `
         -Test {
 
             $summary = Get-WinSecCheckRegistrySummary `
@@ -378,17 +378,17 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 7
+                -Expected 6
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `
-                -Expected 5
+                -Expected 6
 
             Assert-WinSecEqual `
                 -Actual $summary.Ready `
-                -Expected 5
+                -Expected 6
             $executable=@($script:BaseRegistry.Checks|Where-Object ExecutionEnabled)
-            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
+            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
             foreach ($check in $executable) {
                 Assert-WinSecEqual -Actual $check.ImplementationStatus -Expected 'VALIDATED'
                 Assert-WinSecEqual -Actual $check.ExecutionReady -Expected $true
@@ -456,8 +456,8 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $ready.Count `
-                -Expected 5
-            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
+                -Expected 6
+            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
         }
 
 

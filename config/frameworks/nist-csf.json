@@ -78,6 +78,7 @@
         }
     ],
     "mappings": [
+        {"checkId":"WSA-NET-004","references":[{"id":"PR.PS-01","functionId":"PR","categoryId":"PR.PS","subcategoryId":"PR.PS-01","title":"Configuration management practices are established and applied","url":"https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf","criterionIds":["WSA-PRT-REVIEW-001","WSA-PRT-REVIEW-002"],"description":"Saved local bindings support configuration review against an approved baseline. They do not establish reachability, exploitation or framework compliance.","recommendation":"Document the purpose, owner and intended interfaces of every binding and compare them with approved configuration and filtering policy. Review changes through authorized administration; validate reachability separately when explicitly authorized."}]},
         {
             "checkId": "WSA-NET-003",
             "references": [

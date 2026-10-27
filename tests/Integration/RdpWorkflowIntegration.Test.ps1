@@ -1,4 +1,4 @@
-# Isolated RDP execution permission and synthetic providers. No production scans.
+# Real production permissions and synthetic providers. No native Windows scans.
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
@@ -28,17 +28,11 @@ try {
     Set-Alias Invoke-WinSecRdpQuery Invoke-WinSecRdpFixtureQuery -Scope Script
     Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-RdpIntegration 'Production RDP remains disabled pending native validation' {
+    Test-RdpIntegration 'Production enables RDP after native validation and leaves eight controls disabled' {
         $check=@($production.Checks|Where-Object CheckId -CEQ WSA-NET-003)[0]
-        Assert-RdpIntegration (-not $check.ExecutionEnabled -and @($production.Checks|Where-Object ExecutionEnabled).Count -eq 5)
-    }
-    $script:RdpRegistryReader=(Get-Command Get-WinSecCheckRegistry -CommandType Function).ScriptBlock
-    function Get-WinSecCheckRegistry {
-        param($ProjectRoot)
-        $registry=& $script:RdpRegistryReader $ProjectRoot
-        $check=@($registry.Checks|Where-Object CheckId -CEQ WSA-NET-003)[0]
-        $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
-        return $registry
+        Assert-RdpIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 8)
     }
     Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
@@ -49,6 +43,15 @@ try {
         $ids=if($request.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003'}else{'WSA-NET-003'}
         Assert-RdpIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
+    }
+    Test-RdpIntegration 'Device confirmation lists exactly six validated controls and cancels without collection' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($request)
+            Assert-RdpIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+            $false
+        }
+        Assert-RdpIntegration ($null -eq $r -and $RdpCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
     }
     Test-RdpIntegration 'Cancelling confirmation leaves providers history and technical reports untouched' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled -ScopeType CONTROL -ScopeKey WSA-NET-003 -ConfirmAction {$false}
@@ -72,7 +75,7 @@ try {
         Assert-RdpIntegration ($null -eq $r -and $c.Sessions.Count -eq 1 -and $RdpCalls.Count -eq 2 -and
             @(Get-ChildItem (Join-Path $sandbox 'reports/exports') -Recurse -File).Count -eq $before)
     }
-    Test-RdpIntegration 'A confirmed section executes exactly its three isolated controls and saves independent Markdown files' {
+    Test-RdpIntegration 'A confirmed section executes its three production-enabled controls and saves independent Markdown files' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId rdp-section -ScopeType SECTION -ScopeKey NetworkSecurity `
             -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
         Assert-RdpIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 3 -and

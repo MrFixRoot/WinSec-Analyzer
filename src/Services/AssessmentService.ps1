@@ -105,12 +105,12 @@ function Get-WinSecAssessmentProfilePlan {
         if (-not (Test-WinSecTargetIdentifier $checkId) -or $snapshots.ContainsKey($checkId)) {
             throw 'Invalid assessment profile control selection.'
         }
-        if($checkId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003')) {
+        if($checkId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')) {
             $definition=@(Get-WinSecInstalledAssessmentProfiles $ProjectRoot|Where-Object Profile -CEQ $Profile)
             if($definition.Count -ne 1){throw 'Unknown Windows collection context.'}
             $snapshots[$checkId]=$null
-            $telemetry=if($checkId -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}elseif($checkId -ceq 'WSA-NET-002'){'SmbTelemetry.ps1'}else{'RdpTelemetry.ps1'}
-            $collectionId=if($checkId -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}elseif($checkId -ceq 'WSA-NET-002'){'WSA-SMB-COLLECTION'}else{'WSA-RDP-COLLECTION'}
+            $telemetry=if($checkId -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}elseif($checkId -ceq 'WSA-NET-002'){'SmbTelemetry.ps1'}elseif($checkId -ceq 'WSA-NET-004'){'OpenPortsTelemetry.ps1'}else{'RdpTelemetry.ps1'}
+            $collectionId=if($checkId -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}elseif($checkId -ceq 'WSA-NET-002'){'WSA-SMB-COLLECTION'}elseif($checkId -ceq 'WSA-NET-004'){'WSA-PORTS-COLLECTION'}else{'WSA-RDP-COLLECTION'}
             $policies.Add([pscustomobject]@{CheckId=$checkId;CatalogId=$collectionId;CatalogVersion='1.0.0';
                 CatalogSha256=(Get-WinSecReportTextHash ($definition[0].MatrixSha256+'|'+(Get-FileHash -LiteralPath (Join-Path $ProjectRoot ('src/Core/'+$telemetry))).Hash));
                 OSFamily='Windows';OSRelease=$definition[0].OSRelease;Edition=$definition[0].Edition})
@@ -146,9 +146,9 @@ function Get-WinSecAssessmentProfileOptions {
     )
     $seen = @{}
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
-    if($CheckIds.Count -eq 1 -and $CheckIds[0] -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003')) {
-        $telemetry=if($CheckIds[0] -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}elseif($CheckIds[0] -ceq 'WSA-NET-002'){'SmbTelemetry.ps1'}else{'RdpTelemetry.ps1'}
-        $collectionId=if($CheckIds[0] -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}elseif($CheckIds[0] -ceq 'WSA-NET-002'){'WSA-SMB-COLLECTION'}else{'WSA-RDP-COLLECTION'}
+    if($CheckIds.Count -eq 1 -and $CheckIds[0] -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')) {
+        $telemetry=if($CheckIds[0] -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}elseif($CheckIds[0] -ceq 'WSA-NET-002'){'SmbTelemetry.ps1'}elseif($CheckIds[0] -ceq 'WSA-NET-004'){'OpenPortsTelemetry.ps1'}else{'RdpTelemetry.ps1'}
+        $collectionId=if($CheckIds[0] -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}elseif($CheckIds[0] -ceq 'WSA-NET-002'){'WSA-SMB-COLLECTION'}elseif($CheckIds[0] -ceq 'WSA-NET-004'){'WSA-PORTS-COLLECTION'}else{'WSA-RDP-COLLECTION'}
         $schema=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot ('src/Core/'+$telemetry)) -Algorithm SHA256).Hash
         foreach($definition in @(Get-WinSecInstalledAssessmentProfiles $ProjectRoot)) {
             Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$definition.Profile;Policies=@([pscustomobject]@{
@@ -174,7 +174,7 @@ function Get-WinSecAssessmentProfileOptions {
         # Reuse the exact approval and metadata contract of the coordinator.
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
     }
-    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002','WSA-NET-003')}).Count) {
+    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')}).Count) {
         $installed = @(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)
         $expanded = @($installed | Where-Object {$null -eq $_.FileName})
         $template = $null
@@ -194,7 +194,7 @@ function Get-WinSecAssessmentProfileOptions {
         }
         foreach ($definition in $installed) {
             if ($names.Contains($definition.Profile)) { continue }
-            if(@($CheckIds|Where-Object {$_ -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003')}).Count) {
+            if(@($CheckIds|Where-Object {$_ -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')}).Count) {
                 (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
                 continue
             }

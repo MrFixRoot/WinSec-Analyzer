@@ -23,6 +23,12 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        'WSA-NET-004' {
+            $lines.Add('- TCP LISTEN and UDP bindings are a local point-in-time inventory. UDP has no LISTEN state. Neither proves reachability, allowed Firewall traffic, vulnerability or the service using a port.')
+            $lines.Add('- IPv4 and IPv6 are both included. ANY means a wildcard bind, LOOPBACK is local-only, SPECIFIC is a concrete local address. Addresses are SHA256 tokens; PID is transient. No process names, paths, command lines, users, peers or credentials are collected.')
+            $lines.Add('- The same reviewed schema is used for Windows 11 editions/builds. Missing optional metadata remains UNKNOWN and limits coverage. A failed provider or missing required endpoint field keeps the scan PARTIAL; an observed empty inventory is valid.')
+            $lines.Add('- Every returned endpoint is retained up to 512 per protocol in batches of 64. Exceeding the limit rejects that provider inventory explicitly, never silently truncates it. Repeated socket tuples are preserved as separate snapshot records; IDs are local to this scan.')
+        }
         'WSA-NET-003' {
             if($r.CatalogVersion -ceq '1.1.0'){
                 $coverage=@($r.Rows|Where-Object SettingId -CEQ CoverageComplete)[0]
@@ -64,6 +70,19 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $group=''
     foreach($row in $r.Rows) {
         $d=Get-WinSecTechnicalRowDefinition $row.SettingId $defs
+        if($d.Kind -ceq 'portsBatch' -and $row.State -ceq 'OBSERVED'){
+            $group='';$lines.Add('');$lines.Add('## '+$d.Group+' / '+$row.SettingId);$lines.Add('')
+            $lines.Add('| ID | Family | Binding | Address token | Port | PID | Created UTC | State | Applied setting | Offload |')
+            $lines.Add('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+            foreach($item in (ConvertTo-WinSecOpenPortsBatch $row.Value)){
+                $values=@($item.Id,$item.Family,$item.BindingScope,$item.AddressId,$item.Port,$item.OwningProcess,$item.CreationTimeUTC,
+                    $(if($item.Protocol -ceq 'TCP'){'LISTEN'}else{'BOUND'}),$(if($item.Protocol -ceq 'TCP'){$item.AppliedSetting}else{'NOT_APPLICABLE'}),
+                    $(if($item.Protocol -ceq 'TCP'){$item.OffloadState}else{'NOT_APPLICABLE'}))
+                $cells=@($values|ForEach-Object {if($null -eq $_){'UNKNOWN'}else{ConvertTo-WinSecTechnicalCell $_}})
+                $lines.Add('| '+($cells -join ' | ')+' |')
+            }
+            $lines.Add('');continue
+        }
         if($d.Kind -ceq 'rdpInventory' -and $row.State -ceq 'OBSERVED'){
             $group='';$lines.Add('');$lines.Add('## '+$d.Group);$lines.Add('')
             $batch=ConvertTo-WinSecRdpInventory $row.Value

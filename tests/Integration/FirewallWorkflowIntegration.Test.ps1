@@ -21,6 +21,7 @@ try {
     . (Join-Path $sandbox 'src/CLI/FrameworkWorkflow.ps1')
     . (Join-Path $sourceRoot 'tests/Fixtures/FirewallMemory.ps1')
     . (Join-Path $sourceRoot 'tests/Fixtures/SmbMemory.ps1')
+    . (Join-Path $sourceRoot 'tests/Fixtures/RdpMemory.ps1')
     function Get-WinSecNetworkIntegrationCim {
         [CmdletBinding()]param($Namespace,$ClassName,$Property,$Filter,$OperationTimeoutSec)
         if($Namespace -ceq 'root/cimv2' -and $OperationTimeoutSec -eq 5){return Get-WinSecSmbFixtureCim @PSBoundParameters}
@@ -32,30 +33,33 @@ try {
     Set-Alias Invoke-WinSecFirewallQuery Invoke-WinSecFirewallFixtureQuery -Scope Script
     Set-Alias Invoke-WinSecSmbQuery Invoke-WinSecSmbFixtureQuery -Scope Script
     Set-Alias Read-WinSecSmbRegistryValue Read-WinSecSmbFixtureRegistry -Scope Script
+    Set-Alias Invoke-WinSecRdpQuery Invoke-WinSecRdpFixtureQuery -Scope Script
+    Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
     Initialize-WinSecFirewallFixture
     Initialize-WinSecSmbFixture
+    Initialize-WinSecRdpFixture
     $null=Register-WinSecLocalDevice -ProjectRoot $sandbox
     $c=New-WinSecScanCoordinator $sandbox;$target=New-WinSecLocalTarget
     $c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
-    Test-FWIntegration 'Production registry enables only the five individually validated controls' {
+    Test-FWIntegration 'Production registry enables only the six individually validated controls' {
         $registry=Get-WinSecCheckRegistry $sandbox
         $ready=@(Get-WinSecExecutableChecks -Registry $registry)
-        Assert-FWIntegration ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($registry.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 9 -and $FirewallCalls.Count -eq 0)
+        Assert-FWIntegration ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($registry.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 8 -and $FirewallCalls.Count -eq 0)
     }
-    Test-FWIntegration 'Device confirmation lists all five enabled controls and cancellation makes no queries' {
+    Test-FWIntegration 'Device confirmation lists all six enabled controls and cancellation makes no queries' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId 'cancelled-device' -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($request)
             Assert-FWIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
-        Assert-FWIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $FirewallCalls.Count -eq 0)
+        Assert-FWIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $RdpCalls.Count -eq 0)
     }
     $script:allowScan=$true
     $confirmation={param($request)
-        $ids=if($request.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002'}else{'WSA-NET-001'}
+        $ids=if($request.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003'}else{'WSA-NET-001'}
         Assert-FWIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq $ids -and
             $request.TechnicalReports.SchemaVersion -ceq '3.0.0')
         return $script:allowScan
@@ -88,10 +92,12 @@ try {
         Assert-FWIntegration ($null -eq $r -and $c.Sessions.Count -eq 1 -and $FirewallCalls.Count -lt 25 -and
             @(Get-ChildItem -LiteralPath (Join-Path $sandbox 'reports/exports') -Recurse -File).Count -eq $before)
     }
-    Test-FWIntegration 'Section scan saves Firewall and SMB sources without running pending controls or System Security' {
+    Test-FWIntegration 'Section scan saves Firewall SMB and RDP sources without running pending controls or System Security' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId 'firewall-section' -ScopeType SECTION -ScopeKey NetworkSecurity -ConfirmAction $confirmation
         Assert-FWIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $r.ScopeType -ceq 'SECTION' -and $r.ScopeKey -ceq 'NetworkSecurity' -and
-            $c.LastTechnicalReports.Status -ceq 'SAVED' -and $c.LastTechnicalReports.Files.Count -eq 2 -and $SmbCalls.Count -eq 13)
+            $c.LastTechnicalReports.Status -ceq 'SAVED' -and $c.LastTechnicalReports.Files.Count -eq 3 -and $SmbCalls.Count -eq 13 -and
+            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003' -and
+            $RdpCalls.Count -eq (9+@(Get-WinSecRdpRegistryDefinitions).Count))
         $r=Read-WinSecTechnicalReport $sandbox $target.DeviceId 'firewall-section' WSA-NET-001
         Assert-FWIntegration ($r.ScopeType -ceq 'SECTION' -and $r.ScopeKey -ceq 'NetworkSecurity')
     }
@@ -102,13 +108,13 @@ try {
         $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-FW';DisplayName='SYNTHETIC-FW'});
             PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
         $null=Restore-WinSecPublicHistory -Context $ctx
-        $calls=$FirewallCalls.Count
+        $calls=$FirewallCalls.Count;$rdpReads=$RdpCalls.Count
         function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
         Assert-FWIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
         $state.Screen='Findings';$state.FindingsScope='Control'
         $artifact=Export-WinSecCLIFrameworkFindings $state $ctx
         Assert-FWIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.FrameworkId -ceq 'nist-csf' -and
-            $ctx.FrameworkFindings.Rows.Count -eq 5 -and $FirewallCalls.Count -eq $calls -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS')
+            $ctx.FrameworkFindings.Rows.Count -eq 5 -and $FirewallCalls.Count -eq $calls -and $RdpCalls.Count -eq $rdpReads -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS')
     }
     Test-FWIntegration 'Large Firewall inventories roundtrip without raising public history limits' {
         . (Join-Path $sandbox 'src/Checks/Firewall/Test-Firewall.ps1')
