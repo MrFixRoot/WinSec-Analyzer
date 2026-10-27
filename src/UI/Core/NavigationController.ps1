@@ -603,7 +603,7 @@ function Invoke-WinSecNavigationAction {
 
         'Exit' {
 
-            if ($State.Screen -in @('Devices', 'MainMenu')) {
+            if ($State.Screen -in @('Devices', 'MainMenu', 'Section', 'Results')) {
 
                 $State.ExitRequested = $true
 

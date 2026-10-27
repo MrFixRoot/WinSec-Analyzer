@@ -5,7 +5,7 @@ $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 foreach($file in @('src/Core/ResultModel.ps1','src/CLI/Invoke-WinSecCLI.ps1',
     'src/UI/Core/KeyboardController.ps1','src/UI/Core/NavigationController.ps1',
-    'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1')){. (Join-Path $root $file)}
+    'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Components/KeyboardHelp.ps1')){. (Join-Path $root $file)}
 $script:passed=0;$script:failed=0
 function Test-WinSecScopedKeys {
     param([string]$Name,[scriptblock]$Action)
@@ -22,6 +22,20 @@ foreach($screen in @('Devices','MainMenu','Section','Results')){
     }
 }
 foreach($screen in @('Section','Results')){
+    Test-WinSecScopedKeys ('Q exits from the controls screen and appears in help: '+$screen) {
+        foreach($character in @('Q','q')) {
+            $state=New-WinSecNavigationState;$state.Screen=$screen
+            $event=[pscustomobject]@{VirtualKeyCode=81;Character=$character;KeyDown=$true;ControlKeyState=0}
+            $action=ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $screen
+            $null=Invoke-WinSecNavigationAction -State $state -Action $action
+            Assert-WinSecScopedKeys ($action -ceq 'Exit' -and $state.ExitRequested -and $state.PendingCommand -ceq 'Exit' -and $state.PendingScope -ceq 'Application')
+        }
+        Assert-WinSecScopedKeys (@(Get-WinSecKeyboardShortcuts -Screen $screen|Where-Object {$_.Key -ceq 'Q' -and $_.Action -ceq 'Exit'}).Count -eq 1)
+        $event.KeyDown=$false
+        Assert-WinSecScopedKeys ((ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $screen) -ceq 'None')
+        $event.KeyDown=$true
+        foreach($modifier in @(1,2,4,8)){$event.ControlKeyState=$modifier;Assert-WinSecScopedKeys ((ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $screen) -ceq 'None')}
+    }
     Test-WinSecScopedKeys ('F opens findings and Enter is inactive on control list: '+$screen) {
         $state=New-WinSecNavigationState;$state.Screen=$screen;$state.ControlIndex=1
         $event=[pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0}

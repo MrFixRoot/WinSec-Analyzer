@@ -154,7 +154,9 @@ function Test-WinSecKeyboardActionAllowed {
             return (
                 $Screen -in @(
                     'Devices',
-                    'MainMenu'
+                    'MainMenu',
+                    'Section',
+                    'Results'
                 )
             )
         }

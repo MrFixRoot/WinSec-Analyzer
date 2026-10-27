@@ -1524,6 +1524,10 @@ function Invoke-WinSecCLILocalRescan {
     $coordinator = $Context.ScanCoordinator
     $deviceId = Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)
     $scope = Get-WinSecCLIScanScope -State $State
+    # Operational notice ownership, separate from immutable scan results.
+    $notice=[pscustomobject]@{DeviceId=$deviceId;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
+    if($null -ne $Context.PSObject.Properties['LastScanMessageContext']){$Context.LastScanMessageContext=$notice}
+    else {$Context|Add-Member LastScanMessageContext $notice}
     $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
     if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
     if ($null -eq $scopeMap) { $scopeMap = @{} }
@@ -2402,7 +2406,13 @@ function Invoke-WinSecCLI {
                     $bounds=Get-WinSecCLINavigationCounts -State $navigationState -Context $context -Action ShowFindings
                     $null=Invoke-WinSecNavigationAction -State $navigationState -Action ShowFindings -SectionCount $bounds.SectionCount -ControlCount $bounds.ControlCount
                 }
-            } catch {$context.LastScanMessage='Framework review failed or was rejected. Previous results were preserved.'}
+            } catch {
+                $scope=Get-WinSecCLIViewScope $navigationState
+                $notice=[pscustomobject]@{DeviceId=$navigationState.SelectedDeviceId;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
+                if($null -ne $context.PSObject.Properties['LastScanMessageContext']){$context.LastScanMessageContext=$notice}
+                else {$context|Add-Member LastScanMessageContext $notice}
+                $context.LastScanMessage='Framework review failed or was rejected. Previous results were preserved.'
+            }
             $null=& $renderAction $navigationState
             continue
         }

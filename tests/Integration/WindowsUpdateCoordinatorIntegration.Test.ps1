@@ -313,6 +313,38 @@ try {
         $null=Invoke-WinSecNavigationAction $state Back
         Assert-WinSecUpdateCoordinator ($state.Screen -ceq 'MainMenu')
     }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - control notices follow selection and Q exits without another scan' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId;$state.SelectedDeviceName='SYNTHETIC'
+        function Show-WinSecAssessmentProfileSelection {
+            param($Request,$Profiles,$CurrentSystemLabel)
+            [pscustomobject]@{Confirmed=$true;Selection=@($Profiles|Where-Object Profile -CEQ WSA-W11-25H2-PRO-DEF-BASE)[0]}
+        }
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        $p=Invoke-WinSecCLILocalRescan -State $state -Context $ctx
+        $reads=$script:sequence;$history=Get-WinSecPublicHistoryJson $script:store
+        Assert-WinSecUpdateCoordinator ($null -ne $p -and $ctx.LastScanMessageContext.ScopeKey -ceq 'WSA-SYS-001' -and $script:defenderReads -eq 1 -and $script:volumeReads -eq 0)
+        Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|').Contains('Technical Markdown files saved: 1'))
+        $null=Invoke-WinSecNavigationAction $state MoveDown -ControlCount 3
+        Show-WinSecCLICurrentScreen $state $ctx
+        $rows=@(Get-WinSecWorkflowControlRows $state $ctx)
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|') -notmatch 'Scan COMPLETE|Technical Markdown files saved' -and
+            $rows[0].Status -ceq 'COMPLETE' -and $rows[1].Status -ceq 'PENDING' -and $rows[2].Status -ceq 'PENDING')
+        # Cancelling BitLocker produces a notice for BitLocker only and no new session.
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0})
+        $cancelled=Invoke-WinSecCLILocalRescan -State $state -Context $ctx
+        Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WinSecUpdateCoordinator ($null -eq $cancelled -and ($script:lines -join '|').Contains('Scan cancelled.') -and $ctx.LastScanMessageContext.ScopeKey -ceq 'WSA-SYS-002')
+        $null=Invoke-WinSecNavigationAction $state MoveUp -ControlCount 3
+        Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|') -notmatch 'Scan cancelled\.' -and $reads -eq $script:sequence -and $history -ceq (Get-WinSecPublicHistoryJson $script:store))
+        $key=[pscustomobject]@{VirtualKeyCode=81;Character='q';KeyDown=$true;ControlKeyState=0}
+        $action=ConvertTo-WinSecKeyboardAction -KeyInfo $key -Screen Section
+        $null=Invoke-WinSecNavigationAction $state $action
+        Assert-WinSecUpdateCoordinator ($state.ExitRequested -and $state.PendingCommand -ceq 'Exit' -and $reads -eq $script:sequence)
+    }
     Test-WinSecTechnicalCoordinator 'Framework workflow - live and restored records keep completion states without ratings' {
         $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
         $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId

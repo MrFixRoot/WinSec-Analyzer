@@ -47,6 +47,8 @@ Test-WorkflowUI 'Device, section and control screens hide every numeric rating a
     foreach($screen in @('Devices','MainMenu','Section')) {
         $state.Screen=$screen;Show-WinSecCLICurrentScreen $state $ctx;$text=$script:lines -join '|'
         Assert-WorkflowUI ($text -notmatch 'SCORE|/100|NOT_SCORED|Config %' -and $text.Contains('COMPLETE') -and $text.Contains('RECORDS') -and $script:colors.Contains('DarkBlue'))
+        $header=switch($screen){Devices {'Device'};MainMenu {'Sections'};default {'Controls'}}
+        Assert-WorkflowUI ($text.Contains($header.ToUpperInvariant()) -and $text -notmatch 'Section / control')
         Assert-WorkflowUI ($text.Contains('WinSec-Analyzer v0.9.0') -and $text.Contains('https://github.com/MrFixRoot/WinSec-Analyzer') -and $text.Contains('mrRoot'))
         $script:terminal=[pscustomobject]@{Width=80;ContentWidth=79;Height=25;IsCompact=$false}
         Show-WinSecCLICurrentScreen $state $ctx;$text=$script:lines -join '|'
@@ -54,6 +56,29 @@ Test-WorkflowUI 'Device, section and control screens hide every numeric rating a
             @($script:lines|Where-Object {$_.Length -gt 79}).Count -eq 0 -and $script:lines.Count -lt 25)
         $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55;IsCompact=$false}
     }
+}
+Test-WorkflowUI 'A scan notice stays with its device and exact control or section selection' {
+    $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$ctx.LocalDeviceId
+    $ctx.LastScanMessage='Scan COMPLETE. Technical Markdown files saved: 1'
+    $notice=[pscustomobject]@{DeviceId=$ctx.LocalDeviceId;ScopeType='CONTROL';ScopeKey='WSA-SYS-001'}
+    $ctx|Add-Member LastScanMessageContext $notice
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|').Contains('Technical Markdown files saved: 1'))
+    $null=Invoke-WinSecNavigationAction $state MoveDown -ControlCount 3
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|') -notmatch 'Scan COMPLETE|Technical Markdown files saved')
+    $null=Invoke-WinSecNavigationAction $state MoveUp -ControlCount 3
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|').Contains('Technical Markdown files saved: 1'))
+    $notice.DeviceId='local:hw1-'+('c'*64)
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|') -notmatch 'Scan COMPLETE|Technical Markdown files saved')
+    $notice.DeviceId=$ctx.LocalDeviceId;$notice.ScopeType='SECTION';$notice.ScopeKey='SystemSecurity';$state.Screen='MainMenu'
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|').Contains('Technical Markdown files saved: 1'))
+    $null=Invoke-WinSecNavigationAction $state MoveDown -SectionCount 5
+    Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WorkflowUI (($script:lines -join '|') -notmatch 'Scan COMPLETE|Technical Markdown files saved')
 }
 Test-WorkflowUI 'Mixed sources are records and an unfinished section is partial' {
     $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$ctx.LocalDeviceId

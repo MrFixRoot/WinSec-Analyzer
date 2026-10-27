@@ -132,6 +132,7 @@ function Get-WinSecKeyboardShortcuts {
                 Key    = 'ESC'
                 Action = 'Back'
             }
+            $items += @{ Key='Q'; Action='Exit' }
 
             $items
         }
@@ -198,6 +199,7 @@ function Get-WinSecKeyboardShortcuts {
                 Key    = 'ESC'
                 Action = 'Back'
             }
+            $items += @{ Key='Q'; Action='Exit' }
 
             $items
         }

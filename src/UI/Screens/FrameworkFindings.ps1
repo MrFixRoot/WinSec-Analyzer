@@ -16,7 +16,7 @@ function Show-WinSecFrameworkProgress {
 }
 
 function Get-WinSecWorkflowColumns {
-    param([switch]$Findings,[switch]$Devices)
+    param([switch]$Findings,[switch]$Devices,[switch]$Sections)
     if($Findings) {
         return @(@{Key='Id';Header='ID';Width=3;MinWidth=2;MaxWidth=5;Priority=1},
             @{Key='Control';Header='Control / criterion';Width=32;MinWidth=12;MaxWidth=64;Priority=2},
@@ -24,7 +24,7 @@ function Get-WinSecWorkflowColumns {
             @{Key='State';Header='State';Width=9;MinWidth=7;MaxWidth=9;Priority=3})
     }
     $columns=@(@{Key='Id';Header='ID';Width=3;MinWidth=2;MaxWidth=5;Priority=1},
-        @{Key='Name';Header=if($Devices){'Device'}else{'Section / control'};Width=32;MinWidth=12;MaxWidth=65;Expand=$true;Priority=1},
+        @{Key='Name';Header=if($Devices){'Device'}elseif($Sections){'Sections'}else{'Controls'};Width=32;MinWidth=12;MaxWidth=65;Expand=$true;Priority=1},
         @{Key='Status';Header='Status';Width=9;MinWidth=8;MaxWidth=10;Priority=1},
         @{Key='Mode';Header='Mode';Width=8;MinWidth=7;MaxWidth=9;Priority=2})
     if($Devices){$columns+=@{Key='HardwareId';Header='Hardware ID';Width=22;MinWidth=12;MaxWidth=68;Priority=3};
@@ -117,11 +117,17 @@ function Show-WinSecWorkflowScreen {
         if($label){Write-WinSecText -Text ('CURRENT OS: '+$label) -Color Gray}
     }
     Write-WinSecText -Text 'Status describes collection progress. COMPLETE does not mean secure.' -Color DarkGray
-    Write-WinSecTable -Columns (Get-WinSecWorkflowColumns -Devices:($State.Screen -ceq 'Devices')) -Rows $rows -SelectedIndex $index -MaxRows ([Math]::Max(1,[int]$layout.MaxTableRows))
+    Write-WinSecTable -Columns (Get-WinSecWorkflowColumns -Devices:($State.Screen -ceq 'Devices') -Sections:($State.Screen -ceq 'MainMenu')) -Rows $rows -SelectedIndex $index -MaxRows ([Math]::Max(1,[int]$layout.MaxTableRows))
     $scan=Get-WinSecCLIScanPresentation $State $Context
     if($scan.EnableRescan){$label=switch($State.Screen){Devices {'Local Device'};MainMenu {'Section'};default {'Control'}};
         Write-WinSecText -Text ('[R] '+$scan.ScanAction+' '+$label) -Color Cyan}
     $message=if($State.Screen -ceq 'Devices'){Get-WinSecCLIValue $Context LastDeviceMessage}else{Get-WinSecCLIValue $Context LastScanMessage}
+    if($message -and $State.Screen -cne 'Devices') {
+        $notice=Get-WinSecCLIValue $Context LastScanMessageContext
+        $scope=Get-WinSecCLIScanScope $State
+        if($null -eq $notice -or $notice.DeviceId -cne $State.SelectedDeviceId -or
+            $notice.ScopeType -cne $scope.ScopeType -or $notice.ScopeKey -cne $scope.ScopeKey){$message=''}
+    }
     if($message){Write-WinSecText -Text $message -Color Yellow}
     Write-WinSecKeyboardHelp -Screen $State.Screen
 }
