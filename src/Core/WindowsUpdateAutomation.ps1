@@ -1,5 +1,6 @@
 # Pure automation interpretation. No source is upgraded by a caller's flag.
 . (Join-Path $PSScriptRoot 'WindowsUpdateServicing.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdatePolicyApplicability.ps1')
 
 function Get-WinSecWindowsUpdateAutomationReview {
     [CmdletBinding()]
@@ -19,7 +20,8 @@ function Get-WinSecWindowsUpdateAutomationReview {
     }
     if($service.StartMode -cnotin @('MANUAL','AUTO')){return $result}
     $result.Reason='POLICY_SOURCES_UNVERIFIED'
-    if((Get-WinSecWindowsUpdateReferenceValue $evidence 'SchemaVersion') -cne '1.2.0'){return $result}
+    $schema=Get-WinSecWindowsUpdateReferenceValue $evidence 'SchemaVersion'
+    if($schema -cnotin @('1.2.0','1.3.0')){return $result}
     # Policy CSP lists managed editions. Unsupported provider != control N/A.
     if($platform.OperatingSystemSKU -in @(98,99,100,101)) {
         $result.Reason='POLICY_PROVIDER_EDITION_UNVERIFIED';return $result
@@ -57,6 +59,16 @@ function Get-WinSecWindowsUpdateAutomationReview {
         'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
         $policy=$named.$name
         try {Assert-WinSecWindowsUpdateReferenceFields $policy @('Source','Area','Name','State','Kind','Managed','Value')} catch {return $result}
+        if($name -ceq 'IgnoreWindowsUpdateGroupPolicies' -and $schema -ceq '1.3.0' -and
+            (Test-WinSecWindowsUpdateLegacyPolicyPlatform $platform)) {
+            foreach($field in @('Source','Area','Name','State','Kind')) {
+                if($policy.$field -isnot [string]){return $result}
+            }
+            if($policy.Source -cne 'WINRT:NamedPolicy' -or $policy.Area -cne 'Update' -or $policy.Name -cne $name -or
+                $policy.State -cne 'NOT_APPLICABLE' -or $policy.Kind -cne 'UNKNOWN' -or
+                $null -ne $policy.Managed -or $null -ne $policy.Value){return $result}
+            continue
+        }
         if($policy.Source -isnot [string] -or $policy.Source -cne 'WINRT:NamedPolicy' -or $policy.Area -isnot [string] -or $policy.Area -cne 'Update' -or
             $policy.Name -isnot [string] -or $policy.Name -cne $name -or $policy.State -isnot [string] -or $policy.State -cne 'OBSERVED' -or
             $policy.Kind -isnot [string] -or $policy.Kind -cnotin @('Invalid','Binary','Boolean','Int32','Int64','String') -or
@@ -72,7 +84,8 @@ function Get-WinSecWindowsUpdateAutomationReview {
             $result.Reason='OVERRIDE_POLICY_REQUIRES_REVIEW';return $result
         }
     }
-    $ignoreGp=($named.IgnoreWindowsUpdateGroupPolicies.Managed -and $named.IgnoreWindowsUpdateGroupPolicies.Value -eq 1)
+    $ignoreGp=($named.IgnoreWindowsUpdateGroupPolicies.State -ceq 'OBSERVED' -and
+        $named.IgnoreWindowsUpdateGroupPolicies.Managed -and $named.IgnoreWindowsUpdateGroupPolicies.Value -eq 1)
     if($ignoreGp -and ($platform.BuildNumber -cnotin @('26100','26200') -or
         $platform.RevisionState -cne 'OBSERVED' -or $platform.Revision -lt 8973)) {
         # KB5101684 documents these exact two branches. Do not transpose UBR

@@ -31,12 +31,13 @@ function Get-WinSecWindowsUpdateCriteriaTemplate {
         }
         $sha=[Security.Cryptography.SHA256]::Create()
         $hash=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','')
-        if($catalog.SchemaVersion -cne '1.0.0' -or $catalog.CatalogVersion -cne '1.1.0' -or
+        if($catalog.SchemaVersion -cne '1.0.0' -or $catalog.CatalogVersion -cne '1.2.0' -or
             $catalog.CheckId -cne 'WSA-SYS-003' -or $catalog.Criteria -isnot [array] -or $catalog.Criteria.Count -ne 3 -or
             -not (Test-WinSecCriteriaCatalog $catalog).ReadyForScoring){throw 'Unapproved Windows Update policy.'}
         for($i=0;$i -lt 3;$i++) {
             $rule=$catalog.Criteria[$i]
             if($rule.CriterionId -cne ('WSA-WUP-BASE-00'+($i+1)) -or $rule.Operator -cne 'Equals' -or
+                $rule.Source.Version -cne $catalog.CatalogVersion -or
                 $rule.EvidencePath -cne @('WindowsUpdate.Automation','WindowsUpdate.SecurityBaseline','WindowsUpdate.SecuritySupport')[$i] -or
                 $rule.ExpectedValue -isnot [bool] -or -not $rule.ExpectedValue -or
                 (Get-WinSecCriterionWeight $rule) -ne @(15,35,50)[$i] -or

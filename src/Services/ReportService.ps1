@@ -170,6 +170,9 @@ function New-WinSecFindingsMarkdown {
         foreach ($control in @($configuration.Controls|Where-Object {$copy.ScopeType -ceq 'SECTION' -and $_.SectionKey -ceq $copy.ScopeKey -or $copy.ScopeType -ceq 'CONTROL' -and $_.CheckId -ceq $copy.ScopeKey})) {
             $excluded=@($control.Criteria|Where-Object Status -CEQ NOT_APPLICABLE).Count
             $lines.Add(('- {0}; score: {1}; applicable criterion coverage: {2}/{3}; excluded: {4}; recorded: {5}' -f $control.CheckId,(Get-WinSecConfigurationScoreText $configuration 'CONTROL' $control.CheckId),$control.EvaluatedCriteria,($control.TotalCriteria-$excluded),$excluded,$control.TotalCriteria))
+            if($control.CheckId -ceq 'WSA-SYS-003' -and $excluded -gt 0) {
+                $lines.Add('  - Verified end of security support excludes the 35-point patch baseline. The remaining 15-point automation and 50-point support criteria are normalized to 100. This exclusion does not confirm that Windows is patched; the support failure remains recorded.')
+            }
             foreach ($criterion in $control.Criteria) {
                 $lines.Add((ConvertTo-WinSecMarkdownText ('  Criterion: ' + $criterion.CriterionId + '; ' + $criterion.Status + '; catalog: ' + $criterion.CatalogId + ' / ' + $criterion.CatalogVersion + '; SHA256: ' + $criterion.CatalogSha256)))
             }

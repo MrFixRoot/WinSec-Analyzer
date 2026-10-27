@@ -164,6 +164,16 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
                 $null=Get-WinSecCriterionPlatformExclusion $exclusion
             }
         }
+        if($control.CheckId -ceq 'WSA-SYS-003') {
+            foreach($criterion in @($control.Criteria|Where-Object Status -CEQ NOT_APPLICABLE)) {
+                if($criterion.CriterionId -cne 'WSA-WUP-BASE-002' -or $criterion.CatalogVersion -cnotlike '1.2.0+*' -or
+                    $criterion.ApplicabilityReason -cne 'PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT' -or
+                    $criterion.ApplicabilitySourceUrl -cne 'https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information' -or
+                    @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-WUP-BASE-003' -and $_.Status -ceq 'FAIL'}).Count -ne 1) {
+                    throw 'A Windows Update patch exclusion requires its recorded end-of-support criterion.'
+                }
+            }
+        }
         Assert-WinSecConfigurationTotals $control (Get-WinSecConfigurationControlTotals $control $copy.MethodologyVersion)
     }
     # The entire recorded section/device set must be present, including disabled checks.
@@ -243,6 +253,10 @@ function New-WinSecConfigurationAssessment {
                 elseif($weight -ne 1){throw 'Weighted criteria require methodology 1.2.0.'}
                 if($status -ceq 'NOT_APPLICABLE') {
                     $exclusion=Get-WinSecCriterionPlatformExclusion $rule $Context
+                    if($null -eq $exclusion -and $definition.CheckId -ceq 'WSA-SYS-003' -and $collector.Count -eq 1) {
+                        $exclusion=Get-WinSecWindowsUpdateCriterionExclusion -Criterion $rule -Evidence $collector[0].Evidence `
+                            -TargetContext $Context -DeviceId $Audit.DeviceId -ScanId $Audit.ScanId
+                    }
                     if($null -eq $exclusion){throw 'Unverified platform exclusion cannot be scored.'}
                     $control.Criteria[-1]|Add-Member ApplicabilityReason $exclusion.Reason
                     $control.Criteria[-1]|Add-Member ApplicabilitySourceUrl $exclusion.SourceUrl
@@ -342,6 +356,10 @@ function Assert-WinSecConfigurationProvenance {
             if ($result.Status -cne $criterion.Status) { throw 'Configuration result cannot be independently reproduced.' }
             if($criterion.Status -ceq 'NOT_APPLICABLE') {
                 $exclusion=Get-WinSecCriterionPlatformExclusion $rules[0] $context
+                if($null -eq $exclusion -and $control.CheckId -ceq 'WSA-SYS-003') {
+                    $exclusion=Get-WinSecWindowsUpdateCriterionExclusion -Criterion $rules[0] -Evidence $collectors[0].Evidence `
+                        -TargetContext $context -DeviceId $Session.DeviceId -ScanId $Session.ScanId
+                }
                 if($null -eq $exclusion -or $criterion.ApplicabilityReason -cne $exclusion.Reason -or
                     $criterion.ApplicabilitySourceUrl -cne $exclusion.SourceUrl){throw 'Platform exclusion differs from the approved criterion.'}
             }

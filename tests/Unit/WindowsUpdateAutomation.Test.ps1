@@ -232,7 +232,7 @@ foreach($build in @('26100','26200')) {
         }
     }
 }
-foreach($build in @('22631','26300','28000')) {
+foreach($build in @('26300','28000')) {
     Test-WinSecWUAutomation ('An ignore-GPO branch threshold is not extrapolated to another Windows release: '+$build) {
         $script:WU.Systems[0].Version='10.0.'+$build;$script:WU.Systems[0].BuildNumber=$build
         $script:WU.VersionValues.CurrentBuildNumber=$build;$script:WU.VersionValues.UBR=99999
@@ -240,6 +240,32 @@ foreach($build in @('22631','26300','28000')) {
         $script:WU.NamedPolicies.AllowAutoUpdate.Managed=$true
         $r=Get-WinSecWindowsUpdateAutomationReview $catalog (New-WinSecWUAutomationControl)
         Assert-WinSecWUAutomation ($r.State -ceq 'UNKNOWN' -and $r.Reason -ceq 'GROUP_POLICY_OVERRIDE_PLATFORM_UNVERIFIED')
+    }
+}
+foreach($build in @('22000','22621','22631')) {
+    Test-WinSecWUAutomation ('Earlier client automation resolves without querying the unavailable policy: '+$build) {
+        $script:WU.Systems[0].Version='10.0.'+$build;$script:WU.Systems[0].BuildNumber=$build
+        $script:WU.VersionValues.CurrentBuildNumber=$build
+        $control=New-WinSecWUAutomationControl
+        $r=Get-WinSecWindowsUpdateAutomationReview $catalog $control
+        Assert-WinSecWUAutomation ($r.State -ceq 'AUTOMATIC' -and $script:WU.NamedPolicyReads -eq 4)
+        $control.Evidence.AutomationPolicy.AllowAutoUpdate.State='UNKNOWN'
+        Assert-WinSecWUAutomation ((Get-WinSecWindowsUpdateAutomationReview $catalog $control).State -ceq 'UNKNOWN')
+    }
+}
+foreach($fault in @('SupportedBranch','OldSchema','Managed','Value','Source','Kind','WrongState','BuildMismatch','EmptyState','ArraySource')) {
+    Test-WinSecWUAutomation ('A declared policy exclusion needs independent platform and schema proof: '+$fault) {
+        $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631'
+        $script:WU.VersionValues.CurrentBuildNumber='22631';$control=New-WinSecWUAutomationControl
+        $p=$control.Evidence.AutomationPolicy.IgnoreWindowsUpdateGroupPolicies
+        switch($fault) {
+            SupportedBranch {$control.Evidence.Platform.Version='10.0.26100';$control.Evidence.Platform.BuildNumber='26100';$control.Evidence.VersionRegistry.CurrentBuildNumber.Value='26100'}
+            OldSchema {$control.Evidence.SchemaVersion='1.2.0'}
+            Managed {$p.Managed=$false};Value {$p.Value=0};Source {$p.Source='OTHER'};Kind {$p.Kind='Int32'}
+            WrongState {$p.State='UNKNOWN'};BuildMismatch {$control.Evidence.VersionRegistry.CurrentBuildNumber.Value='26100'}
+            EmptyState {$p.State=@()};ArraySource {$p.Source=@('WINRT:NamedPolicy')}
+        }
+        Assert-WinSecWUAutomation ((Get-WinSecWindowsUpdateAutomationReview $catalog $control).State -ceq 'UNKNOWN')
     }
 }
 foreach($fault in @('MissingNoAuto','MissingOption','NoAutoRange','UnknownGpo','FutureMdm','InvalidMdm','UnmanagedNonDefault','OldSchema','Source','Type','Flag')) {

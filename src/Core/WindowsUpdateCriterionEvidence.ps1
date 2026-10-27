@@ -43,7 +43,7 @@ function Resolve-WinSecWindowsUpdateDependencies {
         ($null -ne $observed -and ($observed -isnot [string] -or $observed -cne 'INFORMATIONAL')) -or
         $evidence.CollectionSuccessful -isnot [bool] -or -not $evidence.CollectionSuccessful -or
         $evidence.Scope -isnot [string] -or $evidence.Scope -cne 'LOCAL_CONFIGURATION_ONLY' -or
-        $evidence.SchemaVersion -isnot [string] -or $evidence.SchemaVersion -cnotin @('1.1.0','1.2.0')) {return ,$dependencies}
+        $evidence.SchemaVersion -isnot [string] -or $evidence.SchemaVersion -cnotin @('1.1.0','1.2.0','1.3.0')) {return ,$dependencies}
     $null=ConvertTo-WinSecWindowsUpdateReferenceUtc $evidence.CollectedAtUTC
     $dependencies[$key]=[bool]$allowed
     return ,$dependencies
@@ -91,7 +91,21 @@ function Get-WinSecWindowsUpdateCriterionReview {
     $view.Automation=Get-WinSecWindowsUpdateAutomationReview $reference.Catalog $control
     $view.SecurityBaseline=[pscustomobject]@{State=$review.SecurityBaseline.State;Reason=$review.SecurityBaseline.Reason}
     $view.SecuritySupport=[pscustomobject]@{State=$review.SecuritySupport.State;Reason=$review.SecuritySupport.Reason}
+    if($Criterion.Source.Version -clike '1.2.0+*' -and $review.SecuritySupport.State -ceq 'OUT_OF_SUPPORT') {
+        $view.SecurityBaseline=[pscustomobject]@{State='NOT_APPLICABLE';Reason='PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT'}
+    }
     return $view
+}
+
+function Get-WinSecWindowsUpdateCriterionExclusion {
+    [CmdletBinding()]
+    param([object]$Criterion,[object]$Evidence,[object]$TargetContext,[string]$DeviceId,[string]$ScanId)
+    if($Criterion.CheckId -cne 'WSA-SYS-003' -or $Criterion.CriterionId -cne 'WSA-WUP-BASE-002'){return}
+    $review=Get-WinSecWindowsUpdateCriterionReview @PSBoundParameters
+    if($review.SecurityBaseline.State -ceq 'NOT_APPLICABLE') {
+        [pscustomobject]@{Reason='PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT';
+            SourceUrl='https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information'}
+    }
 }
 
 function Get-WinSecWindowsUpdateCriterionEvidence {

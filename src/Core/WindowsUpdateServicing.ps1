@@ -169,7 +169,7 @@ function ConvertTo-WinSecWindowsUpdateServicingPlatform {
     if($status -isnot [string] -or $status -cne 'INFORMATIONAL' -or
         ($null -ne $observed -and ($observed -isnot [string] -or $observed -cne 'INFORMATIONAL')) -or
         $section -isnot [string] -or $section -cne 'SystemSecurity' -or
-        $schema -isnot [string] -or $schema -cnotin @('1.1.0','1.2.0') -or $scope -isnot [string] -or $scope -cne 'LOCAL_CONFIGURATION_ONLY' -or
+        $schema -isnot [string] -or $schema -cnotin @('1.1.0','1.2.0','1.3.0') -or $scope -isnot [string] -or $scope -cne 'LOCAL_CONFIGURATION_ONLY' -or
         $successful -isnot [bool] -or -not $successful){return $platform}
     $cim=Get-WinSecWindowsUpdateReferenceValue $evidence 'Platform'
     $registry=Get-WinSecWindowsUpdateReferenceValue $evidence 'VersionRegistry'

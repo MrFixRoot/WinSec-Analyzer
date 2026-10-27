@@ -23,7 +23,7 @@ function Test-WinSecWUCriteria {
 Test-WinSecWUCriteria 'Installed approved three-rule policy preserves exact weights and pinned dated references' {
     $f=New-WinSecWindowsUpdateAssessmentFixture;$c=$f.Catalogs['WSA-SYS-003'].Catalog
     Assert-WinSecWUCriteria ((Test-WinSecCriteriaCatalog $c).ReadyForScoring -and ($c.Criteria.Weight -join '|') -ceq '15|35|50' -and
-        $c.CatalogVersion -ceq '1.1.0+2026.10.24.1' -and
+        $c.CatalogVersion -ceq '1.2.0+2026.10.24.1' -and
         (ConvertTo-WinSecWindowsUpdateReferenceUtc $c.Criteria[0].WindowsUpdateReference.Catalog.AsOfUTC).ToString('yyyy-MM-dd') -ceq '2026-10-24')
 }
 foreach($change in @(
@@ -120,12 +120,30 @@ foreach($fault in @('RevisionMissing','RevisionNewer','RestartPending','RestartU
             @($r.Assessment.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0)
     }
 }
-Test-WinSecWUCriteria 'Unsupported Windows emits support deviation and leaves patch applicability unknown' {
+Test-WinSecWUCriteria 'Verified end of support excludes patch weight and preserves the support deviation' {
     $script:WU.Systems[0].Version='10.0.26100';$script:WU.Systems[0].BuildNumber='26100';$script:WU.VersionValues.CurrentBuildNumber='26100'
     $r=Invoke-WinSecWindowsUpdateAssessmentFixture (New-WinSecWindowsUpdateAssessmentFixture WSA-W11-24H2-PRO-DEF-BASE)
-    Assert-WinSecWUCriteria (($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'PASS|UNKNOWN|FAIL' -and
-        $null -eq $r.Summary.Controls[0].Value -and
+    Assert-WinSecWUCriteria (($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'PASS|NOT_APPLICABLE|FAIL' -and
+        $r.Summary.Controls[0].Value -eq 23.08 -and $r.Summary.Controls[0].Coverage -eq 100 -and
         @($r.Assessment.Findings|Where-Object {$_.Kind -ceq 'CONFIGURATION_DEVIATION' -and $_.CriterionId -ceq 'WSA-WUP-BASE-003'}).Count -eq 1)
+}
+Test-WinSecWUCriteria 'Previous policy keeps patch applicability unknown after support ended' {
+    $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631';$script:WU.VersionValues.CurrentBuildNumber='22631'
+    $f=New-WinSecWindowsUpdateAssessmentFixture WSA-W11-23H2-PRO-DEF-BASE
+    $f.Catalogs['WSA-SYS-003'].Catalog.CatalogVersion='1.1.0+2026.10.24.1'
+    foreach($rule in $f.Catalogs['WSA-SYS-003'].Catalog.Criteria){$rule.Source.Version='1.1.0+2026.10.24.1'}
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    Assert-WinSecWUCriteria (($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'PASS|UNKNOWN|FAIL' -and
+        $null -eq $r.Summary.Controls[0].Value)
+}
+Test-WinSecWUCriteria 'Patch exclusion cannot compensate for unresolved automation after support ended' {
+    $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631';$script:WU.VersionValues.CurrentBuildNumber='22631'
+    $script:WU.NamedPolicyFailures=@('AllowAutoUpdate')
+    $f=New-WinSecWindowsUpdateAssessmentFixture WSA-W11-23H2-PRO-DEF-BASE
+    $f.Audit.ControlResults[0].Evidence.AutomationPolicy.AllowAutoUpdate.State='UNKNOWN'
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    Assert-WinSecWUCriteria (($r.Assessment.EvaluationResults[0].Evaluations.Status -join '|') -ceq 'UNKNOWN|NOT_APPLICABLE|FAIL' -and
+        $null -eq $r.Summary.Controls[0].Value)
 }
 foreach($fault in @('Device','Scan','Check','Digest','Weight','Expected','Path','MissingReference','CollectedTime')) {
     Test-WinSecWUCriteria ('Foreign or changed provenance is rejected: '+$fault) {

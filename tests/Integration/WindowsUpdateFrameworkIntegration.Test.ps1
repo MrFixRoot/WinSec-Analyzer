@@ -87,8 +87,12 @@ foreach($scenario in @('Automation','Baseline','Support')) {
                 Assert-WinSecUpdateFrameworkIntegration (-not $report.Markdown.Contains((ConvertTo-WinSecMarkdownText $frameworks[$other].name)))
             }
             if($scenario -ceq 'Support') {
-                Assert-WinSecUpdateFrameworkIntegration ($null -eq $p.ConfigurationAssessment.Controls[0].Value -and
-                    $p.ReviewItems[1].Status -ceq 'UNKNOWN' -and $report.Markdown.Contains((ConvertTo-WinSecMarkdownText 'PATCH_APPLICABILITY_UNVERIFIED')))
+                Assert-WinSecUpdateFrameworkIntegration ($p.ConfigurationAssessment.Controls[0].Value -eq 23.08 -and
+                    $p.ConfigurationAssessment.Controls[0].Criteria[1].Status -ceq 'NOT_APPLICABLE' -and
+                    $p.ReviewItems[1].Status -ceq 'OBSERVED' -and
+                    $p.ReviewItems[1].WindowsUpdateSetting.State -ceq 'NOT_APPLICABLE' -and
+                    $report.Markdown.Contains((ConvertTo-WinSecMarkdownText 'PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT')) -and
+                    $report.Markdown.Contains('normalized to 100'))
             } else {
                 $expected=if($scenario -ceq 'Automation'){85}else{65}
                 Assert-WinSecUpdateFrameworkIntegration ($p.ConfigurationAssessment.Controls[0].Value -eq $expected)

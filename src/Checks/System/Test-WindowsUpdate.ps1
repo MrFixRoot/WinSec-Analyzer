@@ -108,7 +108,7 @@ function Test-WinSecWindowsUpdate {
     $restart=[pscustomobject]@{Source='WUA:ISystemInformation.RebootRequired';State='UNKNOWN';Value=$null}
     $automationPolicy=[pscustomobject]@{}
     $evidence=[pscustomobject]@{
-        SchemaVersion='1.2.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
+        SchemaVersion='1.3.0';CheckId=$CheckId;DeviceId=$DeviceId;ScanId=$ScanId;CollectedAtUTC=$now
         Scope='LOCAL_CONFIGURATION_ONLY';Platform=$platform;UpdateService=$service;PolicyRegistry=$policies
         VersionRegistry=$versionRegistry;RestartInformation=$restart
         AutomationPolicy=$automationPolicy
@@ -265,6 +265,12 @@ function Test-WinSecWindowsUpdate {
         'IgnoreWindowsUpdateGroupPolicies','SetEDURestart')) {
         $observation=[pscustomobject]@{Source='WINRT:NamedPolicy';Area='Update';Name=$name;State='UNKNOWN'
             Kind='UNKNOWN';Managed=$null;Value=$null}
+        if($name -ceq 'IgnoreWindowsUpdateGroupPolicies' -and
+            (Test-WinSecWindowsUpdateLegacyPolicyPlatform $platform)) {
+            $observation.State='NOT_APPLICABLE'
+            $automationPolicy|Add-Member -NotePropertyName $name -NotePropertyValue $observation
+            continue
+        }
         try {
             $observations=@(Get-WinSecWindowsUpdateNamedPolicy -Name $name -ErrorAction Stop)
             if($observations.Count -ne 1){throw 'Ambiguous named policy.'}

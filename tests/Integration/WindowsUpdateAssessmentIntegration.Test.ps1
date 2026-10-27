@@ -32,7 +32,7 @@ Test-WinSecWUAssessmentIntegration 'Original collection produces legitimate patc
     $copy=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $json)
     Assert-WinSecWUAssessmentIntegration ($public.ConfigurationAssessment.Controls[0].Value -eq 65 -and
         $public.Findings.Count -eq 1 -and $public.Findings[0].Guidance.CriterionId -ceq 'WSA-WUP-BASE-002' -and
-        $public.Findings[0].Guidance.CatalogVersion -ceq '1.1.0+2026.10.24.1' -and $null -eq $public.OverallScore -and
+        $public.Findings[0].Guidance.CatalogVersion -ceq '1.2.0+2026.10.24.1' -and $null -eq $public.OverallScore -and
         (Get-WinSecPublicHistoryJson $copy.PublicResult) -ceq (Get-WinSecPublicHistoryJson $public) -and
         $json -notmatch 'PRIVATE-WU|"Evidence"|PolicyRegistry|VersionRegistry|AutomationPolicy|NamedPolicy|WindowsUpdateReference|ObservedValue')
 }
@@ -123,6 +123,67 @@ Test-WinSecWUAssessmentIntegration 'Caller catalog mutation cannot rewrite an ex
     $f.Catalogs['WSA-SYS-003'].Catalog.Criteria[0].WindowsUpdateReference.Catalog.ValidUntilUTC='2026-10-24T01:00:00Z'
     $f.Audit.ControlResults[0].Evidence.UpdateService.StartMode='DISABLED'
     Assert-WinSecWUAssessmentIntegration ($before -ceq (Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)))
+}
+Test-WinSecWUAssessmentIntegration 'End-of-support exclusion survives Findings, immutable history and three Markdown frameworks' {
+    $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631';$script:WU.VersionValues.CurrentBuildNumber='22631'
+    $script:WU.NamedPolicyFailures=@('IgnoreWindowsUpdateGroupPolicies')
+    $f=New-WinSecWindowsUpdateAssessmentFixture WSA-W11-23H2-PRO-DEF-BASE
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    $session=New-WinSecWindowsUpdateAssessmentSession $f $r
+    $record=New-WinSecPublicHistoryRecord $session
+    $copy=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
+    $public=$copy.PublicResult
+    Assert-WinSecWUAssessmentIntegration ($f.Audit.ControlResults[0].Evidence.CollectionComplete -and
+        $script:WU.NamedPolicyReads -eq 4 -and $public.ConfigurationAssessment.Controls[0].Value -eq 23.08 -and
+        $public.Findings.Count -eq 1 -and $public.Findings[0].Guidance.CriterionId -ceq 'WSA-WUP-BASE-003' -and
+        ($public.ConfigurationAssessment.Controls[0].Criteria.Status -join '|') -ceq 'PASS|NOT_APPLICABLE|FAIL')
+    $state=New-WinSecNavigationState;$state.Screen='Findings';$state.SelectedDeviceId=$public.DeviceId;$state.FindingsScope='Control';$state.ControlIndex=2
+    $key='{0}:{1}{2}:{3}' -f $public.DeviceId.Length,$public.DeviceId,$public.ScanId.Length,$public.ScanId
+    $context=[pscustomobject]@{ProjectRoot=$root;PublicScans=@{$key=$public};ActiveScanByDevice=@{};
+        ActiveScanByScope=@{(Get-WinSecCLIScopeKey $public.DeviceId CONTROL WSA-SYS-003)=$public.ScanId}}
+    $selection=Get-WinSecCLIFindingsExportSelection $state $context
+    foreach($framework in @('cis-controls','nist-csf','mitre-attack')) {
+        $report=New-WinSecFindingsMarkdown $selection -FrameworkId $framework
+        Assert-WinSecWUAssessmentIntegration ($report.Markdown.Contains('23.08/100') -and
+            $report.Markdown.Contains('normalized to 100') -and $report.Markdown.Contains('EXCLUDED') -and
+            $report.Markdown.Contains('security support has ended') -and $report.Markdown -notmatch 'PRIVATE-WU|PolicyRegistry|NamedPolicy')
+    }
+    $before=Get-WinSecPublicHistoryJson $public
+    $session.ControlResults[0].Evidence.Platform.OperatingSystemSKU=4
+    Assert-WinSecWUAssessmentRejected {ConvertTo-WinSecPublicScanResult $session}
+    Assert-WinSecWUAssessmentIntegration ((Get-WinSecPublicHistoryJson $public) -ceq $before)
+}
+Test-WinSecWUAssessmentIntegration 'A historical 1.1 policy keeps its unresolved patch criterion and unscored result' {
+    $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631';$script:WU.VersionValues.CurrentBuildNumber='22631'
+    $f=New-WinSecWindowsUpdateAssessmentFixture WSA-W11-23H2-PRO-DEF-BASE
+    $f.Catalogs['WSA-SYS-003'].Catalog.CatalogVersion='1.1.0+2026.10.24.1'
+    foreach($rule in $f.Catalogs['WSA-SYS-003'].Catalog.Criteria){$rule.Source.Version='1.1.0+2026.10.24.1'}
+    $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+    $record=New-WinSecPublicHistoryRecord (New-WinSecWindowsUpdateAssessmentSession $f $r)
+    $before=Get-WinSecPublicHistoryJson $record
+    function Get-WinSecWindowsUpdateCriteriaTemplate {throw 'Unexpected historical policy reload.'}
+    function Get-WinSecWindowsUpdateReferenceCatalog {throw 'Unexpected historical reference reload.'}
+    $copy=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson $before)
+    Assert-WinSecWUAssessmentIntegration ($copy.PublicResult.ConfigurationAssessment.Controls[0].Status -ceq 'NOT_SCORED' -and
+        $null -eq $copy.PublicResult.ConfigurationAssessment.Controls[0].Value -and
+        ($copy.PublicResult.ConfigurationAssessment.Controls[0].Criteria.Status -join '|') -ceq 'PASS|UNKNOWN|FAIL' -and
+        $before -ceq (Get-WinSecPublicHistoryJson $record))
+}
+foreach($fault in @('Reason','Source','Support','Diagnostic')) {
+    Test-WinSecWUAssessmentIntegration ('Public patch exclusions reject contradictory provenance: '+$fault) {
+        $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631';$script:WU.VersionValues.CurrentBuildNumber='22631'
+        $f=New-WinSecWindowsUpdateAssessmentFixture WSA-W11-23H2-PRO-DEF-BASE
+        $r=Invoke-WinSecWindowsUpdateAssessmentFixture $f
+        $public=ConvertTo-WinSecPublicScanResult (New-WinSecWindowsUpdateAssessmentSession $f $r)
+        $criteria=$public.ConfigurationAssessment.Controls[0].Criteria
+        switch($fault) {
+            Reason {$criteria[1].ApplicabilityReason='UNKNOWN'}
+            Source {$criteria[1].ApplicabilitySourceUrl='https://example.org/wrong'}
+            Support {$criteria[2].Status='PASS'}
+            Diagnostic {($public.ReviewItems|Where-Object {$_.WindowsUpdateSetting.CriterionId -ceq 'WSA-WUP-BASE-002'}).WindowsUpdateSetting.Reason='REVISION_UNVERIFIED'}
+        }
+        Assert-WinSecWUAssessmentRejected {ConvertTo-WinSecPublicScanResult $public}
+    }
 }
 Test-WinSecWUAssessmentIntegration 'Installing criteria grants no production execution permission or automatic audit' {
     Reset-WinSecWindowsUpdateFixture

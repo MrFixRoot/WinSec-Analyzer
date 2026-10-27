@@ -8,6 +8,7 @@ $script:passed=0;$script:failed=0
 . (Join-Path $root 'tests/Fixtures/WindowsUpdateMemory.ps1')
 Reset-WinSecWindowsUpdateFixture
 . (Join-Path $root 'src/Checks/System/WindowsUpdatePolicyReader.ps1')
+. (Join-Path $root 'src/Core/WindowsUpdatePolicyApplicability.ps1')
 . $path
 $importReads=$script:WU.IdentityReads+$script:WU.CimReads+$script:WU.KeyReads+$script:WU.VersionReads+$script:WU.RebootReads+$script:WU.NamedPolicyReads
 $realKeyReader=(Get-Command Open-WinSecWindowsUpdatePolicyKey).ScriptBlock
@@ -32,7 +33,7 @@ Test-WinSecWindowsUpdateCase 'Only allowlisted local metadata, update service, p
     $results=@(Invoke-WinSecWindowsUpdateFixture);$r=$results[0];$e=$r.Evidence
     Assert-WinSecWindowsUpdate ($results.Count -eq 1 -and $r.CheckId -ceq 'WSA-SYS-003' -and $r.DeviceId -ceq $script:WU.DeviceId -and
         $r.ScanId -ceq 'wu-unit-1' -and $r.SectionKey -ceq 'SystemSecurity' -and $r.Status -ceq 'INFORMATIONAL' -and
-        $e.SchemaVersion -ceq '1.2.0' -and $e.Scope -ceq 'LOCAL_CONFIGURATION_ONLY' -and $e.CollectionSuccessful -and $e.CollectionComplete -and
+        $e.SchemaVersion -ceq '1.3.0' -and $e.Scope -ceq 'LOCAL_CONFIGURATION_ONLY' -and $e.CollectionSuccessful -and $e.CollectionComplete -and
         $e.DeviceId -ceq $r.DeviceId -and $e.ScanId -ceq $r.ScanId -and $e.CheckId -ceq $r.CheckId -and
         $e.CollectedAtUTC -ceq $r.TimestampUTC -and $e.Platform.BuildNumber -ceq '26100' -and $e.Platform.OperatingSystemSKU -eq 48 -and
         $script:WU.IdentityReads -eq 1 -and $script:WU.CimReads -eq 2 -and $script:WU.KeyReads -eq 2 -and
@@ -46,6 +47,23 @@ Test-WinSecWindowsUpdateCase 'Only allowlisted local metadata, update service, p
     Assert-WinSecWindowsUpdate (-not $e.ScoringEligible -and -not $e.EffectivePolicyVerified -and -not $e.UpdateSearchPerformed -and
         $e.PatchCurrency -ceq 'NOT_EVALUATED' -and $e.ComplianceAssessment -ceq 'NOT_EVALUATED' -and $null -eq $e.CriteriaSource -and
         (ConvertTo-Json $r -Depth 12) -notmatch 'PRIVATE-WU|PASS|FAIL|WUServerUrl|StartName|PathName|"Score"')
+}
+foreach($build in @('22000','22621','22631')) {
+    Test-WinSecWindowsUpdateCase ('A policy introduced in 24H2 is not queried on a verified earlier client: '+$build) {
+        $script:WU.Systems[0].Version='10.0.'+$build;$script:WU.Systems[0].BuildNumber=$build
+        $script:WU.VersionValues.CurrentBuildNumber=$build
+        $r=Invoke-WinSecWindowsUpdateFixture;$p=$r.Evidence.AutomationPolicy.IgnoreWindowsUpdateGroupPolicies
+        Assert-WinSecWindowsUpdate ($r.Evidence.CollectionComplete -and $script:WU.NamedPolicyReads -eq 4 -and
+            $p.State -ceq 'NOT_APPLICABLE' -and $p.Kind -ceq 'UNKNOWN' -and $null -eq $p.Managed -and $null -eq $p.Value)
+    }
+}
+foreach($type in @(2,3)) {
+    Test-WinSecWindowsUpdateCase 'A server is never inferred to have the Windows 11 client exclusion' {
+        $script:WU.Systems[0].Version='10.0.22631';$script:WU.Systems[0].BuildNumber='22631'
+        $script:WU.Systems[0].ProductType=$type;$script:WU.VersionValues.CurrentBuildNumber='22631'
+        $r=Invoke-WinSecWindowsUpdateFixture
+        Assert-WinSecWindowsUpdate ($script:WU.NamedPolicyReads -eq 5 -and $r.Evidence.AutomationPolicy.IgnoreWindowsUpdateGroupPolicies.State -ceq 'OBSERVED')
+    }
 }
 foreach($state in @('Stopped','Running','Start Pending','Stop Pending','Continue Pending','Pause Pending','Paused')) {
     Test-WinSecWindowsUpdateCase ('Service state is descriptive, never a security verdict: '+$state) {

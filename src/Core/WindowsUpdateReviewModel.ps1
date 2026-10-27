@@ -30,6 +30,7 @@ function Get-WinSecWindowsUpdateReviewDescription {
             'UNKNOWN|UNMANAGED_DEFAULT_UNRESOLVED|The unmanaged default could not be resolved.'
         )}
         WSA-WUP-BASE-002 {@(
+            'NOT_APPLICABLE|PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT|Excluded from the score because verified security support has ended. Remaining weights are normalized; this does not establish patch currency.'
             'UNKNOWN|PATCH_APPLICABILITY_UNVERIFIED|A security baseline cannot be resolved until security support is verified.'
             'UNKNOWN|NO_REVIEWED_SECURITY_BASELINE|No reviewed cumulative OS security baseline is available.'
             'UNKNOWN|REVISION_UNVERIFIED|The installed cumulative OS revision could not be verified.'
@@ -112,7 +113,7 @@ function ConvertTo-WinSecWindowsUpdateReviewItem {
         $criteria=@(foreach($control in $assessment.Controls|Where-Object CheckId -CEQ 'WSA-SYS-003') {
             $control.Criteria|Where-Object CriterionId -CEQ $s.CriterionId
         })
-        $expected=if($s.State -ceq 'UNKNOWN'){'UNKNOWN'}elseif($s.State -cin @('AUTOMATIC','MET','SUPPORTED')){'PASS'}else{'FAIL'}
+        $expected=if($s.State -ceq 'UNKNOWN'){'UNKNOWN'}elseif($s.State -ceq 'NOT_APPLICABLE'){'NOT_APPLICABLE'}elseif($s.State -cin @('AUTOMATIC','MET','SUPPORTED')){'PASS'}else{'FAIL'}
         if($criteria.Count -ne 1 -or $criteria[0].Status -cne $expected){throw 'Windows Update review contradicts its recorded criterion.'}
     }
     return $copy
