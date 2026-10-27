@@ -57,8 +57,8 @@ function Invoke-WinSecNavigationKey {
     param([int]$Code,[string]$Character='')
     $event=[pscustomobject]@{VirtualKeyCode=$Code;Character=$Character;ControlKeyState=0;KeyDown=$true}
     if (Invoke-WinSecCLIBackNavigation -KeyInfo $event -State $script:state) { return }
-    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context
     $action=ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $script:state.Screen -EnableRescan
+    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context -Action $action
     $null=Invoke-WinSecNavigationAction -State $script:state -Action $action -Devices $script:context.Devices `
         -SectionCount $counts.SectionCount -ControlCount $counts.ControlCount -FindingCount $counts.FindingCount
 }

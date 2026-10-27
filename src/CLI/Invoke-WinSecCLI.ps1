@@ -1028,7 +1028,11 @@ function Show-WinSecCLICurrentScreen {
         }
 
         'Findings' {
-            $enableExport = Test-WinSecCLIFindingsExportEligibility -State $State -Context $Context
+            # The screen validates its own selected rows. Building a complete
+            # export just to draw [P] repeats that work on every scroll/resize.
+            # The actual export still resolves and validates its source anew.
+            $enableExport = [bool](Get-WinSecCLIValue $Context 'ProjectRoot') -and
+                (Get-WinSecCLIValue $assessment 'SourceScopeType') -cin @('DEVICE','SECTION','CONTROL')
             Show-WinSecFindings `
                 -NavigationState $State `
                 -SectionResults $assessment.SectionResults `
@@ -1078,8 +1082,22 @@ function Get-WinSecCLINavigationCounts {
         [psobject]$State,
 
         [Parameter(Mandatory)]
-        [psobject]$Context
+        [psobject]$Context,
+
+        [string]$Action = ''
     )
+
+    if ($Action -and $Action -cne 'ScrollDown') {
+        # Only ScrollDown needs the number of rendered findings. Other keys
+        # navigate catalog rows and must not rebuild a complete findings view.
+        $definitions = @(Get-WinSecMainMenuSections)
+        $index = [Math]::Max(0,[Math]::Min([int]$State.SectionIndex,$definitions.Count-1))
+        $controlCount = 0
+        if ($State.Screen -cin @('Section','Results')) {
+            $controlCount = @(Get-WinSecSectionControls -SectionKey $definitions[$index].Key).Count
+        }
+        return [pscustomobject]@{SectionCount=$definitions.Count;ControlCount=$controlCount;FindingCount=0;SettingsCount=0}
+    }
 
     $assessment = Get-WinSecCLIActiveAssessment `
         -State $State `
@@ -2330,13 +2348,15 @@ function Invoke-WinSecCLI {
             -KeyInfo $keyInfo `
             -Screen $navigationState.Screen `
             -EnableRescan:$enableLocalRescan `
-            -EnableExport:(Test-WinSecCLIFindingsExportEligibility -State $navigationState -Context $context)
+            -EnableExport:($navigationState.Screen -ceq 'Findings')
 
         # Disabled or unsupported key
 
         if ($keyboardEvent.Action -eq 'None') {
             continue
         }
+        if ($keyboardEvent.Action -ceq 'ExportMD' -and
+            -not (Test-WinSecCLIFindingsExportEligibility -State $navigationState -Context $context)) { continue }
 
         # ----------------------------------------------------
         # Determine navigation boundaries
@@ -2344,7 +2364,7 @@ function Invoke-WinSecCLI {
 
         $counts = Get-WinSecCLINavigationCounts `
             -State $navigationState `
-            -Context $context
+            -Context $context -Action $keyboardEvent.Action
 
         # ----------------------------------------------------
         # Apply navigation action

@@ -215,66 +215,75 @@ function Test-WinSecCheckScript {
         throw "Security check script not found: $ScriptPath"
     }
 
-    $tokens = $null
-    $parseErrors = $null
+    # Navigation repeatedly validates public manifests against this catalog.
+    # Cache only successful syntax/function checks, never execution rights.
+    # Hash current bytes on every call and hold a read lease while parsing so
+    # the cached answer belongs to exactly the source that was inspected.
+    $fullPath = [IO.Path]::GetFullPath($ScriptPath)
+    $lease = [IO.File]::Open($fullPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $digest = [BitConverter]::ToString($sha.ComputeHash($lease)).Replace('-','') }
+        finally { $sha.Dispose() }
+        $cacheKey = '{0}:{1}{2}:{3}:{4}' -f $fullPath.Length,$fullPath.ToUpperInvariant(),
+            $FunctionName.Length,$FunctionName.ToUpperInvariant(),$digest
+        $cache = Get-Variable -Name WinSecScriptSyntaxCache -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+        if ($cache -isnot [hashtable]) { $cache = @{}; $script:WinSecScriptSyntaxCache = $cache }
+        if ($cache.ContainsKey($cacheKey) -and $cache[$cacheKey] -is [bool] -and $cache[$cacheKey]) { return $true }
 
-    # Parse the source WITHOUT executing it.
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-        $ScriptPath,
-        [ref]$tokens,
-        [ref]$parseErrors
-    )
+        $tokens = $null
+        $parseErrors = $null
 
-    if (
-        $null -ne $parseErrors -and
-        $parseErrors.Count -gt 0
-    ) {
-        $firstError = $parseErrors[0]
-
-        throw (
-            "PowerShell syntax error in '{0}': {1}" -f `
-                $ScriptPath,
-                $firstError.Message
+        # Parse the source WITHOUT executing it.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $fullPath,
+            [ref]$tokens,
+            [ref]$parseErrors
         )
-    }
-
-    # Correct PowerShell type syntax.
-    $functions = @(
-        $ast.FindAll(
-            {
-                param($node)
-
-                $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
-            },
-            $true
-        )
-    )
-
-    $found = $false
-
-    foreach ($function in $functions) {
 
         if (
-            [string]::Equals(
-                $function.Name,
-                $FunctionName,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
+            $null -ne $parseErrors -and
+            $parseErrors.Count -gt 0
         ) {
-            $found = $true
-            break
+            $firstError = $parseErrors[0]
+
+            throw (
+                "PowerShell syntax error in '{0}': {1}" -f `
+                    $ScriptPath,
+                    $firstError.Message
+            )
         }
-    }
 
-    if (-not $found) {
-        throw (
-            "Expected function '{0}' was not found in '{1}'." -f `
-                $FunctionName,
-                $ScriptPath
+        $functions = @(
+            $ast.FindAll(
+                {
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+                },
+                $true
+            )
         )
-    }
+        $found = $false
+        foreach ($function in $functions) {
+            if ([string]::Equals($function.Name,$FunctionName,[System.StringComparison]::OrdinalIgnoreCase)) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            throw (
+                "Expected function '{0}' was not found in '{1}'." -f `
+                    $FunctionName,
+                    $ScriptPath
+            )
+        }
 
-    return $true
+        # Bound memory even if many installations/source revisions are opened.
+        if ($cache.Count -ge 128) { $cache.Clear() }
+        $cache[$cacheKey] = $true
+        return $true
+    }
+    finally { $lease.Dispose() }
 }
 
 

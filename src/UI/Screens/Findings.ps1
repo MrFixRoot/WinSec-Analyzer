@@ -518,6 +518,10 @@ function Get-WinSecSelectedFindings {
     # generate extra findings, scores, recommendations or synthetic compliance.
     $view.Findings = $matched
     $reviewIds=@{}
+    # Review converters only read their owner. Own one bounded configuration
+    # snapshot for the whole view instead of copying it for every observation.
+    $reviewOwner=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId}
+    if($null -ne $ConfigurationAssessment){$reviewOwner|Add-Member ConfigurationAssessment (Copy-WinSecResultData $ConfigurationAssessment)}
     $view.ReviewItems=@(foreach($review in $data.Reviews) {
         if($null -eq $review){continue}
         if($review.DeviceId -cne $context.DeviceId -or $review.ScanId -cne $view.ScanId -or
@@ -525,11 +529,9 @@ function Get-WinSecSelectedFindings {
             throw 'Foreign or duplicate public review.'
         }
         $reviewIds[$review.ReviewId]=$true
-        $owner=[pscustomobject]@{DeviceId=$context.DeviceId;ScanId=$view.ScanId}
-        if($null -ne $ConfigurationAssessment){$owner|Add-Member ConfigurationAssessment (Copy-WinSecResultData $ConfigurationAssessment)}
-        if($null -ne $review.BitLockerSetting){$safe=ConvertTo-WinSecBitLockerReviewItem $review $owner}
-        elseif($null -ne $review.DefenderSetting){$safe=ConvertTo-WinSecDefenderReviewItem $review $owner}
-        elseif($null -ne $review.WindowsUpdateSetting){$safe=ConvertTo-WinSecWindowsUpdateReviewItem $review $owner}
+        if($null -ne $review.BitLockerSetting){$safe=ConvertTo-WinSecBitLockerReviewItem $review $reviewOwner}
+        elseif($null -ne $review.DefenderSetting){$safe=ConvertTo-WinSecDefenderReviewItem $review $reviewOwner}
+        elseif($null -ne $review.WindowsUpdateSetting){$safe=ConvertTo-WinSecWindowsUpdateReviewItem $review $reviewOwner}
         else{continue}
         if($section.Key -ceq 'SystemSecurity' -and ($context.Scope -ceq 'Section' -or
             ($null -ne $control -and $control.CheckId -ceq $safe.CheckId))) {$safe}
@@ -935,6 +937,11 @@ function Show-WinSecFindings {
         -ReviewItems $ReviewItems `
         -ScanId $ScanId `
         -Platform $Platform -ConfigurationAssessment $ConfigurationAssessment
+
+    # Display eligibility comes from this already validated selection. Never
+    # construct an export or query Windows while drawing keyboard help.
+    $EnableExport = [bool]$EnableExport -and -not $assessment.Warning -and
+        (@($assessment.Findings).Count -gt 0 -or @($assessment.ReviewItems).Count -gt 0 -or @($assessment.CheckRows).Count -gt 0)
 
     # --------------------------------------------------------
     # Get adaptive layout

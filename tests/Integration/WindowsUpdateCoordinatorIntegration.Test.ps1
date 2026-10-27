@@ -342,6 +342,45 @@ try {
                 @($selection.ConfigurationAssessment.Controls|Where-Object CheckId -CEQ WSA-SYS-003)[0].Criteria[0].Profile -ceq 'WSA-W11-25H2-PRO-DEF-BASE')
         }
     }
+    Test-WinSecUpdateCoordinator 'Findings navigation reuses saved results and cached syntax without rerunning collectors' {
+        $ctx=New-WinSecUpdateCoordinatorContext
+        $p=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id navigation-source -ScopeType SECTION -ScopeKey SystemSecurity
+        $restart=New-WinSecUpdateCoordinatorContext;Restore-WinSecPublicHistory $restart
+        $state=New-WinSecNavigationState;$state.Screen='Findings';$state.FindingsScope='Control';$state.ControlIndex=0
+        $state.SelectedDeviceId=$p.DeviceId
+        $reads=@($script:osReads,$script:defenderReads,$script:volumeReads,$script:volumeMethods,$script:WU.NamedPolicyReads,$script:sequence)
+        $before=ConvertTo-Json $script:store -Depth 8 -Compress
+        $registryReader=(Get-Command Get-WinSecCheckRegistry).ScriptBlock
+        function Get-WinSecCheckRegistry {
+            param($ProjectRoot,$Path='')
+            if($script:forceColdSyntax){$script:WinSecScriptSyntaxCache=@{}}
+            & $registryReader @PSBoundParameters
+        }
+        $outputs=@();$times=@()
+        foreach($cold in @($true,$false)) {
+            $script:forceColdSyntax=$cold
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            $counts=Get-WinSecCLINavigationCounts $state $restart
+            $canExport=Test-WinSecCLIFindingsExportEligibility $state $restart
+            Show-WinSecCLICurrentScreen $state $restart
+            $clock.Stop();$times+=$clock.ElapsedMilliseconds
+            $outputs+=($script:lines -join '|')
+            Assert-WinSecUpdateCoordinator ($canExport -and $counts.FindingCount -gt 0)
+        }
+        $script:forceColdSyntax=$false
+        $clock=[Diagnostics.Stopwatch]::StartNew()
+        $event=Get-WinSecKeyboardAction -KeyInfo ([pscustomobject]@{VirtualKeyCode=38;Character='';KeyDown=$true;ControlKeyState=0}) `
+            -Screen Findings -EnableExport
+        $fastCounts=Get-WinSecCLINavigationCounts $state $restart -Action $event.Action
+        $null=Invoke-WinSecNavigationAction $state $event.Action -FindingCount $fastCounts.FindingCount
+        Show-WinSecCLICurrentScreen $state $restart
+        $clock.Stop()
+        Assert-WinSecUpdateCoordinator ($outputs[0] -ceq $outputs[1] -and
+            $outputs[1] -ceq ($script:lines -join '|') -and $event.Action -ceq 'ScrollUp' -and
+            ($reads -join '|') -ceq (@($script:osReads,$script:defenderReads,$script:volumeReads,$script:volumeMethods,$script:WU.NamedPolicyReads,$script:sequence) -join '|') -and
+            $before -ceq (ConvertTo-Json $script:store -Depth 8 -Compress))
+        [Console]::WriteLine(('Synthetic Findings navigation: cold syntax={0} ms; warm syntax={1} ms; optimized up-key={2} ms. No timing threshold.' -f $times[0],$times[1],$clock.ElapsedMilliseconds))
+    }
     Test-WinSecUpdateCoordinator 'Cancellation during section collection cannot publish partial history or replace the prior result' {
         $ctx=New-WinSecUpdateCoordinatorContext
         $first=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeType SECTION -ScopeKey SystemSecurity -Id first-section
