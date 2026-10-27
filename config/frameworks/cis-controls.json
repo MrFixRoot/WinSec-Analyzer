@@ -30,6 +30,7 @@
         }
     ],
     "safeguards": [
+        {"id":"4.8","name":"Uninstall or Disable Unnecessary Services on Enterprise Assets and Software"},
         {"id":"4.5","name":"Implement and Manage a Firewall on End-User Devices"},
         {
             "id": "2.2",
@@ -138,6 +139,17 @@
                     "description": "CIS 2.2 links software authorization to vendor support and documented exceptions. This Windows lifecycle check does not assess the complete software inventory or approve an exception.",
                     "recommendation": "Review exact Windows edition, release and support arrangements with the administrator. Plan migration to a supported release, or document an authorized exception, compensating safeguards and accepted residual risk. An exception does not change this recorded lifecycle result."
                 }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-002",
+            "references": [
+                {"id":"4.8","controlId":"4","safeguardId":"4.8",
+                 "title":"Uninstall or Disable Unnecessary Services on Enterprise Assets and Software",
+                 "url":"https://cas.docs.cisecurity.org/en/latest/source/Controls4/",
+                 "criterionIds":["WSA-SMB-REVIEW-001","WSA-SMB-REVIEW-002","WSA-SMB-REVIEW-003"],
+                 "description":"Observed SMBv1 components and dependencies provide context for removing unnecessary services and features. Installation is not evidence of active connections, exploitation or complete compliance with safeguard 4.8.",
+                 "recommendation":"Confirm which legacy SMB dependencies are necessary, migrate them to supported protocols and have an authorized administrator remove unnecessary SMBv1 components. Document any accepted exception separately."}
             ]
         },
         {

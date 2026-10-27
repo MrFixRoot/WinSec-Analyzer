@@ -24,7 +24,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
     $rules=ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8)
     Assert-WinSecConfigurationFields $rules @('schemaVersion','catalogVersion','interpretation','rules','sources')
-    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cne '1.1.0' -or
+    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0') -or
         $rules.interpretation -cne 'REVIEW_WARNINGS_NOT_COMPLIANCE' -or $rules.rules -isnot [array] -or $rules.rules.Count -gt 200){throw 'Invalid warning catalog.'}
     $seen=@{}
     foreach($rule in $rules.rules) {
@@ -34,7 +34,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
         }
         if($seen.ContainsKey($rule.id) -or $rule.id -cnotmatch '\A[A-Z0-9-]{1,64}\z' -or
             $rule.checkId -cnotin @(Get-WinSecTechnicalControls|ForEach-Object CheckId) -or
-            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL')){throw 'Invalid warning predicate.'}
+            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED')){throw 'Invalid warning predicate.'}
         if($rule.setting -cne 'AttackSurfaceReduction.Rules.*.Mode') {
             $null=Get-WinSecTechnicalRowDefinition $rule.setting @(Get-WinSecTechnicalDefinitions $rule.checkId)
         }
@@ -55,6 +55,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
 function Test-WinSecFrameworkWarning {
     param($Value,[string]$Condition)
     switch($Condition) {
+        ENABLED {return ($Value -is [string] -and $Value -ceq 'ENABLED')}
         TRUE {return ($Value -is [bool] -and $Value)}
         ALLOW {return ($Value -ceq 'ALLOW')}
         STOPPED {return ($Value -ceq 'STOPPED')}

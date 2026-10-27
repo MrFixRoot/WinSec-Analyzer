@@ -105,12 +105,14 @@ function Get-WinSecAssessmentProfilePlan {
         if (-not (Test-WinSecTargetIdentifier $checkId) -or $snapshots.ContainsKey($checkId)) {
             throw 'Invalid assessment profile control selection.'
         }
-        if($checkId -ceq 'WSA-NET-001') {
+        if($checkId -cin @('WSA-NET-001','WSA-NET-002')) {
             $definition=@(Get-WinSecInstalledAssessmentProfiles $ProjectRoot|Where-Object Profile -CEQ $Profile)
             if($definition.Count -ne 1){throw 'Unknown Windows collection context.'}
             $snapshots[$checkId]=$null
-            $policies.Add([pscustomobject]@{CheckId=$checkId;CatalogId='WSA-FIREWALL-COLLECTION';CatalogVersion='1.0.0';
-                CatalogSha256=(Get-WinSecReportTextHash ($definition[0].MatrixSha256+'|'+(Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'src/Core/FirewallTelemetry.ps1')).Hash));
+            $telemetry=if($checkId -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}else{'SmbTelemetry.ps1'}
+            $collectionId=if($checkId -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}else{'WSA-SMB-COLLECTION'}
+            $policies.Add([pscustomobject]@{CheckId=$checkId;CatalogId=$collectionId;CatalogVersion='1.0.0';
+                CatalogSha256=(Get-WinSecReportTextHash ($definition[0].MatrixSha256+'|'+(Get-FileHash -LiteralPath (Join-Path $ProjectRoot ('src/Core/'+$telemetry))).Hash));
                 OSFamily='Windows';OSRelease=$definition[0].OSRelease;Edition=$definition[0].Edition})
             continue
         }
@@ -144,11 +146,13 @@ function Get-WinSecAssessmentProfileOptions {
     )
     $seen = @{}
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
-    if($CheckIds.Count -eq 1 -and $CheckIds[0] -ceq 'WSA-NET-001') {
-        $schema=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'src/Core/FirewallTelemetry.ps1') -Algorithm SHA256).Hash
+    if($CheckIds.Count -eq 1 -and $CheckIds[0] -cin @('WSA-NET-001','WSA-NET-002')) {
+        $telemetry=if($CheckIds[0] -ceq 'WSA-NET-001'){'FirewallTelemetry.ps1'}else{'SmbTelemetry.ps1'}
+        $collectionId=if($CheckIds[0] -ceq 'WSA-NET-001'){'WSA-FIREWALL-COLLECTION'}else{'WSA-SMB-COLLECTION'}
+        $schema=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot ('src/Core/'+$telemetry)) -Algorithm SHA256).Hash
         foreach($definition in @(Get-WinSecInstalledAssessmentProfiles $ProjectRoot)) {
             Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$definition.Profile;Policies=@([pscustomobject]@{
-                CheckId='WSA-NET-001';CatalogId='WSA-FIREWALL-COLLECTION';CatalogVersion='1.0.0';
+                CheckId=$CheckIds[0];CatalogId=$collectionId;CatalogVersion='1.0.0';
                 CatalogSha256=(Get-WinSecReportTextHash ($definition.MatrixSha256+'|'+$schema));OSFamily='Windows';
                 OSRelease=$definition.OSRelease;Edition=$definition.Edition})})
         }
@@ -170,7 +174,7 @@ function Get-WinSecAssessmentProfileOptions {
         # Reuse the exact approval and metadata contract of the coordinator.
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
     }
-    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001')}).Count) {
+    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002')}).Count) {
         $installed = @(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)
         $expanded = @($installed | Where-Object {$null -eq $_.FileName})
         $template = $null
@@ -190,7 +194,7 @@ function Get-WinSecAssessmentProfileOptions {
         }
         foreach ($definition in $installed) {
             if ($names.Contains($definition.Profile)) { continue }
-            if($CheckIds -ccontains 'WSA-NET-001') {
+            if(@($CheckIds|Where-Object {$_ -cin @('WSA-NET-001','WSA-NET-002')}).Count) {
                 (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
                 continue
             }

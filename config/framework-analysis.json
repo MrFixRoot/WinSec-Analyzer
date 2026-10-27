@@ -1,8 +1,12 @@
 {
   "schemaVersion": "1.0.0",
-  "catalogVersion": "1.1.0",
+  "catalogVersion": "1.2.0",
   "interpretation": "REVIEW_WARNINGS_NOT_COMPLIANCE",
   "rules": [
+    {"id":"SMB-SERVER-V1","checkId":"WSA-NET-002","setting":"Server.EnableSMB1Protocol","condition":"TRUE","criterion":"WSA-SMB-REVIEW-001","title":"SMBv1 server protocol is enabled","recommendation":"Review legacy dependencies and migrate devices or applications to supported SMB. Have an authorized administrator remove or disable SMBv1 after compatibility review. Do not disable SMB2/3 or signing to work around compatibility. No exploitation or reachable share is inferred."},
+    {"id":"SMB-CLIENT-FEATURE","checkId":"WSA-NET-002","setting":"Features.SMB1Protocol-Client","condition":"ENABLED","criterion":"WSA-SMB-REVIEW-002","title":"SMBv1 client optional feature is enabled","recommendation":"Inventory and migrate dependencies on SMBv1 before authorized removal. Feature installation is distinct from driver availability, traffic negotiation and server configuration. Missing inventory is not evidence of disabled SMBv1."},
+    {"id":"SMB-SERVER-FEATURE","checkId":"WSA-NET-002","setting":"Features.SMB1Protocol-Server","condition":"ENABLED","criterion":"WSA-SMB-REVIEW-002","title":"SMBv1 server optional feature is enabled","recommendation":"Review the legacy server component and business dependencies with the administrator before removing SMBv1. This observed feature state does not establish network reachability or an exploit."},
+    {"id":"SMB-CLIENT-DEPENDENCY","checkId":"WSA-NET-002","setting":"Registry.ClientDependsOnSMB1.Value","condition":"TRUE","criterion":"WSA-SMB-REVIEW-003","title":"SMB client retains a dependency on the SMBv1 driver","recommendation":"Review the MRxSMB10 dependency together with the observed optional feature and driver Start setting. Plan migration and supported administrative removal; do not infer active SMBv1 traffic from a configured dependency alone."},
     {"id":"DEF-ANTIVIRUS","checkId":"WSA-SYS-001","setting":"DefenderStatus.AntivirusEnabled","condition":"FALSE","criterion":"WSA-DEF-BASE-001","title":"Defender antivirus is not enabled","recommendation":"Review the approved antivirus design and any replacement product before restoring Defender through authorized administration."},
     {"id":"DEF-SERVICE","checkId":"WSA-SYS-001","setting":"DefenderStatus.AMServiceEnabled","condition":"FALSE","criterion":"WSA-DEF-BASE-001","title":"Defender service is not active","recommendation":"Review the operating mode, approved replacement protection and service availability with the administrator."},
     {"id":"DEF-REALTIME","checkId":"WSA-SYS-001","setting":"DefenderStatus.RealTimeProtectionEnabled","condition":"FALSE","criterion":"WSA-DEF-BASE-002","title":"Real-time protection is inactive","recommendation":"Review authorized exceptions and restore the approved real-time protection configuration through the administrator."},
@@ -36,6 +40,10 @@
     {"id":"FW-BFE","checkId":"WSA-NET-001","setting":"Services.BFE.State","condition":"STOPPED","criterion":"WSA-FW-REVIEW-001","title":"BFE service is stopped","recommendation":"Review the service state, effective Firewall policy and approved endpoint protection design with the administrator. No service is started or changed by WinSec."}
   ],
   "sources": [
+    "https://learn.microsoft.com/en-us/windows-server/storage/file-server/troubleshoot/detect-enable-and-disable-smbv1-v2-v3",
+    "https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-signing",
+    "https://cas.docs.cisecurity.org/en/latest/source/Controls4/",
+    "https://attack.mitre.org/mitigations/M1042/",
     "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/",
     "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/rules",
     "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/hyper-v-firewall",

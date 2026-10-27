@@ -90,6 +90,7 @@
     "subtechniques": [],
     "mitigations": [
         {"id":"M1037","name":"Filter Network Traffic"},
+        {"id":"M1042","name":"Disable or Remove Feature or Program"},
         {
             "id": "M1051",
             "name": "Update Software"
@@ -181,6 +182,17 @@
                     "description": "A release without reviewed vendor security support requires maintenance planning. This lifecycle observation neither detects an attack nor proves complete protection.",
                     "recommendation": "Plan migration to a supported Windows release with the administrator, including compatibility and recovery checks. Review remaining software maintenance separately; the original lifecycle result remains unchanged."
                 }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-002",
+            "references": [
+                {"id":"M1042","mitigationId":"M1042","type":"Mitigation",
+                 "title":"Disable or Remove Feature or Program",
+                 "url":"https://attack.mitre.org/mitigations/M1042/",
+                 "criterionIds":["WSA-SMB-REVIEW-001","WSA-SMB-REVIEW-002","WSA-SMB-REVIEW-003"],
+                 "description":"MITRE names SMBv1 as an example of an unnecessary legacy feature to remove. This contextual mitigation mapping does not detect an ATT&CK technique, adversary activity, network exposure or successful mitigation.",
+                 "recommendation":"Review the legacy feature and driver dependency with the administrator. Migrate business dependencies and disable or remove unneeded SMBv1 through authorized administration; reassess with an explicitly confirmed scan."}
             ]
         },
         {

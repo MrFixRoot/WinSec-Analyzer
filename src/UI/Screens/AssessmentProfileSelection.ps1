@@ -120,7 +120,7 @@ function Show-WinSecAssessmentProfileSelection {
             $details += 'Selected: ' + $labels[$display.Index]
             $details += 'Profile: ' + $selected.Profile
             foreach ($policy in $selected.Policies) {
-                $label=if($policy.CatalogId -ceq 'WSA-FIREWALL-COLLECTION'){'Collection schema'}else{'Criteria'}
+                $label=if($policy.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION')){'Collection schema'}else{'Criteria'}
                 $details += ($label+': {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion)
                 $details += $label+' SHA256: ' + $policy.CatalogSha256
                 $details += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition

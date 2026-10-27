@@ -14,9 +14,9 @@ $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
 function Get-WinSecInstalledAssessmentProfiles { @() } # Production profiles are covered separately.
 $enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
-if($enabled.Count -ne 4 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+if($enabled.Count -ne 5 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabled | Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -ne 0){
-    throw 'Only validated System Security and Firewall controls may be enabled in production.'
+    throw 'Only validated System Security, Firewall and SMBv1 controls may be enabled in production.'
 }
 $script:passed=0;$script:failed=0
 function Assert-WinSecAssessmentIntegration {param([bool]$Value);if(-not $Value){throw 'Assessment integration assertion failed.'}}

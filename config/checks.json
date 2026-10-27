@@ -174,12 +174,12 @@
       "controlKey": "SMBv1",
       "sectionKey": "NetworkSecurity",
       "name": "SMBv1",
-      "description": "Assess SMBv1 protocol availability and configuration.",
+      "description": "Collect local SMB client/server configuration, SMBv1 features, service states and reviewed registry settings for framework review.",
       "order": 2,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Network/Test-SMBv1.ps1",
         "function": "Test-WinSecSMBv1"

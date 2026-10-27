@@ -1,6 +1,7 @@
 # Versioned, allowlisted technical telemetry. No Windows queries or writes.
 . (Join-Path $PSScriptRoot 'TechnicalControlRegistry.ps1')
 . (Join-Path $PSScriptRoot 'FirewallTelemetry.ps1')
+. (Join-Path $PSScriptRoot 'SmbTelemetry.ps1')
 function Get-WinSecTechnicalField {
     param([AllowNull()][object]$Value,[string]$Path)
     foreach($name in $Path.Split('.')) {
@@ -19,8 +20,9 @@ function Get-WinSecTechnicalField {
 }
 
 function Get-WinSecTechnicalDefinitions {
-    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001')][string]$CheckId)
+    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002')][string]$CheckId)
     if($CheckId -ceq 'WSA-NET-001'){return Get-WinSecFirewallTechnicalDefinitions}
+    if($CheckId -ceq 'WSA-NET-002'){return Get-WinSecSmbTechnicalDefinitions}
     $spec=@(
         'CollectionSuccessful|Coleccion|bool|Collector|'
         'CollectionComplete|Coleccion|bool|Collector|'
@@ -120,6 +122,17 @@ function ConvertTo-WinSecTechnicalValue {
     if($null -eq $Value){return $null}
     if($Value.GetType().IsEnum){$Value=[Convert]::ToInt64($Value)}
     switch($Kind) {
+        smbIssues {
+            if($Value -is [string] -and $Value -ceq 'NONE'){return $Value}
+            if($Value -is [string]){
+                $codes=@($Value.Split(','));$allowed=@(Get-WinSecSmbIssueCodes)
+                if($codes.Count -le $allowed.Count -and @($codes|Where-Object {$_ -cnotin $allowed}).Count -eq 0 -and @($codes|Select-Object -Unique).Count -eq $codes.Count){return $Value}
+            }
+        }
+        {$_ -cin @('smbFeature','smbCiphers','smbDialect')} {
+            $safe=ConvertTo-WinSecSmbValue $Value $Kind
+            if($null -ne $safe){return $safe}
+        }
         firewallIssues {
             if($Value -isnot [string]){throw 'Invalid Firewall diagnostics.'}
             if($Value -ceq 'NONE'){return $Value}
@@ -225,6 +238,7 @@ function ConvertTo-WinSecTechnicalReport {
             $row.Value=ConvertTo-WinSecTechnicalValue $row.Value $d.Kind
         } elseif($null -ne $row.Value -or $row.Reason -ceq 'NONE'){throw 'Unresolved telemetry cannot supply a value.'}
         $excluded=if($r.CheckId -ceq 'WSA-NET-001'){@('Inventories.HyperVRulesCount','Inventories.HyperVCreatorsCount','Inventories.HyperVSettingsCount','Inventories.HyperVProfilesCount')}else{@('AutomationPolicy.IgnoreWindowsUpdateGroupPolicies.Managed','AutomationPolicy.IgnoreWindowsUpdateGroupPolicies.Value')}
+        if($r.CheckId -ceq 'WSA-NET-002'){$excluded=@($defs|Where-Object {$_.StatePath -clike 'Availability.*'}|ForEach-Object Id)}
         if($row.State -ceq 'NOT_APPLICABLE' -and $row.SettingId -cnotin $excluded) {
             throw 'Unreviewed technical exclusion.'
         }
@@ -258,6 +272,9 @@ function ConvertTo-WinSecTechnicalReport {
             $hyper=@($r.Rows|Where-Object SettingId -CEQ HyperVState)
             if($build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or $build[0].Value -ne 22000 -or $type.Count -ne 1 -or
                 $type[0].State -cne 'OBSERVED' -or $type[0].Value -ne 1 -or $hyper.Count -ne 1 -or $hyper[0].Value -cne 'NOT_APPLICABLE'){throw 'Firewall exclusion lacks observed platform support.'}
+        } elseif($r.CheckId -ceq 'WSA-NET-002') {
+            if($build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or $build[0].Value -cnotin @(22000,22621,22631) -or
+                $type.Count -ne 1 -or $type[0].State -cne 'OBSERVED' -or $type[0].Value -ne 1){throw 'SMB exclusion lacks observed platform support.'}
         } elseif($r.CheckId -cne 'WSA-SYS-003' -or $build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or
             $build[0].Value -notin @(22000,22621,22631) -or $type.Count -ne 1 -or $type[0].Value -ne 1 -or
             $platform.Count -ne 1 -or $platform[0].Value -cne 'OBSERVED'){throw 'Technical exclusion lacks observed platform support.'}
@@ -310,7 +327,7 @@ function New-WinSecTechnicalReport {
             $issues=Get-WinSecTechnicalField $evidence CollectionIssues
             if($issues.Exists -and $issues.Value -is [array]){$reading=[pscustomobject]@{Exists=$true;Value=$issues.Value.Count}}
         }
-        if($CheckId -ceq 'WSA-NET-001' -and $d.Id -ceq 'CollectionIssueCodes') {
+        if($CheckId -cin @('WSA-NET-001','WSA-NET-002') -and $d.Id -ceq 'CollectionIssueCodes') {
             $issues=Get-WinSecTechnicalField $evidence CollectionIssues
             if($issues.Exists -and $issues.Value -is [array]){$reading=[pscustomobject]@{Exists=$true;Value=if($issues.Value.Count){$issues.Value -join ','}else{'NONE'}}}
         }

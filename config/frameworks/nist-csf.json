@@ -171,6 +171,17 @@
             ]
         },
         {
+            "checkId": "WSA-NET-002",
+            "references": [
+                {"id":"PR.PS-01","functionId":"PR","categoryId":"PR.PS","subcategoryId":"PR.PS-01",
+                 "title":"Configuration management practices are established and applied",
+                 "url":"https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                 "criterionIds":["WSA-SMB-REVIEW-001","WSA-SMB-REVIEW-002","WSA-SMB-REVIEW-003"],
+                 "description":"Reviewing deprecated SMBv1 components contributes context to configuration management. NIST CSF does not prescribe each Windows setting; this mapping is not a certification or evidence of exploitation.",
+                 "recommendation":"Review observed SMBv1 server, client feature and driver dependencies against the approved configuration baseline. Plan supported migration and authorized removal with the system owner; retain exceptions and residual risk explicitly."}
+            ]
+        },
+        {
             "checkId": "WSA-NET-001",
             "references": [
                 {

@@ -96,7 +96,7 @@ Test-WinSecTechnical 'A changed body or foreign owner is rejected by the deletio
     Assert-WinSecTechnicalReject {ConvertFrom-WinSecTextArtifact $text ('local:hw1-'+('c'*64))}
 }
 Test-WinSecTechnical 'Unsupported adapters and legacy scope cannot authorize technical generation' {
-    Assert-WinSecTechnicalReject {Get-WinSecTechnicalReportPolicy $root $device @('WSA-NET-002')}
+    Assert-WinSecTechnicalReject {Get-WinSecTechnicalReportPolicy $root $device @('WSA-NET-003')}
     $r=Get-WinSecTechnicalFixtureReport;$r.ScopeType=$null;$r.ScopeKey=$null
     Assert-WinSecTechnicalReject {ConvertTo-WinSecTechnicalReport $r}
 }

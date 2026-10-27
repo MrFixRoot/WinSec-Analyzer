@@ -23,6 +23,13 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        'WSA-NET-002' {
+            $lines.Add('- SMBv1 client installation, server configuration and driver dependencies are separate readings. Installed does not prove enabled, negotiated traffic or a reachable service.')
+            $lines.Add('- Microsoft recommends removing SMBv1 across Windows 11 editions. Signing and encryption settings describe broader SMB context; defaults differ by release and edition.')
+            $lines.Add('- Win32_OptionalFeature: ENABLED, DISABLED and ABSENT are observed provider states. A missing row remains UNKNOWN. Missing registry values are NOT_CONFIGURED; no default is invented.')
+            $lines.Add('- Only reviewed scalar configuration and counts are retained. Shares, sessions, credentials, peer names, personal paths and free-text settings are not collected. No SMB connections or probes are made.')
+            $lines.Add('- Signing/encryption audit fields absent on observed 21H2/22H2/23H2 remain NOT_APPLICABLE; other unavailable fields remain unknown. Context selection never changes observed Windows.')
+        }
         'WSA-NET-001' {
             $lines.Add('- ActiveStore is the effective policy; PersistentStore is local configuration, not a second independent effective policy.')
             $lines.Add('- Every returned rule is inventoried. Custom names, program paths, addresses and identities use stable SHA256 tokens. This is normalized telemetry, not raw evidence.')
