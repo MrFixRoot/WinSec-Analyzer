@@ -420,7 +420,7 @@ function Write-WinSecTable {
             }
 
             # Automatic security status coloring
-            if ($layout.Key -in @('Status', 'State', 'ConfigurationState')) {
+            if ($layout.Key -in @('Status', 'State', 'ConfigurationState','Mode')) {
                 $color = Get-WinSecStatusColor -Status $value
             }
 

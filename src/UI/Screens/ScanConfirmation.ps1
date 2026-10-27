@@ -7,16 +7,20 @@ function Show-WinSecScanConfirmation {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Request)
     $Request=Copy-WinSecResultData $Request
+    if($null -ne $Request.AssessmentMode -and ($Request.AssessmentMode -cne 'FRAMEWORK_REVIEW' -or $null -ne $Request.ConfigurationScoring)) {
+        throw 'Framework review cannot authorize numeric assessment.'
+    }
     $technicalLines=@()
     if($null -ne $Request.TechnicalReports) {
         $t=$Request.TechnicalReports
         Assert-WinSecConfigurationFields $t @('SchemaVersion','CatalogVersion','Mode','Count','Directory','PolicySha256')
-        if($t.SchemaVersion -cne '1.0.0' -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
+        if($t.SchemaVersion -cnotin @('1.0.0','2.0.0') -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
             ($t.Count -isnot [int] -and $t.Count -isnot [long]) -or $t.Count -lt 0 -or
             $t.Count -ne @($Request.Checks).Count -or $t.Directory -isnot [string] -or
             $t.Directory -cne ('reports/exports/'+(Get-WinSecEvidenceHash $Request.DeviceId)) -or
             $t.PolicySha256 -isnot [string] -or $t.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid technical report confirmation.'}
-        $technicalLines=@(('Automatic technical TXT: '+$t.Count+' (one per executed control)'),('Output: '+$t.Directory),('Technical catalog: '+$t.CatalogVersion+' | hash: '+$t.PolicySha256))
+        $format=if($t.SchemaVersion -ceq '2.0.0'){'Markdown'}else{'TXT (legacy)'}
+        $technicalLines=@(('Automatic technical '+$format+': '+$t.Count+' (one per executed control)'),('Output: '+$t.Directory),('Technical catalog: '+$t.CatalogVersion+' | hash: '+$t.PolicySha256))
     }
 
     if ($Request.Operation -cne 'SCAN' -or $Request.ReadOnly -cne $true -or
@@ -118,7 +122,7 @@ function Show-WinSecScanConfirmation {
             $profileLines += 'Criteria SHA256: ' + $policy.CatalogSha256
             $profileLines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
         }
-        $profileLines += 'Applicability checked during scan. Overall score: NOT_SCORED.'
+        $profileLines += 'Applicability checked during scan. Framework review is selected in Findings.'
     }
     if ($null -ne $Request.ConfigurationScoring) {
         if ($profileCount -ne 1) {throw 'Configuration scoring requires a confirmed evaluation profile.'}
@@ -157,7 +161,7 @@ function Show-WinSecScanConfirmation {
         }
         $hasChecks = @($Request.Checks).Count -gt 0
         if (-not $hasChecks) {
-            $lines += 'NO_EXECUTABLE_CHECKS - no audit will be started. NOT_SCORED.'
+            $lines += 'NO_EXECUTABLE_CHECKS - no audit will be started.'
         }
         $lines += if ($hasChecks) {
             @('  [ Accept ]','  [ Cancel ]','[Arrows] Choose | [Enter] Select | [Esc] Cancel')

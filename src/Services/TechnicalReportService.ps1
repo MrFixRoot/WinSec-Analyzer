@@ -4,10 +4,10 @@
 function Get-WinSecTechnicalReportPolicy {
     param([string]$ProjectRoot,[string]$DeviceId,[string[]]$CheckIds)
     if(@($CheckIds|Where-Object {$_ -cnotin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}).Count){throw 'Technical report adapter is not validated.'}
-    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Services/TechnicalReportService.ps1','src/Services/ExportService.ps1')) {
+    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
         (Get-FileHash -LiteralPath (Join-Path $ProjectRoot $file) -Algorithm SHA256 -ErrorAction Stop).Hash
     })
-    [pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
+    [pscustomobject]@{SchemaVersion='2.0.0';CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
         Directory=('reports/exports/'+(Get-WinSecEvidenceHash $DeviceId));PolicySha256=(Get-WinSecReportTextHash ($parts -join '|'))}
 }
 
@@ -55,7 +55,10 @@ function ConvertTo-WinSecTechnicalBody {
 }
 
 function ConvertFrom-WinSecTechnicalArtifact {
-    param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId)
+    param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId,[switch]$IncludeReport)
+    if($Text.StartsWith("<!-- WinSec technical report`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecTechnicalMarkdownArtifact -Text $Text -DeviceId $DeviceId -IncludeReport:$IncludeReport
+    }
     if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
         $Text -cnotmatch '\AWinSec technical scan report\n([^\r\n]+)\n\n([\s\S]*)\z'){throw 'Unrecognized technical report.'}
     $metadata=$Matches[1];$body=$Matches[2]
@@ -71,22 +74,22 @@ function ConvertFrom-WinSecTechnicalArtifact {
         if($m.$field -isnot [string] -or $m.$field -cne $r.$field){throw 'Mixed technical report identity.'}
     }
     if((ConvertTo-WinSecTechnicalBody $r) -cne $body){throw 'Technical report text contradicts its data.'}
-    return $m
+    if($IncludeReport){return $r};return $m
 }
 
 function Write-WinSecTechnicalArtifact {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][object]$Report)
     $ProjectRoot=Get-WinSecReportInstallation $ProjectRoot
-    $r=ConvertTo-WinSecTechnicalReport $Report;$body=ConvertTo-WinSecTechnicalBody $r
-    $m=[ordered]@{SchemaVersion='1.0.0';DeviceId=$r.DeviceId;ScanId=$r.ScanId;CheckId=$r.CheckId;
+    $r=ConvertTo-WinSecTechnicalReport $Report;$body=ConvertTo-WinSecTechnicalMarkdown $r
+    $m=[ordered]@{SchemaVersion='2.0.0';DeviceId=$r.DeviceId;ScanId=$r.ScanId;CheckId=$r.CheckId;
         ScopeType=$r.ScopeType;ScopeKey=$r.ScopeKey;ContentSha256=(Get-WinSecReportTextHash $body)}
-    $text="WinSec technical scan report`n"+(ConvertTo-Json $m -Compress)+"`n`n"+$body
+    $text="<!-- WinSec technical report`n"+(ConvertTo-Json $m -Compress)+"`n-->`n"+$body
     $null=ConvertFrom-WinSecTechnicalArtifact $text $r.DeviceId
     $hash=Get-WinSecEvidenceHash $r.DeviceId
     $stamp=(ConvertTo-WinSecResultUtc $r.GeneratedAtUTC GeneratedAtUTC).UtcDateTime.ToString('yyyyMMdd_HHmmssfffZ')
     $token=(Get-WinSecReportTextHash $r.ScanId).Substring(0,12).ToLowerInvariant()
-    $name=$hash.Substring(0,12)+'_'+$r.SectionKey+'_'+$r.CheckId+'_'+$stamp+'_'+$token+'.txt'
+    $name=$hash.Substring(0,12)+'_'+$r.SectionKey+'_'+$r.CheckId+'_'+$stamp+'_'+$token+'.md'
     $directory=Join-Path $ProjectRoot ('reports/exports/'+$hash);$path=Join-Path $directory $name
     $temporary=Join-Path $directory ('.'+[guid]::NewGuid().ToString('N')+'.tmp')
     if($path.Length -gt 240){throw 'Technical report path exceeds compatibility limit.'}
@@ -111,6 +114,8 @@ function Write-WinSecTechnicalArtifact {
     }
 }
 
+. (Join-Path $PSScriptRoot 'TechnicalMarkdownService.ps1')
+
 function Save-WinSecTechnicalReports {
     param([object]$Coordinator,[object]$Session,[object]$Target,[AllowNull()][object]$Context)
     $files=@();$failures=@();$name=$Target.Hostname;$lease=$null
@@ -132,6 +137,11 @@ function Save-WinSecTechnicalReports {
     foreach($check in @($Session.ControlResults|Where-Object Status -CNE NOT_SELECTED)) {
         try {
             $report=New-WinSecTechnicalReport -Session $Session -CheckId $check.CheckId -DeviceName $name -Hostname $Target.Hostname -Context $Context
+            $cache=Get-WinSecTargetField $Coordinator TechnicalSnapshots
+            if($null -ne $cache) {
+                if($cache -isnot [hashtable]){throw 'Invalid technical snapshot cache.'}
+                $cache[(Get-WinSecScanSessionKey $Session.DeviceId $Session.ScanId)+'|'+$check.CheckId]=Copy-WinSecResultData $report
+            }
             $files+=Write-WinSecTechnicalArtifact -ProjectRoot $Coordinator.ProjectRoot -Report $report
         } catch {$failures+=$check.CheckId}
     }

@@ -117,7 +117,8 @@ foreach($code in @(89,13)){
         Assert-WinSecProfile (Show-WinSecScanConfirmation $request)
         $text=$script:lines -join ' '
         Assert-WinSecProfile ($text.Contains('Evaluation profile: TEST') -and $text.Contains('test-1') -and
-            $text.Contains(('D'*64)) -and $text.Contains('Windows 11 TEST') -and $text.Contains('NOT_SCORED') -and $script:keys.Count -eq 0)
+            $text.Contains(('D'*64)) -and $text.Contains('Windows 11 TEST') -and $text.Contains('Framework review is selected in Findings.') -and
+            -not $text.Contains('NOT_SCORED') -and $script:keys.Count -eq 0)
     }
 }
 foreach($code in @(78,27)){

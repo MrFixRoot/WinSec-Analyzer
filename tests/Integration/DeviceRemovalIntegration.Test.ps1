@@ -60,6 +60,26 @@ function New-WinSecRemovalInstallation {
             $technical=Join-Path $exports ($check+'.txt')
             [IO.File]::WriteAllText($technical,$text,[Text.Encoding]::UTF8)
             $script:technicalPaths[$id]+=$technical
+            # New Markdown snapshots coexist with legacy TXT without rewriting it.
+            $body=ConvertTo-WinSecTechnicalMarkdown $report
+            $meta.SchemaVersion='2.0.0';$meta.ContentSha256=Get-WinSecReportTextHash $body
+            $technical=Join-Path $exports ($check+'.md')
+            [IO.File]::WriteAllText($technical,("<!-- WinSec technical report`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body),[Text.Encoding]::UTF8)
+            $script:technicalPaths[$id]+=$technical
+            if($check -ceq 'WSA-SYS-002') {
+                $control=[pscustomobject]@{DeviceId=$id;ScanId='scan-fixture';CheckId=$check;SectionKey='SystemSecurity';
+                    Status='ERROR';ObservedStatus='ERROR';TimestampUTC=$stamp}
+                $session=New-WinSecResultSession -DeviceId $id -ScanId scan-fixture -CatalogVersion '1.0.0' -ExpectedCheckIds @($check) `
+                    -ControlResults @($control) -StartedAtUTC $stamp -CompletedAtUTC $stamp -ExecutionStatus COMPLETED_WITH_ERRORS `
+                    -ScopeType SECTION -ScopeKey SystemSecurity
+                $source=[pscustomobject]@{CheckId=$check;ScanId='scan-fixture';ScopeType='SECTION';ScopeKey='SystemSecurity';CompletedAtUTC=$stamp;
+                    Origin='RECORDS';PublicResult=(ConvertTo-WinSecPublicScanResult $session);CatalogVersion=$session.CatalogVersion;ExpectedCheckIds=@($check)}
+                $analysis=New-WinSecFrameworkAnalysis -ProjectRoot $sandbox -DeviceId $id -DeviceName SYNTHETIC -ScopeType SECTION `
+                    -ScopeKey SystemSecurity -FrameworkId nist-csf -Sources @($source) -Reports @($report)
+                $body=New-WinSecFrameworkMarkdown $analysis
+                $metadata=@{SchemaVersion='1.0.0';DeviceId=$id;AnalysisId=$analysis.AnalysisId;FrameworkId=$analysis.FrameworkId;ContentSha256=(Get-WinSecReportTextHash $body)}
+                [IO.File]::WriteAllText((Join-Path $exports 'framework.md'),("<!-- WinSec framework findings`n"+(ConvertTo-Json $metadata -Compress)+"`n-->`n"+$body),[Text.Encoding]::UTF8)
+            }
         }
         # Independently constructed legacy fixtures must remain recognizable.
         $body="# Synthetic public report`n"
@@ -118,12 +138,27 @@ try {
     function Show-WinSecCLICurrentScreen { param($State,$Context) $script:startup=$Context; $State.ExitRequested=$true }
     New-WinSecRemovalInstallation
     $inventoryPath=Join-Path $sandbox 'data/devices.json'
-    Test-WinSecRemovalIntegrationCase 'Removal recognizes all three technical reports together with legacy TXT and Markdown' {
+    Test-WinSecRemovalIntegrationCase 'Removal recognizes three technical Markdown, legacy TXT and the framework report' {
         $plan=Get-WinSecDeviceRemovalPlan $sandbox $script:first.DeviceId $script:coordinator $script:devices
         foreach($path in $script:technicalPaths[$script:first.DeviceId]) {
             Assert-WinSecRemovalIntegration (@($plan.Files|Where-Object Path -CEQ $path).Count -eq 1)
         }
         Assert-WinSecRemovalIntegration (@($plan.Files|Where-Object {$_.Path.EndsWith('legacy.txt') -or $_.Path.EndsWith('public.md')}).Count -eq 2)
+        Assert-WinSecRemovalIntegration (@($plan.Files|Where-Object {$_.Path.EndsWith('framework.md')}).Count -eq 1)
+    }
+    Test-WinSecRemovalIntegrationCase 'Corrupt or foreign technical and framework Markdown rejects before consent' {
+        foreach($name in @('WSA-SYS-001.md','framework.md')) {
+            $path=Join-Path $sandbox ('reports/exports/'+(Get-WinSecEvidenceHash $script:first.DeviceId)+'/'+$name)
+            $other=Join-Path $sandbox ('reports/exports/'+(Get-WinSecEvidenceHash $script:second.DeviceId)+'/'+$name)
+            $original=[IO.File]::ReadAllBytes($path)
+            try {
+                foreach($bytes in @([Text.Encoding]::UTF8.GetBytes('corrupt'),[IO.File]::ReadAllBytes($other))) {
+                    [IO.File]::WriteAllBytes($path,$bytes);$script:confirmCount=0;$caught=$false
+                    try {$null=Invoke-WinSecNativeRemoval -Confirm {$script:confirmCount++;$true}} catch {$caught=$true}
+                    Assert-WinSecRemovalIntegration ($caught -and $script:confirmCount -eq 0 -and [IO.File]::Exists($path))
+                }
+            } finally {[IO.File]::WriteAllBytes($path,$original)}
+        }
     }
     Test-WinSecRemovalIntegrationCase 'Corrupt and foreign technical TXT reject removal before confirmation and preserve every file' {
         $path=$script:technicalPaths[$script:first.DeviceId][0];$original=[IO.File]::ReadAllBytes($path)

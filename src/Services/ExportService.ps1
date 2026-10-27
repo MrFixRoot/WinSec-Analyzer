@@ -22,6 +22,12 @@ function Get-WinSecReportTextHash {
 function ConvertFrom-WinSecMarkdownArtifact {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId)
+    if($Text.StartsWith("<!-- WinSec framework findings`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecFrameworkMarkdownArtifact -Text $Text -DeviceId $DeviceId
+    }
+    if($Text.StartsWith("<!-- WinSec technical report`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecTechnicalMarkdownArtifact -Text $Text -DeviceId $DeviceId
+    }
     if ([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or
         $Text -cnotmatch '\A<!-- WinSec public report\n([^\r\n]+)\n-->\n([\s\S]*)\z') { throw 'Unrecognized public report.' }
     $metadataJson=$Matches[1];$body=$Matches[2]
@@ -111,3 +117,5 @@ function ConvertFrom-WinSecTextArtifact {
 }
 
 . (Join-Path $PSScriptRoot 'TechnicalReportService.ps1')
+. (Join-Path $PSScriptRoot 'FrameworkAnalysisService.ps1')
+. (Join-Path $PSScriptRoot 'FrameworkReportService.ps1')

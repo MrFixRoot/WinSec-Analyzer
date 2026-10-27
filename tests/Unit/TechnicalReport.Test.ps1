@@ -174,8 +174,8 @@ try {
     Test-WinSecTechnical 'Writer creates a readable immutable file and collision preserves the previous file' {
         $r=Get-WinSecTechnicalFixtureReport;$a=Write-WinSecTechnicalArtifact $fixtureRoot $r
         $before=Get-Content -LiteralPath $a.Path -Raw -Encoding UTF8
-        $meta=ConvertFrom-WinSecTextArtifact $before $device
-        Assert-WinSecTechnical ($meta.CheckId -ceq $r.CheckId -and $a.Path.EndsWith('.txt') -and $a.Path.Contains('reports'))
+        $meta=ConvertFrom-WinSecMarkdownArtifact $before $device
+        Assert-WinSecTechnical ($meta.CheckId -ceq $r.CheckId -and $a.Path.EndsWith('.md') -and $a.Path.Contains('reports') -and $meta.SchemaVersion -ceq '2.0.0')
         Assert-WinSecTechnicalReject {Write-WinSecTechnicalArtifact $fixtureRoot $r}
         Assert-WinSecTechnical ((Get-Content -LiteralPath $a.Path -Raw -Encoding UTF8) -ceq $before)
         Assert-WinSecTechnical (@(Get-ChildItem -LiteralPath ([IO.Path]::GetDirectoryName($a.Path)) -Force|Where-Object Extension -CEQ .tmp).Count -eq 0)

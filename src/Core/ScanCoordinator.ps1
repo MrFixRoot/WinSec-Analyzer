@@ -164,7 +164,7 @@ function Assert-WinSecScanCoordinator {
     if ($null -ne $inventoryRequirement -and $inventoryRequirement -isnot [bool]) {
         throw 'Invalid inventory authorization requirement.'
     }
-    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed','AssessmentEnabled','TechnicalReportsEnabled')){
+    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed','AssessmentEnabled','TechnicalReportsEnabled','FrameworkWorkflowEnabled')){
         $value=Get-WinSecTargetField $Coordinator $field
         if($null -ne $value -and $value -isnot [bool]){throw 'Invalid public history coordination flag.'}
     }
@@ -221,7 +221,9 @@ function New-WinSecScanCoordinator {
         RequireDeviceInventory = $false
         PublicHistoryEnabled = $false
         AssessmentEnabled = $false
+        FrameworkWorkflowEnabled = $true
         TechnicalReportsEnabled = $false
+        TechnicalSnapshots = @{}
         LastTechnicalReports = $null
         HistoryLoadFailed = $false
 
@@ -730,6 +732,9 @@ function Get-WinSecScanConfirmationPlan {
             -ScopeType $ScopeType -ScopeKey $ScopeKey
     }
     $request | Add-Member -NotePropertyName ScanAction -NotePropertyValue $scanAction
+    if((Get-WinSecTargetField $Coordinator FrameworkWorkflowEnabled) -ceq $true) {
+        $request|Add-Member AssessmentMode 'FRAMEWORK_REVIEW'
+    }
     if((Get-WinSecTargetField $Coordinator TechnicalReportsEnabled) -ceq $true) {
         if(-not $hasScope){throw 'Technical reports require an explicit scan scope.'}
         $request|Add-Member TechnicalReports (Get-WinSecTechnicalReportPolicy $Coordinator.ProjectRoot $target.DeviceId @($checks|ForEach-Object CheckId))
@@ -744,7 +749,8 @@ function Get-WinSecScanConfirmationPlan {
         $request | Add-Member -NotePropertyName EvaluationProfile -NotePropertyValue $profilePlan.Preview
     }
     $configurationPolicy=$null
-    if ($null -ne $profilePlan -and @($profilePlan.Catalogs.Values|Where-Object {$null -ne $_ -and $_.Catalog.ScoringEnabled -ceq $true}).Count) {
+    if ((Get-WinSecTargetField $Coordinator FrameworkWorkflowEnabled) -cne $true -and
+        $null -ne $profilePlan -and @($profilePlan.Catalogs.Values|Where-Object {$null -ne $_ -and $_.Catalog.ScoringEnabled -ceq $true}).Count) {
         $configurationPolicy=Get-WinSecConfigurationScoringPolicy $Coordinator.ProjectRoot
         if ($null -ne $configurationPolicy -and $configurationPolicy.Policy.enabled) {
             $request|Add-Member -NotePropertyName ConfigurationScoring -NotePropertyValue ([pscustomobject]@{

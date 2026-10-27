@@ -349,8 +349,16 @@ Test-WinSecRemovalCase 'Device removal clears only its scoped selections and pre
     $oldKey=Get-WinSecCLIScopeKey 'local:OLD-FIXTURE' SECTION SystemSecurity
     $otherKey=Get-WinSecCLIScopeKey 'local:CURRENT-FIXTURE' CONTROL WSA-SYS-001
     $context|Add-Member -NotePropertyName ActiveScanByScope -NotePropertyValue @{$oldKey='scan-1';$otherKey='scan-1'}
+    $oldCache=(Get-WinSecScanSessionKey 'local:OLD-FIXTURE' 'scan-1')+'|WSA-SYS-001'
+    $otherCache=(Get-WinSecScanSessionKey 'local:CURRENT-FIXTURE' 'scan-1')+'|WSA-SYS-001'
+    $context.ScanCoordinator.TechnicalSnapshots[$oldCache]=[pscustomobject]@{DeviceId='local:OLD-FIXTURE'}
+    $context.ScanCoordinator.TechnicalSnapshots[$otherCache]=[pscustomobject]@{DeviceId='local:CURRENT-FIXTURE'}
+    $context|Add-Member FrameworkFindings ([pscustomobject]@{DeviceId='local:OLD-FIXTURE'})
+    $context|Add-Member FrameworkSourcesStamp 'old-analysis'
     $null=Invoke-WinSecCLIDeviceRemoval -State $state -Context $context
-    Assert-WinSecRemoval ($context.ActiveScanByScope.Count -eq 1 -and $context.ActiveScanByScope.ContainsKey($otherKey))
+    Assert-WinSecRemoval ($context.ActiveScanByScope.Count -eq 1 -and $context.ActiveScanByScope.ContainsKey($otherKey) -and
+        -not $context.ScanCoordinator.TechnicalSnapshots.ContainsKey($oldCache) -and $context.ScanCoordinator.TechnicalSnapshots.ContainsKey($otherCache) -and
+        $null -eq $context.FrameworkFindings -and $null -eq $context.FrameworkSourcesStamp)
 }
 Test-WinSecRemovalCase 'Scope selection changes during deletion confirmation require fresh consent' {
     $context=New-WinSecRemovalCLIContext;$state=New-WinSecNavigationState

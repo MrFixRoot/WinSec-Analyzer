@@ -881,6 +881,10 @@ function Show-WinSecCLICurrentScreen {
         [Parameter(Mandatory)]
         [psobject]$Context
     )
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true -and $State.Screen -cin @('Devices','MainMenu','Section','Results','Findings')) {
+        Show-WinSecWorkflowScreen -State $State -Context $Context
+        return
+    }
 
     # --------------------------------------------------------
     # Devices do not require an assessment
@@ -1086,6 +1090,11 @@ function Get-WinSecCLINavigationCounts {
 
         [string]$Action = ''
     )
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true -and $State.Screen -ceq 'Findings') {
+        $scope=Get-WinSecCLIViewScope $State
+        $view=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
+        return [pscustomobject]@{SectionCount=5;ControlCount=0;FindingCount=$view.Rows.Count;SettingsCount=0}
+    }
 
     if ($Action -and $Action -cne 'ScrollDown') {
         # Only ScrollDown needs the number of rendered findings. Other keys
@@ -1246,6 +1255,14 @@ function Get-WinSecCLIFindingsExportSelection {
 function Test-WinSecCLIFindingsExportEligibility {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true) {
+        try {
+            if($State.Screen -cne 'Findings'){return $false}
+            $scope=Get-WinSecCLIViewScope $State
+            $null=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
+            return $true
+        }catch{return $false}
+    }
     try { $null=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context;return $true }
     catch { return $false }
 }
@@ -1253,6 +1270,7 @@ function Test-WinSecCLIFindingsExportEligibility {
 function Invoke-WinSecCLIFindingsExport {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true){return Export-WinSecCLIFrameworkFindings $State $Context}
     $selection=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
     $before=ConvertTo-Json -InputObject $selection -Depth 30 -Compress
     $decision=@(Show-WinSecExportFrameworkSelection -Selection (Copy-WinSecResultData $selection))
@@ -1757,11 +1775,16 @@ function Invoke-WinSecCLILocalRescan {
         if ($scope.ScopeType -ceq 'DEVICE') {$Context.LastScanMessage='Device scan completed. Configuration results recorded; overall device score: NOT_SCORED.'}
         else {$Context.LastScanMessage='{0} scan completed. Configuration score: {1}.' -f $scope.Label,(Get-WinSecConfigurationScoreText $configuration $scope.ScopeType $scope.ScopeKey)}
     }
+    if((Get-WinSecCLIValue $coordinator FrameworkWorkflowEnabled) -ceq $true) {
+        $Context.LastScanMessage=if($publicResult.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS') {
+            'Scan PARTIAL: collection issues were recorded. Open [F] to select a framework.'
+        } else {'Scan COMPLETE. Open [F] to select a framework and review saved readings.'}
+    }
     $technical=Get-WinSecCLIValue $coordinator LastTechnicalReports
     if($null -ne $technical -and $technical.DeviceId -ceq $deviceId -and $technical.ScanId -ceq $scanId) {
         if($technical.Status -ceq 'SAVED') {
-            $Context.LastScanMessage += ' Technical TXT files saved: '+@($technical.Files).Count+' (reports/exports).'
-        } else {$Context.LastScanMessage += ' WARNING: technical TXT export '+$technical.Status+'; saved '+@($technical.Files).Count+', failed '+@($technical.FailedCheckIds).Count+'.'}
+            $Context.LastScanMessage += ' Technical Markdown files saved: '+@($technical.Files).Count+' (reports/exports).'
+        } else {$Context.LastScanMessage += ' WARNING: technical Markdown export '+$technical.Status+'; saved '+@($technical.Files).Count+', failed '+@($technical.FailedCheckIds).Count+'.'}
     }
     # Return only an owned copy of the validated public projection.
     if ($State.Screen -ceq 'Devices') {
@@ -1850,6 +1873,12 @@ function Invoke-WinSecCLIDeviceRemoval {
         throw 'Invalid device removal result.'
     }
     foreach ($key in $publicKeys) { $Context.PublicScans.Remove($key) }
+    $analysis=Get-WinSecCLIValue $Context FrameworkFindings
+    if($null -ne $analysis -and [string]::Equals([string]$analysis.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)) {
+        $Context|Add-Member FrameworkFindings $null -Force
+        $Context|Add-Member FrameworkSourcesStamp $null -Force
+        $Context|Add-Member LastExportMessage '' -Force
+    }
     foreach ($key in @($Context.ActiveScanByDevice.GetEnumerator() | ForEach-Object { $_.Key })) {
         if ([string]::Equals([string]$key,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $Context.ActiveScanByDevice.Remove($key) }
     }
@@ -1931,6 +1960,8 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/AssessmentProfileSelection.ps1'
         'src/UI/Screens/ExportFrameworkSelection.ps1'
         'src/UI/Screens/ScanProgress.ps1'
+        'src/UI/Screens/FrameworkFindings.ps1'
+        'src/CLI/FrameworkWorkflow.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
         'src/UI/Screens/DeviceName.ps1'
         'src/Services/DeviceManagementService.ps1'
@@ -2041,6 +2072,7 @@ function Invoke-WinSecCLI {
     }
     # Evaluation is distinct from numeric scoring. Draft criteria stay blocked.
     $scanCoordinator.AssessmentEnabled = $true
+    $scanCoordinator.FrameworkWorkflowEnabled = $true
     $scanCoordinator.TechnicalReportsEnabled = $true
 
     # Production security invariants.
@@ -2274,6 +2306,8 @@ function Invoke-WinSecCLI {
         LastScanMessage = ''
         LastDeviceMessage = ''
         LocalSystemInfo = $null
+        LocalDeviceId = $registration.DeviceId
+        FrameworkWorkflowEnabled = $true
     }
 
     # Informational OS metadata only, requested for selecting the correct profile.
@@ -2360,6 +2394,16 @@ function Invoke-WinSecCLI {
         # Disabled or unsupported key
 
         if ($keyboardEvent.Action -eq 'None') {
+            continue
+        }
+        if($keyboardEvent.Action -ceq 'ShowFindings' -and $context.FrameworkWorkflowEnabled) {
+            try {
+                if(Invoke-WinSecCLIFrameworkFindings -State $navigationState -Context $context -ShowProgress) {
+                    $bounds=Get-WinSecCLINavigationCounts -State $navigationState -Context $context -Action ShowFindings
+                    $null=Invoke-WinSecNavigationAction -State $navigationState -Action ShowFindings -SectionCount $bounds.SectionCount -ControlCount $bounds.ControlCount
+                }
+            } catch {$context.LastScanMessage='Framework review failed or was rejected. Previous results were preserved.'}
+            $null=& $renderAction $navigationState
             continue
         }
         if ($keyboardEvent.Action -ceq 'ExportMD' -and

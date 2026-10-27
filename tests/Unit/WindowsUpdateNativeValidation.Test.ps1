@@ -167,15 +167,15 @@ try {
                 $json=& $validator -Profile $selectedProfile -OperationId $operation -ApprovedRequestHash $plan.RequestHash
                 $result=$json|ConvertFrom-Json
                 Assert-WinSecNativeUpdate ($result.ExecutionStatus -ceq 'COMPLETED' -and $result.PublicHistoryRoundtripValidated -and
-                    $result.InMemoryMarkdownReports -eq 3 -and $result.CriterionCount -eq 3 -and
+                    $result.InMemoryMarkdownReports -eq 3 -and $result.CriterionCount -eq 3 -and $result.AssessmentMode -ceq 'FRAMEWORK_REVIEW' -and
                     -not $result.RawEvidencePersisted -and -not $result.PublicHistoryPersisted -and -not $result.ReportsPersisted -and
                     -not $result.UpdateSearchPerformed -and -not $result.WindowsChanges -and -not $result.ProductionPermissionsChanged -and
-                    ($json -join '') -notmatch 'PRIVATE|PolicyRegistry|AutomationPolicy|NamedPolicy|ObservedValue|"Evidence"' -and
+                    ($json -join '') -notmatch 'PRIVATE|PolicyRegistry|AutomationPolicy|NamedPolicy|ObservedValue|"Evidence"|ConfigurationScore|ConfigurationStatus' -and
                     $global:WinSecWindowsUpdateNativeTest.KeyReads -eq 2 -and $global:WinSecWindowsUpdateNativeTest.VersionReads -eq 1 -and
                     $global:WinSecWindowsUpdateNativeTest.RebootReads -eq 1 -and $global:WinSecWindowsUpdateNativeTest.NamedPolicyReads -eq 5)
                 switch($scenario) {
-                    Healthy {Assert-WinSecNativeUpdate ($result.CollectionValidated -and $result.ConfigurationScore -eq 100)}
-                    Disabled {Assert-WinSecNativeUpdate ($result.CollectionValidated -and $result.ConfigurationScore -eq 85 -and $result.PublicFindings -gt 0)}
+                    Healthy {Assert-WinSecNativeUpdate ($result.CollectionValidated -and $result.ReadingCount -eq 53)}
+                    Disabled {Assert-WinSecNativeUpdate ($result.CollectionValidated -and $result.ReadingCount -eq 53 -and $result.PublicFindings -gt 0)}
                     PolicyFailure {Assert-WinSecNativeUpdate (-not $result.CollectionValidated -and $null -eq $result.ConfigurationScore -and
                         $result.CollectionIssues -ccontains 'UPDATE_POLICY_AllowAutoUpdate_QUERY_FAILED')}
                     ServiceFailure {Assert-WinSecNativeUpdate (-not $result.CollectionValidated -and $null -eq $result.ConfigurationScore -and

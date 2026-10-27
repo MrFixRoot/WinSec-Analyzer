@@ -58,8 +58,8 @@ function Show-WinSecScanProgress {
         'READING' { 'Reading control: ' + $event.CheckId }
         'CHECK_COMPLETED' { 'Control finished: ' + $event.CheckId }
         'FINALIZING' { 'Validating / saving public results...' }
-        'COMPLETED' { 'Scan completed. Security: NOT_SCORED.' }
-        'COMPLETED_WITH_ERRORS' { 'Scan finished with collection errors. NOT_SCORED.' }
+        'COMPLETED' { 'Scan COMPLETE. Saved readings are ready for framework review.' }
+        'COMPLETED_WITH_ERRORS' { 'Scan PARTIAL. Collection issues were recorded.' }
         'CANCELLED' { 'Cancelled. No new scan saved.' }
     }
     $hint = if ($event.Phase -cin @('READING','CHECK_COMPLETED')) {

@@ -33,6 +33,7 @@ function Get-WinSecWindowsUpdateValidationFiles {
     }
     $paths.Add('tests/Integration/Invoke-WindowsUpdateNativeValidation.ps1')
     $paths.Add('tests/Fixtures/WindowsUpdateNativeValidationSupport.ps1')
+    $paths.Add('tests/Fixtures/FrameworkNativeValidationSupport.ps1')
     $paths.Sort([StringComparer]::Ordinal)
     return ,$paths.ToArray()
 }

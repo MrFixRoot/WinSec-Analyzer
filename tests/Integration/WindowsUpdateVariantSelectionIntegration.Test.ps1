@@ -59,7 +59,7 @@ foreach($case in $cases) {
         Assert-WinSecVariantSelection ($answer.Confirmed -and $answer.Selection.Profile -ceq $case.Profile -and
             $before -ceq (ConvertTo-Json $answer.Selection -Depth 6 -Compress) -and
             $text.Contains('Windows Update variant: '+$case.Label) -and $text.Contains($case.Model) -and
-            $text.Contains('Criteria weights: 15/35/50.') -and $script:keys.Count -eq 0)
+            $text.Contains('Findings explain maintenance and support warnings.') -and -not $text.Contains('Criteria weights:') -and $script:keys.Count -eq 0)
         $plan=Get-WinSecAssessmentProfilePlan $root @('WSA-SYS-003') $answer.Selection.Profile
         Assert-WinSecVariantSelection ($before -ceq (ConvertTo-Json $plan.Preview -Depth 6 -Compress) -and
             ($plan.Catalogs['WSA-SYS-003'].Catalog.Criteria.Weight -join '|') -ceq '15|35|50')

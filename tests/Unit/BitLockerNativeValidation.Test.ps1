@@ -90,10 +90,10 @@ Test-WinSecNativeBitLocker 'An approved synthetic operation validates collection
     $json=& $validator -OperationId $plan.Request.OperationId -ApprovedRequestHash $plan.RequestHash
     $result=$json|ConvertFrom-Json
     $script:lastNativeResult=$result
-    Assert-WinSecNativeBitLocker ($result.CollectionValidated -and $result.ConfigurationScore -eq 100 -and $result.CriterionCount -eq 2 -and
+    Assert-WinSecNativeBitLocker ($result.CollectionValidated -and $result.AssessmentMode -ceq 'FRAMEWORK_REVIEW' -and $result.CriterionCount -eq 2 -and
         $result.InformationalObservations -eq 3 -and $result.InMemoryReports -eq 3 -and $result.PublicHistoryRoundtripValidated -and
         -not $result.RawEvidencePersisted -and -not $result.PublicHistoryPersisted -and -not $result.WindowsChanges -and
-        -not $result.ProductionPermissionsChanged -and $global:WinSecBitLockerNativeTest.methods -eq 4 -and ($json -join '') -notmatch 'PRIVATE|DriveLetter|RecoveryPassword|XTS_AES|SystemVolume')
+        -not $result.ProductionPermissionsChanged -and $global:WinSecBitLockerNativeTest.methods -eq 4 -and ($json -join '') -notmatch 'PRIVATE|DriveLetter|RecoveryPassword|XTS_AES|SystemVolume|ConfigurationScore|ConfigurationStatus')
 }
 Test-WinSecNativeBitLocker 'Real OS applicability is checked only after confirmation; mismatches do not manufacture a score' {
     $plan=(& $validator -PlanOnly -OperationId ('e'*32))|ConvertFrom-Json

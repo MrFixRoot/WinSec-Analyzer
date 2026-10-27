@@ -239,7 +239,17 @@ function Remove-WinSecManagedDevice {
     finally {
         try {
             if ($started) {
-                foreach ($key in $plan.SessionKeys) { $Coordinator.Sessions.Remove($key) }
+                $snapshots=Get-WinSecTargetField $Coordinator TechnicalSnapshots
+                foreach ($key in $plan.SessionKeys) {
+                    $Coordinator.Sessions.Remove($key)
+                    if($snapshots -is [hashtable]) {
+                        foreach($check in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')){$snapshots.Remove($key+'|'+$check)}
+                    }
+                }
+                $receipt=Get-WinSecTargetField $Coordinator LastTechnicalReports
+                if($null -ne $receipt -and [string]::Equals([string]$receipt.DeviceId,$plan.DeviceId,[StringComparison]::OrdinalIgnoreCase)) {
+                    $Coordinator.LastTechnicalReports=$null
+                }
             }
         }
         finally { $store.Lock.Dispose() }

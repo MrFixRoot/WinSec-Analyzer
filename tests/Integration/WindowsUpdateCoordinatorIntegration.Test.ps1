@@ -10,7 +10,8 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Core/KeyboardController.ps1','src/UI/Core/ResizeHandler.ps1','src/UI/Components/Table.ps1',
     'src/UI/Components/Banner.ps1','src/UI/Components/KeyboardHelp.ps1','src/UI/Screens/MainMenu.ps1',
     'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/ScanConfirmation.ps1',
-    'src/Services/ReportService.ps1','tests/Fixtures/WindowsUpdateMemory.ps1')){. (Join-Path $root $file)}
+    'src/Services/ReportService.ps1','src/CLI/FrameworkWorkflow.ps1','src/UI/Screens/FrameworkFindings.ps1',
+    'src/UI/Screens/ExportFrameworkSelection.ps1','tests/Fixtures/WindowsUpdateMemory.ps1')){. (Join-Path $root $file)}
 $script:production=Get-WinSecCheckRegistry $root
 $script:auditReader=(Get-Command Invoke-WinSecAudit).ScriptBlock
 $script:wuCimReader=(Get-Command Get-CimInstance).ScriptBlock
@@ -140,6 +141,9 @@ function New-WinSecUpdateCoordinatorContext {
     $device=New-WinSecLocalTarget;$coordinator=New-WinSecScanCoordinator -ProjectRoot $root
     $coordinator.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($device)}
     $coordinator.AssessmentEnabled=$true;$coordinator.PublicHistoryEnabled=$true
+    # Explicit legacy fixture preserves regression coverage of immutable scored
+    # sessions. New production-workflow cases below opt into the replacement flow.
+    $coordinator.FrameworkWorkflowEnabled=$false
     [pscustomobject]@{ProjectRoot=$root;Version='0.9.0';Devices=@($device);ScanCoordinator=$coordinator;
         PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastScanMessage=''}
 }
@@ -149,7 +153,14 @@ function Invoke-WinSecUpdateCoordinatorFixture {
     $argsForScan=@{Coordinator=$Context.ScanCoordinator;DeviceId=$Context.Devices[0].DeviceId;ScanId=$Id;
         ScopeType=$ScopeType;ScopeKey=$ScopeKey;AssessmentProfile=$Profile;ConfirmAction=$ConfirmAction}
     if($null -ne $CancellationAction){$argsForScan.CancellationAction=$CancellationAction}
-    Invoke-WinSecCoordinatedScan @argsForScan -ProgressCallback {param($event);$script:progress.Add($event)}
+    $p=Invoke-WinSecCoordinatedScan @argsForScan -ProgressCallback {param($event);$script:progress.Add($event)}
+    if($null -ne $p -and (Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true) {
+        $key='{0}:{1}{2}:{3}' -f $p.DeviceId.Length,$p.DeviceId,$p.ScanId.Length,$p.ScanId
+        $Context.PublicScans[$key]=$p
+        if($p.ScopeType -ceq 'DEVICE'){$Context.ActiveScanByDevice[$p.DeviceId]=$p.ScanId}
+        else{$Context.ActiveScanByScope[(Get-WinSecCLIScopeKey $p.DeviceId $p.ScopeType $p.ScopeKey)]=$p.ScanId}
+    }
+    return $p
 }
 $script:passed=0;$script:failed=0
 function Test-WinSecUpdateCoordinator {
@@ -189,7 +200,7 @@ try {
             Assert-WinSecUpdateCoordinator ($request.TechnicalReports.Count -eq 3 -and $request.TechnicalReports.Mode -ceq 'PER_EXECUTED_CONTROL')
             $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
             $accepted=Show-WinSecScanConfirmation $request
-            Assert-WinSecUpdateCoordinator (($script:lines -join '|') -match 'Automatic technical TXT: 3')
+            Assert-WinSecUpdateCoordinator (($script:lines -join '|') -match 'Automatic technical Markdown: 3')
             return $accepted
         }
         $receipt=$ctx.ScanCoordinator.LastTechnicalReports
@@ -197,7 +208,7 @@ try {
         $originals=@{}
         foreach($file in $receipt.Files) {
             $text=[IO.File]::ReadAllText($file.Path);$originals[$file.Path]=$text
-            $m=ConvertFrom-WinSecTextArtifact $text $first.DeviceId
+            $m=ConvertFrom-WinSecMarkdownArtifact $text $first.DeviceId
             Assert-WinSecUpdateCoordinator ($m.ScanId -ceq $first.ScanId -and $m.CheckId -ceq $file.CheckId -and
                 $m.ScopeType -ceq 'SECTION' -and $m.ScopeKey -ceq 'SystemSecurity' -and
                 $text -notmatch 'PRIVATE-SYSTEM-SECURITY|RecoveryPassword|ExclusionPath')
@@ -210,7 +221,7 @@ try {
         $receipt=$ctx.ScanCoordinator.LastTechnicalReports
         Assert-WinSecUpdateCoordinator ($receipt.Status -ceq 'SAVED' -and $receipt.Files.Count -eq 1 -and $receipt.Files[0].CheckId -ceq 'WSA-SYS-002' -and
             @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 7)
-        $m=ConvertFrom-WinSecTextArtifact ([IO.File]::ReadAllText($receipt.Files[0].Path)) $first.DeviceId
+        $m=ConvertFrom-WinSecMarkdownArtifact ([IO.File]::ReadAllText($receipt.Files[0].Path)) $first.DeviceId
         Assert-WinSecUpdateCoordinator ($m.ScopeType -ceq 'CONTROL' -and $m.ScopeKey -ceq 'WSA-SYS-002')
     }
     Test-WinSecTechnicalCoordinator 'device scan creates three artifacts; normal coordinators never request persistence' {
@@ -274,9 +285,114 @@ try {
             $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
             $p=Invoke-WinSecCLILocalRescan -State $state -Context $ctx
             Assert-WinSecUpdateCoordinator ($null -ne $p -and $ctx.LastScanMessage.Contains('Configuration score: 66.67/100'))
-            if($failure){Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('WARNING: technical TXT export PARTIAL; saved 2, failed 1.'))}
-            else{Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('Technical TXT files saved: 3'))}
+            if($failure){Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('WARNING: technical Markdown export PARTIAL; saved 2, failed 1.'))}
+            else{Assert-WinSecUpdateCoordinator ($ctx.LastScanMessage.Contains('Technical Markdown files saved: 3'))}
         }
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - confirmed section scan has no rating and F reviews every snapshot' {
+        $ctx=New-WinSecUpdateCoordinatorContext
+        $ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $p=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-section -ScopeType SECTION -ScopeKey SystemSecurity -ConfirmAction {
+            param($request)
+            Assert-WinSecUpdateCoordinator ($request.AssessmentMode -ceq 'FRAMEWORK_REVIEW' -and $null -eq $request.ConfigurationScoring)
+            $true
+        }
+        Assert-WinSecUpdateCoordinator ($null -eq $p.ConfigurationAssessment -and $ctx.ScanCoordinator.LastTechnicalReports.Files.Count -eq 3 -and
+            @($ctx.ScanCoordinator.LastTechnicalReports.Files|Where-Object {$_.Path -notlike '*.md'}).Count -eq 0)
+        $state=New-WinSecNavigationState;$state.Screen='MainMenu';$state.SelectedDeviceId=$p.DeviceId;$state.SelectedDeviceName='SYNTHETIC'
+        $before=ConvertTo-Json $script:store -Depth 8 -Compress;$reads=$script:sequence
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+        $a=$ctx.FrameworkFindings
+        Assert-WinSecUpdateCoordinator ($a.FrameworkId -ceq 'cis-controls' -and $a.Sources.Count -eq 3 -and $a.ReadingCount -ge 148 -and $a.Rows.Count -ge 2 -and
+            $script:sequence -eq $reads -and $before -ceq (ConvertTo-Json $script:store -Depth 8 -Compress))
+        $null=Invoke-WinSecNavigationAction $state ShowFindings -SectionCount 5
+        Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|') -match 'FINDINGS - cis-controls' -and ($script:lines -join '|') -notmatch 'SCORE|/100|Config %')
+        $null=Invoke-WinSecNavigationAction $state Back
+        Assert-WinSecUpdateCoordinator ($state.Screen -ceq 'MainMenu')
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - live and restored records keep completion states without ratings' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        $empty=@(Get-WinSecWorkflowControlRows $state $ctx)
+        Assert-WinSecUpdateCoordinator ((Get-WinSecWorkflowAggregateState $empty) -ceq 'PENDING')
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-one -ScopeKey WSA-SYS-002
+        $partial=@(Get-WinSecWorkflowControlRows $state $ctx)
+        Assert-WinSecUpdateCoordinator ((Get-WinSecWorkflowAggregateState $partial) -ceq 'PARTIAL' -and $partial[1].Mode -ceq 'LIVE')
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-all -ScopeType SECTION -ScopeKey SystemSecurity
+        $rows=@(Get-WinSecWorkflowControlRows $state $ctx)
+        Assert-WinSecUpdateCoordinator ((Get-WinSecWorkflowAggregateState $rows) -ceq 'COMPLETE')
+        $restored=New-WinSecUpdateCoordinatorContext;Restore-WinSecPublicHistory $restored
+        $restored|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId;$restored|Add-Member FrameworkWorkflowEnabled $true
+        $records=@(Get-WinSecWorkflowControlRows $state $restored)
+        Assert-WinSecUpdateCoordinator (@($records|Where-Object Mode -CNE RECORDS).Count -eq 0 -and (Get-WinSecWorkflowAggregateState $records) -ceq 'COMPLETE')
+        Show-WinSecCLICurrentScreen $state $restored
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|') -notmatch 'SCORE|/100|NOT_SCORED')
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - cancellation keeps the previous selected framework view' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-cancel-source -ScopeKey WSA-SYS-002
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.ControlIndex=1;$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+        $old=Get-WinSecPublicHistoryJson $ctx.FrameworkFindings
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (-not (Invoke-WinSecCLIFrameworkFindings $state $ctx) -and $old -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings) -and $state.Screen -ceq 'Section')
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - Esc during comparison preserves the previous view and stored scans' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-midcancel -ScopeKey WSA-SYS-002
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.ControlIndex=1;$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+        $old=Get-WinSecPublicHistoryJson $ctx.FrameworkFindings;$history=Get-WinSecPublicHistoryJson $script:store;$reads=$script:sequence
+        $script:comparisonStarted=$false
+        function Show-WinSecFrameworkProgress {param($Progress);if($null -eq $Progress.Phase){$script:comparisonStarted=$true}}
+        function Read-WinSecPendingKey {if($script:comparisonStarted){[pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0}}}
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (-not (Invoke-WinSecCLIFrameworkFindings $state $ctx -ShowProgress) -and $script:comparisonStarted -and
+            $old -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings) -and $history -ceq (Get-WinSecPublicHistoryJson $script:store) -and
+            $reads -eq $script:sequence -and $state.Screen -ceq 'Section')
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - P exports exactly the selected view without prompting or collecting' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $ctx|Add-Member FrameworkWorkflowEnabled $true;$ctx|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-print -ScopeType SECTION -ScopeKey SystemSecurity
+        $state=New-WinSecNavigationState;$state.Screen='MainMenu';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=40;Character='';KeyDown=$true;ControlKeyState=0})
+        $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+        Assert-WinSecUpdateCoordinator ($ctx.FrameworkFindings.FrameworkId -ceq 'nist-csf')
+        $writer=(Get-Command Export-WinSecFrameworkAnalysis).ScriptBlock
+        function Export-WinSecFrameworkAnalysis {param($ProjectRoot,$Analysis);& $writer -ProjectRoot $script:technicalRoot -Analysis $Analysis}
+        function Show-WinSecExportFrameworkSelection {throw 'P must not ask for the framework again.'}
+        $state.Screen='Findings';$state.FindingsScope='Section';$before=Get-WinSecPublicHistoryJson $ctx.FrameworkFindings;$reads=$script:sequence
+        $file=Invoke-WinSecCLIFindingsExport $state $ctx
+        $text=[IO.File]::ReadAllText($file.Path);$meta=ConvertFrom-WinSecMarkdownArtifact $text $state.SelectedDeviceId
+        Assert-WinSecUpdateCoordinator ($meta.AnalysisId -ceq $ctx.FrameworkFindings.AnalysisId -and $meta.FrameworkId -ceq 'nist-csf' -and
+            $before -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings) -and $reads -eq $script:sequence -and
+            $text -notmatch 'NOT_SCORED|/100|PRIVATE-|ConfigurationPercent' -and $text.Contains('## Source scans'))
+        foreach($row in $ctx.FrameworkFindings.Rows){Assert-WinSecUpdateCoordinator ($text.Contains($row.Title) -and $text.Contains($row.ScanId))}
+        $ctx.FrameworkSourcesStamp='changed-source'
+        Assert-WinSecUpdateCoordinatorRejected {Invoke-WinSecCLIFindingsExport $state $ctx}
+    }
+    Test-WinSecTechnicalCoordinator 'Framework workflow - reloaded history reads technical Markdown without a new audit' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
+        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id framework-records -ScopeType SECTION -ScopeKey SystemSecurity
+        $restored=New-WinSecUpdateCoordinatorContext;Restore-WinSecPublicHistory $restored
+        $restored|Add-Member FrameworkWorkflowEnabled $true;$restored|Add-Member LocalDeviceId $ctx.Devices[0].DeviceId
+        $state=New-WinSecNavigationState;$state.Screen='MainMenu';$state.SelectedDeviceId=$ctx.Devices[0].DeviceId
+        $reader=(Get-Command Read-WinSecTechnicalReport).ScriptBlock
+        function Read-WinSecTechnicalReport {param($ProjectRoot,$DeviceId,$ScanId,$CheckId);& $reader -ProjectRoot $script:technicalRoot -DeviceId $DeviceId -ScanId $ScanId -CheckId $CheckId}
+        $reads=$script:sequence;$script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
+        Assert-WinSecUpdateCoordinator (Invoke-WinSecCLIFrameworkFindings $state $restored)
+        Assert-WinSecUpdateCoordinator ($restored.FrameworkFindings.ReadingCount -ge 148 -and $restored.FrameworkFindings.MissingTechnicalCheckIds.Count -eq 0 -and
+            @($restored.FrameworkFindings.Sources|Where-Object Origin -CNE RECORDS).Count -eq 0 -and $reads -eq $script:sequence)
     }
     Test-WinSecUpdateCoordinator 'Production enables exactly the three individually validated System Security controls' {
         $ready=@($script:production.Checks|Where-Object ExecutionReady)

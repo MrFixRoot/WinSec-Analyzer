@@ -5,7 +5,7 @@
 
 **PowerShell-Based Windows Security Auditing & Configuration Assessment Toolkit**
 
-[![Version](https://img.shields.io/badge/version-0.8-blue)](https://github.com/MrFixRoot/WinSec-Analyzer)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](https://github.com/MrFixRoot/WinSec-Analyzer)
 ![Status](https://img.shields.io/badge/status-active%20development-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-7%20recommended-5391FE?logo=powershell&logoColor=white)
@@ -30,7 +30,7 @@
 
 ## Overview
 
-WinSec Analyzer is a Windows command-line security assessment project written primarily in PowerShell. Its purpose is to **inspect local security configuration**, organize findings by security domain, and eventually produce reports with context from recognized security frameworks.
+WinSec Analyzer is a Windows command-line security assessment tool written primarily in PowerShell. It **collects local security configuration**, preserves safe records for each device and scan, and reviews those records against selected framework references. Findings include configuration warnings and manual recommendations with traceable sources.
 
 **Strictly read-only:** WinSec Analyzer is an assessment tool, **not a system-hardening or remediation utility**. It never applies recommended fixes to the audited Windows installation. Only the computer on which the application is running may be scanned.
 
@@ -48,11 +48,29 @@ These are catalogued **assessment targets**, not a promise that every check is e
 
 ## Current capabilities and limitations
 
-The repository contains a modular CLI, keyboard-driven navigation, a target registry, scanning/evaluation engines, public result models, and unit/integration test suites. A local Scan/Rescan shortcut has been displayed and exercised during development.
+The CLI provides keyboard navigation, persistent hardware identity and editable device names, confirmed device/section/control scans, public scan history and interactive findings.
 
-Defender and BitLocker are enabled for explicitly confirmed, read-only local scans. BitLocker assesses only the Windows volume: full encryption and active protection carry equal weight. Other checks remain disabled pending individual validation. Overall security scoring remains disabled; individual configuration scores require an approved profile and complete, applicable evidence.
+**Microsoft Defender, BitLocker and Windows Update** are enabled for explicitly confirmed, read-only local scans. BitLocker inspects only the Windows volume. Windows Update reads local configuration and installed revision metadata; it does not search for, download or install updates. Other checks remain disabled pending individual validation.
 
-The following are **planned / under integration**, and should not be presented as finished until tested: confirmation before every scan, device/section/control-scoped Scan/Rescan, persistent scan history, historical comparisons, remapping frameworks for past results, and complete Markdown/TXT export.
+Each completed scan automatically writes a separate, organized **technical Markdown snapshot per executed control**. These files retain the permitted detailed readings, including informative values and explicit unknown/unavailable states, for later manual analysis. They are separate from the selected framework findings report.
+
+Press **F** to choose **NIST CSF, CIS Controls or MITRE ATT&CK** and review saved data with a progress indicator. The analysis considers all available permitted readings and recorded deviations using reviewed warning rules. Readings without a reviewed rule remain informational; missing data is reported as a coverage limitation. Opening Findings never runs another Windows scan.
+
+Press **P** in Findings to export **the same selected framework view as Markdown** with warning details, reference controls, descriptions and manual recommendations. Original scan records remain unchanged. Earlier scans without detailed snapshots cannot reconstruct readings that were never saved.
+
+Historical comparisons and broader native compatibility coverage remain under development. Framework references provide context rather than a complete compliance audit.
+
+### Collection status and data origin
+
+| Label | Meaning | Color |
+| --- | --- | --- |
+| `PENDING` | No completed collection for the requested controls | Red |
+| `PARTIAL` | Some controls are missing or collection encountered errors | Yellow |
+| `COMPLETE` | The requested collection finished; warnings may still exist | Green |
+| `LIVE` | Results collected in this application session on the current device | Green |
+| `RECORDS` | Previously stored results, or a view containing historical sources | Navy blue |
+
+Completion describes the scan, not whether a device is secure. Framework findings retain the identity and date of each contributing scan.
 
 ## Getting started
 
@@ -70,19 +88,19 @@ From the repository root in PowerShell:
 .\Start-WinSec.ps1
 ```
 
-Select the current local device. Navigation and available actions depend on the current screen and permission checks. A visible Scan/Rescan shortcut does **not** mean every catalog check is executable. Do not enable checks or scoring just to obtain a numeric result.
+Select the current local device. Navigation and available actions depend on the screen and permission checks. A visible Scan/Rescan shortcut does **not** mean every catalog check is executable. Leave unvalidated checks disabled.
 
-## Planned assessment workflow
+## Assessment workflow
 
 1. Load the locally stored device inventory and select the current computer.
 2. Choose the whole device, one security section, or one individual control.
 3. Display **Scan** if no valid assessment exists for that exact scope, otherwise **Rescan**.
 4. Show the actual enabled controls and request confirmation before executing.
-5. Collect read-only information, evaluate with approved criteria, and save **safe public results** for the session.
-6. Browse previous scans, review findings and manually actionable recommendations.
-7. Export Markdown (`.md`, primary) or plain text (`.txt`, alternative) reports, with relevant framework references.
+5. Collect read-only information, validate applicability, save safe public results and a technical `.md` per executed control.
+6. Press **F**, select a framework and review warnings from the saved readings with visible analysis progress. Use arrows to inspect findings and **Esc** to return or cancel.
+7. Press **P** to print the selected findings report as `.md`, including framework references and manual recommendations.
 
-The workflow above is the approved design; availability of each step must be confirmed by tests.
+Scan and deletion confirmations use arrows to select **Accept / Cancel**, **Enter** to execute the selection and **Esc** to cancel. No scan runs automatically when opening or resizing a screen.
 
 ## Framework references
 
@@ -92,14 +110,14 @@ The project's framework catalogues cover:
 - **NIST Cybersecurity Framework (CSF)** — risk-management context.
 - **MITRE ATT&CK** — adversary behavior and defensive context.
 
-Mappings provide **references and context**, not certification or a declaration of compliance. Planned exports can apply updated reference mappings to historical scan results without changing the original assessment.
+Mappings provide **references and context**, not certification or a declaration of compliance. A warning may require checking applicability, an approved exception or replacement protection. It is not proof that an attack occurred. The report records framework/rule versions, source scans and available coverage without rewriting the historical results.
 
 ## Repository layout
 
 ```text
 WinSec-Analyzer/
 ├── Start-WinSec.ps1
-├── config/          # Checks, criteria, scoring, framework catalogues
+├── config/          # Checks, criteria and framework catalogues
 ├── src/
 │   ├── CLI/         # Interactive application
 │   ├── Core/        # Coordination, validation and assessment models
@@ -111,7 +129,7 @@ WinSec-Analyzer/
 │   ├── Unit/
 │   └── Integration/
 ├── logs/            # Local logs (never commit)
-├── reports/         # User-requested exports (never commit)
+├── reports/         # Technical snapshots and requested findings reports (never commit)
 └── docs/            # Public technical documentation
 ```
 
@@ -126,11 +144,11 @@ Always inspect a test before running it and make sure the current configuration 
 ## Safety and privacy
 
 - No automatic remediation or changes to audited Windows configuration.
-- Scans require explicit authorization and, in the approved workflow, confirmation.
+- Every Scan/Rescan requires explicit confirmation of its device, scope and executable controls.
 - No automatic collection/execution at startup.
 - Raw evidence must never be stored or exported without separate authorization.
 - Local device inventories, scan histories, logs, exports and internal Codex documentation are not meant for publication.
-- `NOT_SELECTED`, `NOT_EVALUATED` and `NOT_SCORED` are **not** statements of security compliance.
+- Unknown/unavailable readings, unfinished collection and unselected checks are **not** failed security requirements or proof of compliance.
 
 ## Project documents
 

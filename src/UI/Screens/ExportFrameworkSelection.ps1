@@ -11,7 +11,7 @@ function Get-WinSecExportFrameworkOptions {
 
 function Show-WinSecExportFrameworkSelection {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Selection)
+    param([Parameter(Mandatory)][object]$Selection,[switch]$ForFindings)
     $copy = Copy-WinSecResultData $Selection
     if ($copy -isnot [pscustomobject] -or -not (Test-WinSecTargetIdentifier $copy.DeviceId) -or
         -not (Test-WinSecTargetIdentifier $copy.ScanId)) { throw 'Invalid export selection identity.' }
@@ -25,8 +25,10 @@ function Show-WinSecExportFrameworkSelection {
         $terminal = Get-WinSecTerminalSize
         $width = [Math]::Max(1,[int]$terminal.ContentWidth)
         Clear-WinSecScreen
-        $lines = @('WINSEC ANALYZER - EXPORT FRAMEWORK',
-            ('Device: ' + $copy.DeviceId),('Scan: ' + $copy.ScanId),
+        $heading=if($ForFindings){'WINSEC ANALYZER - FINDINGS FRAMEWORK'}else{'WINSEC ANALYZER - EXPORT FRAMEWORK'}
+        $sourceLabel=if($ForFindings){'Saved control sources: '+$copy.SourceCount}else{'Scan: '+$copy.ScanId}
+        $lines = @($heading,
+            ('Device: ' + $copy.DeviceId),$sourceLabel,
             ('Selection: {0} / {1}' -f $copy.ScopeType,$copy.ScopeKey),'')
         for ($i=0;$i -lt $options.Count;$i++) {
             $prefix = if ($i -eq $display.Index) {'> '} else {'  '}
@@ -36,7 +38,7 @@ function Show-WinSecExportFrameworkSelection {
         $lines += 'Benefit: ' + $options[$display.Index].Benefit
         $lines += 'Only reviewed mappings can identify a reference control. Missing mappings remain PENDING.'
         $lines += 'Original scan recommendations are retained. References do not certify compliance.'
-        $lines += '[Up / Down] Framework | [Enter] Export | [Esc] Cancel'
+        $lines += if($ForFindings){'[Up / Down] Framework | [Enter] Analyze saved data | [Esc] Cancel'}else{'[Up / Down] Framework | [Enter] Export | [Esc] Cancel'}
         $wrapped = @(foreach ($line in $lines) {
             if ($line.Length -eq 0) { ''; continue }
             for ($offset=0;$offset -lt $line.Length;$offset+=$width) {

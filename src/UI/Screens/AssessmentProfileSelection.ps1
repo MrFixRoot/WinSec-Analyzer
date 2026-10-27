@@ -103,7 +103,7 @@ function Show-WinSecAssessmentProfileSelection {
         $lines = @('WINSEC ANALYZER - ASSESSMENT PROFILE',
             ('Device: ' + $requestCopy.Hostname),('DeviceId: ' + $requestCopy.DeviceId),
             ('Scope: {0} / {1}' -f $requestCopy.ScopeType,$requestCopy.ScopeKey),
-            'Mode: READ ONLY | Overall score: NOT_SCORED')
+            'Mode: READ ONLY | Saved readings for framework review')
         if ($CurrentSystemLabel) { $lines += 'Current OS: ' + $CurrentSystemLabel }
         $details = @()
         if ($display.Stage -ceq 'OS') {
@@ -128,7 +128,7 @@ function Show-WinSecAssessmentProfileSelection {
                 $variant=$variants[$selected.Profile]
                 $details += 'Windows Update variant: '+$variant.Label+' / '+$variant.Channel
                 $details += 'Policy model: '+$variant.DeadlineModel
-                $details += 'Support dates follow edition, release and channel. Criteria weights: 15/35/50.'
+                $details += 'Support dates follow edition, release and channel. Findings explain maintenance and support warnings.'
                 $details += 'Policy support depends on installed revision. Unknown data is not a failure.'
             }
             $details += 'Applicability and prerequisites are checked during the scan.'
