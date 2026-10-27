@@ -18,6 +18,7 @@ try {
     . (Join-Path $sourceRoot 'tests/Fixtures/SmbMemory.ps1')
     . (Join-Path $sourceRoot 'tests/Fixtures/FirewallMemory.ps1')
     . (Join-Path $sourceRoot 'tests/Fixtures/RdpMemory.ps1')
+    . (Join-Path $sourceRoot 'tests/Fixtures/OpenPortsMemory.ps1')
     function Get-WinSecNetworkIntegrationCim {
         [CmdletBinding()]param($Namespace,$ClassName,$Property,$Filter,$OperationTimeoutSec)
         if($Namespace -ceq 'root/cimv2' -and $OperationTimeoutSec -eq 5){return Get-WinSecSmbFixtureCim @PSBoundParameters}
@@ -31,35 +32,37 @@ try {
     Set-Alias Read-WinSecSmbRegistryValue Read-WinSecSmbFixtureRegistry -Scope Script
     Set-Alias Invoke-WinSecRdpQuery Invoke-WinSecRdpFixtureQuery -Scope Script
     Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
+    Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-SmbIntegration 'Production registry enables SMB after native validation and keeps eight checks disabled' {
+    Test-SmbIntegration 'Production registry enables SMB after native validation and keeps seven checks disabled' {
         $check=@($production.Checks|Where-Object CheckId -CEQ WSA-NET-002)[0]
         Assert-SmbIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 8)
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 7)
     }
     Initialize-WinSecSmbFixture
     Initialize-WinSecFirewallFixture
     Initialize-WinSecRdpFixture
+    Initialize-WinSecOpenPortsFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
     $c=New-WinSecScanCoordinator $sandbox;$c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
     $confirmation={
         param($request)
         $section=($request.ScopeType -ceq 'SECTION')
-        $ids=if($section){'WSA-NET-001|WSA-NET-002|WSA-NET-003'}else{'WSA-NET-002'}
+        $ids=if($section){'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004'}else{'WSA-NET-002'}
         $schema=if($section){'3.0.0'}else{'2.0.0'}
         Assert-SmbIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq $ids -and
             $request.TechnicalReports.SchemaVersion -ceq $schema)
         $true
     }
-    Test-SmbIntegration 'Device confirmation lists exactly six validated controls and cancels without providers' {
+    Test-SmbIntegration 'Device confirmation lists exactly seven validated controls and cancels without providers' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($request)
             Assert-SmbIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
-        Assert-SmbIntegration ($null -eq $r -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
+        Assert-SmbIntegration ($null -eq $r -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
     }
     Test-SmbIntegration 'Opening the coordinator and cancelling confirmation performs no collection or writes' {
         Assert-SmbIntegration ((Get-WinSecScanAction $c $target.DeviceId CONTROL WSA-NET-002) -ceq 'Scan')
@@ -85,11 +88,11 @@ try {
         Assert-SmbIntegration ($null -eq $r -and $c.Sessions.Count -eq 1 -and $SmbCalls.Count -eq 2 -and
             @(Get-ChildItem (Join-Path $sandbox 'reports/exports') -Recurse -File).Count -eq $before)
     }
-    Test-SmbIntegration 'Network Security scans Firewall SMB and RDP and saves three independent technical files' {
+    Test-SmbIntegration 'Network Security scans four validated controls and saves four independent technical files' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId smb-section -ScopeType SECTION -ScopeKey NetworkSecurity `
             -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
-        Assert-SmbIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $r.ScopeType -ceq 'SECTION' -and $c.LastTechnicalReports.Files.Count -eq 3 -and
-            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003' -and $FirewallCalls.Count -eq 25 -and
+        Assert-SmbIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $r.ScopeType -ceq 'SECTION' -and $c.LastTechnicalReports.Files.Count -eq 4 -and
+            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004' -and $FirewallCalls.Count -eq 25 -and $PortsCalls.Count -eq 3 -and
             $RdpCalls.Count -eq (9+@(Get-WinSecRdpRegistryDefinitions).Count) -and
             (Get-WinSecScanAction $c $target.DeviceId SECTION NetworkSecurity) -ceq 'Rescan')
     }
@@ -100,13 +103,13 @@ try {
         $state.ControlIndex=1
         $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-SMB';DisplayName='SYNTHETIC-SMB'});
             PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
-        $null=Restore-WinSecPublicHistory -Context $ctx;$calls=$SmbCalls.Count;$fwCalls=$FirewallCalls.Count;$rdpReads=$RdpCalls.Count
+        $null=Restore-WinSecPublicHistory -Context $ctx;$calls=$SmbCalls.Count;$fwCalls=$FirewallCalls.Count;$rdpReads=$RdpCalls.Count;$portsReads=$PortsCalls.Count
         function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='mitre-attack'}}
         Assert-SmbIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
         $state.Screen='Findings';$state.FindingsScope='Control';$artifact=Export-WinSecCLIFrameworkFindings $state $ctx
         Assert-SmbIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.FrameworkId -ceq 'mitre-attack' -and
             $ctx.FrameworkFindings.Rows.Count -eq 4 -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and
-            $SmbCalls.Count -eq $calls -and $FirewallCalls.Count -eq $fwCalls -and $RdpCalls.Count -eq $rdpReads)
+            $SmbCalls.Count -eq $calls -and $FirewallCalls.Count -eq $fwCalls -and $RdpCalls.Count -eq $rdpReads -and $PortsCalls.Count -eq $portsReads)
     }
     Test-SmbIntegration 'Detailed SMB progress fits a small or resized terminal and never invokes a provider' {
         $script:rendered=New-Object 'Collections.Generic.List[string]'

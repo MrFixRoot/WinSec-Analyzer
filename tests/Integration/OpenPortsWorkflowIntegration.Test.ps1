@@ -1,4 +1,4 @@
-# Isolated new-check permission, real coordinator and owned temporary storage.
+# Real production permissions, coordinator and owned temporary storage.
 # All providers are synthetic. No production audit or permission changes.
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -28,17 +28,11 @@ try {
     Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
     Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-PortsIntegration 'Production Open Ports remains disabled while the six validated controls retain their permissions' {
+    Test-PortsIntegration 'Production enables Open Ports after native validation and leaves seven controls disabled' {
         $check=Get-WinSecRegisteredCheck $production WSA-NET-004
-        Assert-PortsIntegration (-not $check.ExecutionEnabled -and @($production.Checks|Where-Object ExecutionEnabled).Count -eq 6)
-    }
-    $script:portsRegistryReader=(Get-Command Get-WinSecCheckRegistry -CommandType Function).ScriptBlock
-    function Get-WinSecCheckRegistry {
-        param($ProjectRoot)
-        $registry=& $script:portsRegistryReader $ProjectRoot
-        $check=Get-WinSecRegisteredCheck $registry WSA-NET-004
-        $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
-        return $registry
+        Assert-PortsIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 7)
     }
     Initialize-WinSecOpenPortsFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
@@ -48,6 +42,15 @@ try {
         $ids=if($preview.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004'}else{'WSA-NET-004'}
         Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
+    }
+    Test-PortsIntegration 'Device confirmation lists exactly seven validated controls and cancels without provider calls' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($preview)
+            Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+            $false
+        }
+        Assert-PortsIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0)
     }
     Test-PortsIntegration 'Cancelled confirmation never collects or creates files' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled -ScopeType CONTROL -ScopeKey WSA-NET-004 -ConfirmAction {$false}

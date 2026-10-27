@@ -77,9 +77,9 @@ Test-Ports 'Stored counts, scope, protocol and duplicate IDs cannot be manipulat
     $row=@($r.Rows|Where-Object SettingId -CEQ Inventory.TCP.0001)[0];$items=ConvertTo-WinSecOpenPortsBatch $row.Value
     $items[1].Id=$items[0].Id;Reject-Ports {ConvertTo-WinSecOpenPortsBatch (ConvertTo-Json -InputObject @{SchemaVersion='1.0.0';Protocol='TCP';Items=$items} -Compress)}
 }
-Test-Ports 'Windows context uses the common collection schema without authorizing production' {
+Test-Ports 'Windows context uses the common schema and production permits only the individually validated control' {
     $plan=Get-WinSecAssessmentProfilePlan $root @('WSA-NET-004') WSA-W11-23H2-PRO-DEF-BASE
     $check=Get-WinSecRegisteredCheck (Get-WinSecCheckRegistry $root) WSA-NET-004
-    Assert-Ports ($plan.Preview.Policies[0].CatalogId -ceq 'WSA-PORTS-COLLECTION' -and -not $check.ExecutionEnabled)
+    Assert-Ports ($plan.Preview.Policies[0].CatalogId -ceq 'WSA-PORTS-COLLECTION' -and $check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED')
 }
 Write-Host ('Open Ports: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Open Ports tests failed.'}

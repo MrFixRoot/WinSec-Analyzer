@@ -226,12 +226,12 @@
       "controlKey": "OpenPorts",
       "sectionKey": "NetworkSecurity",
       "name": "Open Ports",
-      "description": "Collect listening network endpoints for security review.",
+      "description": "Collect local TCP listeners and UDP bindings for IPv4 and IPv6, preserving safe endpoint metadata for framework review without connection probes.",
       "order": 4,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Network/Test-OpenPorts.ps1",
         "function": "Test-WinSecOpenPorts"

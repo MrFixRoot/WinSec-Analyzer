@@ -13,7 +13,7 @@ try {
     foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/UI/Core/NavigationController.ps1',
         'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/CLI/FrameworkWorkflow.ps1',
         'src/UI/Core/TerminalRenderer.ps1','src/UI/Screens/ScanProgress.ps1')){. (Join-Path $sandbox $file)}
-    foreach($fixture in @('Rdp','Smb','Firewall')){. (Join-Path $sourceRoot ('tests/Fixtures/'+$fixture+'Memory.ps1'))}
+    foreach($fixture in @('Rdp','Smb','Firewall','OpenPorts')){. (Join-Path $sourceRoot ('tests/Fixtures/'+$fixture+'Memory.ps1'))}
     function Get-WinSecRdpIntegrationCim {
         [CmdletBinding()]param($Namespace,$ClassName,$Property,$Filter,$OperationTimeoutSec)
         if($Namespace -ceq 'root/cimv2' -and $OperationTimeoutSec -eq 5){return Get-WinSecSmbFixtureCim @PSBoundParameters}
@@ -27,31 +27,32 @@ try {
     Set-Alias Read-WinSecSmbRegistryValue Read-WinSecSmbFixtureRegistry -Scope Script
     Set-Alias Invoke-WinSecRdpQuery Invoke-WinSecRdpFixtureQuery -Scope Script
     Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
+    Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-RdpIntegration 'Production enables RDP after native validation and leaves eight controls disabled' {
+    Test-RdpIntegration 'Production enables RDP after native validation and leaves seven controls disabled' {
         $check=@($production.Checks|Where-Object CheckId -CEQ WSA-NET-003)[0]
         Assert-RdpIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 8)
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 7)
     }
-    Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
+    Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture;Initialize-WinSecOpenPortsFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
     $c=New-WinSecScanCoordinator $sandbox;$c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
     $confirmation={
         param($request)
-        $ids=if($request.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003'}else{'WSA-NET-003'}
+        $ids=if($request.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004'}else{'WSA-NET-003'}
         Assert-RdpIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
     }
-    Test-RdpIntegration 'Device confirmation lists exactly six validated controls and cancels without collection' {
+    Test-RdpIntegration 'Device confirmation lists exactly seven validated controls and cancels without collection' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($request)
             Assert-RdpIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
-        Assert-RdpIntegration ($null -eq $r -and $RdpCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
+        Assert-RdpIntegration ($null -eq $r -and $RdpCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
     }
     Test-RdpIntegration 'Cancelling confirmation leaves providers history and technical reports untouched' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled -ScopeType CONTROL -ScopeKey WSA-NET-003 -ConfirmAction {$false}
@@ -75,11 +76,11 @@ try {
         Assert-RdpIntegration ($null -eq $r -and $c.Sessions.Count -eq 1 -and $RdpCalls.Count -eq 2 -and
             @(Get-ChildItem (Join-Path $sandbox 'reports/exports') -Recurse -File).Count -eq $before)
     }
-    Test-RdpIntegration 'A confirmed section executes its three production-enabled controls and saves independent Markdown files' {
+    Test-RdpIntegration 'A confirmed section executes its four production-enabled controls and saves independent Markdown files' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId rdp-section -ScopeType SECTION -ScopeKey NetworkSecurity `
             -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
-        Assert-RdpIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 3 -and
-            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003' -and
+        Assert-RdpIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 4 -and
+            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004' -and $PortsCalls.Count -eq 3 -and
             (Get-WinSecScanAction $c $target.DeviceId SECTION NetworkSecurity) -ceq 'Rescan')
     }
     Test-RdpIntegration 'Restored F selects a framework and P exports that frozen view with no new provider calls' {
@@ -89,13 +90,13 @@ try {
         $state.ControlIndex=2
         $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-RDP';DisplayName='SYNTHETIC-RDP'});
             PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
-        $null=Restore-WinSecPublicHistory -Context $ctx;$calls=$RdpCalls.Count;$fwCalls=$FirewallCalls.Count;$smbCalls=$script:SmbCalls.Count
+        $null=Restore-WinSecPublicHistory -Context $ctx;$calls=$RdpCalls.Count;$fwCalls=$FirewallCalls.Count;$smbCalls=$script:SmbCalls.Count;$portsReads=$PortsCalls.Count
         function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='mitre-attack'}}
         Assert-RdpIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
         $state.Screen='Findings';$state.FindingsScope='Control';$artifact=Export-WinSecCLIFrameworkFindings $state $ctx
         Assert-RdpIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.FrameworkId -ceq 'mitre-attack' -and
             $ctx.FrameworkFindings.Rows.Count -eq 8 -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and
-            $RdpCalls.Count -eq $calls -and $FirewallCalls.Count -eq $fwCalls -and $script:SmbCalls.Count -eq $smbCalls)
+            $RdpCalls.Count -eq $calls -and $FirewallCalls.Count -eq $fwCalls -and $script:SmbCalls.Count -eq $smbCalls -and $PortsCalls.Count -eq $portsReads)
     }
     Test-RdpIntegration 'A scan with the native informational-null pattern persists complete execution and limited coverage' {
         $script:RdpNullFields=@('NetworkAdapterLanaID','DenyAdminPermissionForCustomization','PolicySourceDenyAdminPermissionForCustomization','VideoPlaybackRedir','PolicySourceVideoPlaybackRedir')
