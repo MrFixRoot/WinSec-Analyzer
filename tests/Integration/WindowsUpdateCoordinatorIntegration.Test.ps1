@@ -1,4 +1,4 @@
-# Real production registry, coordinator, three collectors, evaluation, public history and UI.
+# Real production registry, coordinator, four collectors, evaluation, public history and UI.
 # Only Windows providers, storage, terminal and audit timestamps are synthetic.
 # No execution-permission overrides, native Windows reads or application-data writes.
 [CmdletBinding()]
@@ -11,7 +11,9 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Components/Banner.ps1','src/UI/Components/KeyboardHelp.ps1','src/UI/Screens/MainMenu.ps1',
     'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/ScanConfirmation.ps1',
     'src/Services/ReportService.ps1','src/CLI/FrameworkWorkflow.ps1','src/UI/Screens/FrameworkFindings.ps1',
-    'src/UI/Screens/ExportFrameworkSelection.ps1','tests/Fixtures/WindowsUpdateMemory.ps1')){. (Join-Path $root $file)}
+    'src/UI/Screens/ExportFrameworkSelection.ps1','tests/Fixtures/WindowsUpdateMemory.ps1',
+    'tests/Fixtures/FirewallMemory.ps1')){. (Join-Path $root $file)}
+Set-Alias Invoke-WinSecFirewallQuery Invoke-WinSecFirewallFixtureQuery -Scope Script
 $script:production=Get-WinSecCheckRegistry $root
 $script:auditReader=(Get-Command Invoke-WinSecAudit).ScriptBlock
 $script:wuCimReader=(Get-Command Get-CimInstance).ScriptBlock
@@ -48,6 +50,16 @@ function Assert-WinSecUpdateCoordinatorRejected {
 }
 function Get-CimInstance {
     [CmdletBinding()]param($Namespace,$ClassName,$Property,$Filter,$OperationTimeoutSec)
+    if($ClassName -ceq 'Win32_OperatingSystem' -and -not $Namespace) {
+        Assert-WinSecUpdateCoordinator ($OperationTimeoutSec -eq 5 -and
+            ($Property -join ',') -ceq 'Caption,Version,BuildNumber,OperatingSystemSKU,ProductType')
+        $script:FirewallBuild=[int]$script:WU.Systems[0].BuildNumber
+        return Get-WinSecFirewallFixtureCim @PSBoundParameters
+    }
+    if($ClassName -ceq 'Win32_Service' -and $Filter -cin @("Name = 'MpsSvc'","Name = 'BFE'")) {
+        Assert-WinSecUpdateCoordinator ($OperationTimeoutSec -eq 5 -and ($Property -join ',') -ceq 'Name,State,StartMode')
+        return Get-WinSecFirewallFixtureCim @PSBoundParameters
+    }
     if($ClassName -ceq 'Win32_OperatingSystem' -and $Namespace -ceq 'root/cimv2') {
         $script:osReads++
         Assert-WinSecUpdateCoordinator ($OperationTimeoutSec -eq 10)
@@ -167,6 +179,7 @@ function Test-WinSecUpdateCoordinator {
     param([string]$Name,[scriptblock]$Action)
     if($Name -notlike $CasePattern){return}
     Reset-WinSecWindowsUpdateFixture
+    Initialize-WinSecFirewallFixture
     $script:WU.Systems[0].Version='10.0.26200';$script:WU.Systems[0].BuildNumber='26200'
     $script:WU.VersionValues.CurrentBuildNumber='26200'
     $script:sequence=0;$script:defenderReads=0;$script:volumeReads=0;$script:volumeMethods=0;$script:osReads=0;$script:store=@{}
@@ -224,14 +237,16 @@ try {
         $m=ConvertFrom-WinSecMarkdownArtifact ([IO.File]::ReadAllText($receipt.Files[0].Path)) $first.DeviceId
         Assert-WinSecUpdateCoordinator ($m.ScopeType -ceq 'CONTROL' -and $m.ScopeKey -ceq 'WSA-SYS-002')
     }
-    Test-WinSecTechnicalCoordinator 'device scan creates three artifacts; normal coordinators never request persistence' {
+    Test-WinSecTechnicalCoordinator 'device scan creates four artifacts; normal coordinators never request persistence' {
         $ctx=New-WinSecUpdateCoordinatorContext
         $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id no-technical-output
         Assert-WinSecUpdateCoordinator ($null -eq $ctx.ScanCoordinator.LastTechnicalReports -and
             @(Get-ChildItem -LiteralPath $script:technicalRoot -Recurse -File).Count -eq 0)
         $ctx.ScanCoordinator.TechnicalReportsEnabled=$true
-        $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id technical-device -ScopeType DEVICE -ScopeKey ALL
-        Assert-WinSecUpdateCoordinator ($ctx.ScanCoordinator.LastTechnicalReports.Status -ceq 'SAVED' -and $ctx.ScanCoordinator.LastTechnicalReports.Files.Count -eq 3)
+        $deviceScan=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id technical-device -ScopeType DEVICE -ScopeKey ALL
+        Assert-WinSecUpdateCoordinator ($deviceScan.ExecutionStatus -ceq 'COMPLETED' -and
+            $ctx.ScanCoordinator.LastTechnicalReports.Status -ceq 'SAVED' -and $ctx.ScanCoordinator.LastTechnicalReports.Files.Count -eq 4 -and
+            $script:FirewallCalls.Count -eq 25)
     }
     Test-WinSecTechnicalCoordinator 'cancellation before and during collection writes no files and preserves history' {
         $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
@@ -259,7 +274,7 @@ try {
     }
     Test-WinSecTechnicalCoordinator 'small confirmation and changed output directory cannot authorize writing' {
         $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
-        $empty=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey NetworkSecurity
+        $empty=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey IdentityAccess
         Assert-WinSecUpdateCoordinator ($empty.CheckIds.Count -eq 0 -and (ConvertFrom-Json $empty.RequestJson).TechnicalReports.Count -eq 0)
         $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=12}
         $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})
@@ -426,14 +441,14 @@ try {
         Assert-WinSecUpdateCoordinator ($restored.FrameworkFindings.ReadingCount -ge 148 -and $restored.FrameworkFindings.MissingTechnicalCheckIds.Count -eq 0 -and
             @($restored.FrameworkFindings.Sources|Where-Object Origin -CNE RECORDS).Count -eq 0 -and $reads -eq $script:sequence)
     }
-    Test-WinSecUpdateCoordinator 'Production enables exactly the three individually validated System Security controls' {
+    Test-WinSecUpdateCoordinator 'Production enables exactly the four individually validated controls' {
         $ready=@($script:production.Checks|Where-Object ExecutionReady)
-        Assert-WinSecUpdateCoordinator ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+        Assert-WinSecUpdateCoordinator ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
             @($ready|Where-Object {$_.ImplementationStatus -cne 'VALIDATED' -or -not $_.ExecutionEnabled}).Count -eq 0)
         $ctx=New-WinSecUpdateCoordinatorContext
         Assert-WinSecUpdateCoordinator ($script:osReads -eq 0 -and $script:defenderReads -eq 0 -and $script:WU.NamedPolicyReads -eq 0)
     }
-    foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
+    foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
         @{T='SECTION';K='SystemSecurity';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
         @{T='CONTROL';K='WSA-SYS-003';Ids='WSA-SYS-003'})) {
         Test-WinSecUpdateCoordinator ('Actual scope preview cancels before all collection and publication: '+$scope.T) {
@@ -477,12 +492,12 @@ try {
         $rows=@(Get-WinSecMainMenuSections -SectionResults $p.SectionResults -ConfigurationAssessment $p.ConfigurationAssessment)
         Assert-WinSecUpdateCoordinator (@($rows|Where-Object {$_.Key -ceq 'SystemSecurity' -and $_.Score -ceq '66.67/100' -and $_.Status -ceq 'COMPLETE'}).Count -eq 1)
     }
-    Test-WinSecUpdateCoordinator 'A full device scan executes only the three ready controls and preserves independent section rows' {
+    Test-WinSecUpdateCoordinator 'A full device scan executes only the four ready controls and preserves independent section rows' {
         $ctx=New-WinSecUpdateCoordinatorContext
         $p=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeType DEVICE -ScopeKey ALL
         $system=@($p.ConfigurationAssessment.Sections|Where-Object SectionKey -CEQ SystemSecurity)
         Assert-WinSecUpdateCoordinator ($p.ControlResults.Count -eq 14 -and
-            @($p.ControlResults|Where-Object Status -CNE NOT_SELECTED).Count -eq 3 -and
+            @($p.ControlResults|Where-Object Status -CNE NOT_SELECTED).Count -eq 4 -and $script:FirewallCalls.Count -eq 25 -and
             $p.ConfigurationAssessment.Controls.Count -eq 14) ('Unexpected device manifest counts: public='+$p.ControlResults.Count+'; controls='+$p.ConfigurationAssessment.Controls.Count)
         Assert-WinSecUpdateCoordinator ($system.Count -eq 1 -and $system[0].Value -eq 66.67 -and
             @($p.ConfigurationAssessment.Sections|Where-Object {$_.SectionKey -cne 'SystemSecurity' -and $null -ne $_.Value}).Count -eq 0 -and

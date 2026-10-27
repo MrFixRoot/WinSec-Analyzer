@@ -24,21 +24,26 @@ try {
     Set-Alias Get-WinSecLocalHardwareDeviceId Get-WinSecFirewallFixtureHardware -Scope Script
     Set-Alias Get-CimInstance Get-WinSecFirewallFixtureCim -Scope Script
     Set-Alias Invoke-WinSecFirewallQuery Invoke-WinSecFirewallFixtureQuery -Scope Script
-    $script:registryReader=(Get-Command Get-WinSecCheckRegistry).ScriptBlock
-    function Get-WinSecCheckRegistry {
-        param($ProjectRoot)
-        $registry=& $script:registryReader -ProjectRoot $ProjectRoot
-        foreach($check in $registry.Checks) {
-            $check.ExecutionEnabled=($check.CheckId -ceq 'WSA-NET-001')
-            if($check.CheckId -ceq 'WSA-NET-001'){$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'}
-        }
-        return $registry
-    }
     Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice -ProjectRoot $sandbox
     $c=New-WinSecScanCoordinator $sandbox;$target=New-WinSecLocalTarget
     $c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
+    Test-FWIntegration 'Production registry enables only the four individually validated controls' {
+        $registry=Get-WinSecCheckRegistry $sandbox
+        $ready=@(Get-WinSecExecutableChecks -Registry $registry)
+        Assert-FWIntegration ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($registry.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 10 -and $FirewallCalls.Count -eq 0)
+    }
+    Test-FWIntegration 'Device confirmation lists all four enabled controls and cancellation makes no queries' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId 'cancelled-device' -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($request)
+            Assert-FWIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
+                'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+            $false
+        }
+        Assert-FWIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $FirewallCalls.Count -eq 0)
+    }
     $script:allowScan=$true
     $confirmation={param($request);Assert-FWIntegration ($request.ReadOnly -and $request.Checks.Count -eq 1 -and $request.Checks[0].CheckId -ceq 'WSA-NET-001' -and
         $request.TechnicalReports.SchemaVersion -ceq '3.0.0');return $script:allowScan}

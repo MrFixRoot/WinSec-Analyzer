@@ -5,12 +5,16 @@ function Initialize-WinSecFirewallFixture {
     $script:FirewallEvents=New-Object 'Collections.Generic.List[object]'
     $script:FirewallRuleCount=2
     $script:FirewallLocalPort='Any'
+    $script:FirewallServiceNames=@{MpsSvc='mpssvc';BFE='BFE'}
 }
 function Get-WinSecFirewallFixtureCim {
     param($ClassName,$Filter,$Property,$OperationTimeoutSec,$ErrorAction,$Namespace)
     switch($ClassName) {
         Win32_OperatingSystem {[pscustomobject]@{Caption='Microsoft Windows 11 Pro';Version=('10.0.'+$script:FirewallBuild);BuildNumber=[string]$script:FirewallBuild;OperatingSystemSKU=48;ProductType=1}}
-        Win32_Service {[pscustomobject]@{Name=if($Filter.Contains('MpsSvc')){'MpsSvc'}else{'BFE'};State='Running';StartMode='Auto'}}
+        Win32_Service {
+            $key=if($Filter.Contains('MpsSvc')){'MpsSvc'}else{'BFE'}
+            foreach($nativeName in @($script:FirewallServiceNames[$key])){[pscustomobject]@{Name=$nativeName;State='Running';StartMode='Auto'}}
+        }
         default {throw 'Forbidden native provider.'}
     }
 }

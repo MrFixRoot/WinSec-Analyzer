@@ -148,12 +148,12 @@
       "controlKey": "Firewall",
       "sectionKey": "NetworkSecurity",
       "name": "Windows Firewall",
-      "description": "Assess Windows Defender Firewall profile configurations.",
+      "description": "Collect local Windows Firewall profiles, settings, rules, filters and available Hyper-V Firewall configuration for framework review.",
       "order": 1,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Firewall/Test-Firewall.ps1",
         "function": "Test-WinSecFirewall"

@@ -76,7 +76,8 @@ function Test-WinSecFirewall {
     foreach($name in @('MpsSvc','BFE')) {
         try {
             $s=@(Get-CimInstance -ClassName Win32_Service -Filter ("Name = '"+$name+"'") -Property Name,State,StartMode -OperationTimeoutSec 5 -ErrorAction Stop)
-            if($s.Count -ne 1 -or $s[0].Name -cne $name){throw 'Ambiguous service.'}
+            if($s.Count -ne 1 -or $s[0].Name -isnot [string] -or
+                -not [string]::Equals($s[0].Name,$name,[StringComparison]::OrdinalIgnoreCase)){throw 'Ambiguous service.'}
             $e.Services|Add-Member $name ([pscustomobject]@{State=(ConvertTo-WinSecFirewallScalar $s[0].State);StartMode=(ConvertTo-WinSecFirewallScalar $s[0].StartMode)})
         } catch {$issues.Add('SERVICE_'+$name+'_UNAVAILABLE')}
         $null=& $cancel

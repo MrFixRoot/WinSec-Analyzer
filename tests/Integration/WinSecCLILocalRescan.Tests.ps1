@@ -230,9 +230,9 @@ $enabledChecks = @(
 )
 
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 3 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+    -Condition ($enabledChecks.Count -eq 4 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
         @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -eq 0) `
-    -Description 'Only validated System Security controls are enabled in production'
+    -Description 'Only validated System Security and Firewall controls are enabled in production'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING POLICY DISABLED
@@ -254,8 +254,8 @@ Assert-WinSecIntegration `
 if (
     -not $readOnly -or
     -not $noAutomaticStartup -or
-    $enabledChecks.Count -ne 3 -or
-    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    $enabledChecks.Count -ne 4 -or
+    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0 -or
     -not $scoringDisabled
 ) {
@@ -530,9 +530,10 @@ Assert-WinSecIntegration `
 
 Assert-WinSecIntegration `
     -Condition (
-        $context.LastScanMessage -match 'NOT_SCORED'
+        $context.LastScanMessage.Contains('Open [F] to select a framework') -and
+        $context.LastScanMessage -notmatch 'NOT_SCORED|/100|Security score'
     ) `
-    -Description 'CLI scan message reports NOT_SCORED'
+    -Description 'CLI scan message directs the user to framework Findings without a rating'
 
 # ------------------------------------------------------------
 # TEST 20 - REAL HISTORY CONTAINS EXECUTION

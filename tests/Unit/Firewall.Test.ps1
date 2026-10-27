@@ -29,6 +29,23 @@ Test-FirewallCase 'Provider errors remain explicit and free provider messages ne
     Assert-Firewall (-not $s.ControlResults[0].Evidence.CollectionSuccessful -and -not $s.ControlResults[0].Evidence.CollectionComplete -and
         (ConvertTo-Json $s.ControlResults[0].Evidence -Depth 12 -Compress) -notmatch 'PRIVATE-PROVIDER-ERROR')
 }
+Test-FirewallCase 'Service identity ignores case and preserves canonical technical keys' {
+    foreach($names in @(@{MpsSvc='mpssvc';BFE='bfe'},@{MpsSvc='MPSSVC';BFE='Bfe'},@{MpsSvc='MpsSvc';BFE='BFE'})) {
+        $script:FirewallServiceNames=$names
+        $s=New-WinSecFirewallFixtureSession
+        $e=$s.ControlResults[0].Evidence
+        Assert-Firewall ($e.CollectionComplete -and $e.CollectionIssues.Count -eq 0 -and $e.Services.MpsSvc.State -ceq 'RUNNING' -and
+            $e.Services.BFE.State -ceq 'RUNNING' -and @($e.Services.PSObject.Properties.Name) -ccontains 'MpsSvc')
+    }
+}
+Test-FirewallCase 'Missing, foreign, malformed or duplicate services remain unavailable' {
+    foreach($bad in @($null,'BFE','MpsSvc-extra',' MpsSvc','MpsSvc ',123,@('MpsSvc','mpssvc'),@())) {
+        $script:FirewallServiceNames.MpsSvc=$bad
+        $s=New-WinSecFirewallFixtureSession;$e=$s.ControlResults[0].Evidence
+        Assert-Firewall (-not $e.CollectionComplete -and $e.CollectionIssues -ccontains 'SERVICE_MpsSvc_UNAVAILABLE' -and
+            $null -eq $e.Services.PSObject.Properties['MpsSvc'] -and $e.Services.BFE.State -ceq 'RUNNING')
+    }
+}
 Test-FirewallCase 'Cancellation throws before collection and returns no result' {
     $script:FirewallCancel=$true;Reject-Firewall {New-WinSecFirewallFixtureSession};Assert-Firewall ($FirewallCalls.Count -eq 0)
 }
