@@ -29,6 +29,7 @@ function Get-WinSecMainMenuSections {
         [object[]]$SectionResults = @(),
         [AllowNull()][object]$ConfigurationAssessment = $null,
         [AllowEmptyCollection()][object[]]$SectionViews = @(),
+        [AllowEmptyCollection()][object[]]$SystemControlViews = @(),
         [string]$DeviceId = ''
     )
 
@@ -151,6 +152,13 @@ function Get-WinSecMainMenuSections {
         }
         $sourceRows[$view.SectionKey]=@(Get-WinSecMainMenuSections -SectionResults $view.SectionResults `
             -ConfigurationAssessment $configuration|Where-Object Key -CEQ $view.SectionKey)[0]
+    }
+    if ($SystemControlViews.Count -gt 0) {
+        $summary=Get-WinSecLatestSystemSecuritySummary -NavigationState ([pscustomobject]@{SelectedDeviceId=$DeviceId}) `
+            -ControlViews $SystemControlViews
+        $sourceRows['SystemSecurity']=[pscustomobject]@{Id='01';Key='SystemSecurity';Name='System Security';
+            Score=if ($null -ne $summary.Value) {$summary.Value.ToString('0.##',[Globalization.CultureInfo]::InvariantCulture)+'/100'} else {'NOT_SCORED'};
+            Status=if ($summary.Status -ceq 'COMPLETE' -and $summary.Source -ceq 'LATEST_CONTROLS') {'LATEST_CONTROLS'} else {$summary.Status}}
     }
     foreach ($definition in $definitions) {
         $status = 'PENDING'
@@ -307,6 +315,7 @@ function Show-WinSecMainMenu {
 
         [AllowNull()][object]$ConfigurationAssessment = $null,
         [AllowEmptyCollection()][object[]]$SectionViews = @(),
+        [AllowEmptyCollection()][object[]]$SystemControlViews = @(),
         [string]$ScanId = '',
         [Nullable[int]]$OverallScore = $null,
 
@@ -329,13 +338,13 @@ function Show-WinSecMainMenu {
     }
     if ($null -ne $ConfigurationAssessment) {Assert-WinSecConfigurationViewContext $ConfigurationAssessment $NavigationState $ScanId}
     $viewDeviceId=''
-    if($SectionViews.Count -gt 0) {
+    if($SectionViews.Count -gt 0 -or $SystemControlViews.Count -gt 0) {
         if($null -eq $NavigationState -or $NavigationState.SelectedDeviceId -isnot [string]){throw 'Section views require a device context.'}
         $viewDeviceId=$NavigationState.SelectedDeviceId
     }
     $sections = @(
         Get-WinSecMainMenuSections -SectionResults $SectionResults -ConfigurationAssessment $ConfigurationAssessment `
-            -SectionViews $SectionViews -DeviceId $viewDeviceId
+            -SectionViews $SectionViews -SystemControlViews $SystemControlViews -DeviceId $viewDeviceId
     )
 
     # --------------------------------------------------------
@@ -471,6 +480,9 @@ function Show-WinSecMainMenu {
     Write-WinSecText `
         -Text $summary `
         -Color $statusColor
+    if ($SystemControlViews.Count -gt 0) {
+        Write-WinSecText -Text 'Section scores use latest saved controls; scans may differ.' -Color DarkGray
+    }
 
     if (-not $compactVertical) {
         Write-Host ''
@@ -515,7 +527,7 @@ function Show-WinSecMainMenu {
         @{
             Key      = 'Status'
             Header   = 'Status'
-            Width    = 14
+            Width    = 15
             MinWidth = 8
             MaxWidth = 16
             Priority = 3
@@ -543,6 +555,7 @@ function Show-WinSecMainMenu {
 
     # Recalculate layout using actual content reservations.
     if ($SystemLabel) { $reservedRows++ }
+    if ($SystemControlViews.Count -gt 0) { $reservedRows++ }
     $layout = Get-WinSecLayout `
         -Screen 'MainMenu' `
         -ReservedRows $reservedRows

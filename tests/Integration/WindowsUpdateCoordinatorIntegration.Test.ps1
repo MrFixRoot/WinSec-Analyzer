@@ -271,7 +271,8 @@ try {
         }
         foreach($index in @(0,1)) {
             $state.SectionIndex=$index;Show-WinSecCLICurrentScreen $state $restart
-            Assert-WinSecUpdateCoordinator (($script:lines -join '|').Contains('66.67/100'))
+            Assert-WinSecUpdateCoordinator (($script:lines -join '|').Contains('61.67/100') -and
+                ($script:lines -join '|').Contains('LATEST_CONTROLS'))
         }
         $reads=$script:osReads;$script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=20}
         Show-WinSecCLICurrentScreen $state $restart
@@ -287,6 +288,59 @@ try {
         $reads=$script:osReads;Show-WinSecCLICurrentScreen $state $restart
         $state=Invoke-WinSecNavigationAction $state Back
         Assert-WinSecUpdateCoordinator ($state.Screen -cne 'Findings' -and $script:osReads -eq $reads)
+    }
+    Test-WinSecUpdateCoordinator 'Three separate control scans produce a current summary without inventing section history' {
+        $ctx=New-WinSecUpdateCoordinatorContext
+        foreach($id in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')) {
+            $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id ('individual-'+$id) -ScopeKey $id
+        }
+        $before=ConvertTo-Json $script:store -Depth 8 -Compress
+        $restart=New-WinSecUpdateCoordinatorContext;Restore-WinSecPublicHistory $restart
+        $state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.Devices[0].DeviceId;$state.Screen='Section'
+        $reads=$script:osReads
+        $views=@(Get-WinSecCLIControlViews $state $restart)
+        $s=Get-WinSecLatestSystemSecuritySummary $state $views
+        Assert-WinSecUpdateCoordinator ($s.Value -eq 66.67 -and $s.Status -ceq 'COMPLETE' -and
+            $s.Source -ceq 'LATEST_CONTROLS' -and $s.ScanCount -eq 3 -and $script:store.Count -eq 3)
+        Show-WinSecCLICurrentScreen $state $restart
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|').Contains('66.67/100') -and
+            ($script:lines -join '|').Contains('latest controls (3 scans)'))
+        $state.Screen='MainMenu';Show-WinSecCLICurrentScreen $state $restart
+        Assert-WinSecUpdateCoordinator (($script:lines -join '|').Contains('66.67/100') -and
+            ($script:lines -join '|').Contains('LATEST_CONTROLS'))
+        Assert-WinSecUpdateCoordinator ((Get-WinSecScanAction $restart.ScanCoordinator $state.SelectedDeviceId SECTION SystemSecurity) -ceq 'Scan' -and
+            $reads -eq $script:osReads -and $before -ceq (ConvertTo-Json $script:store -Depth 8 -Compress))
+        $state.Screen='Findings';$state.FindingsScope='Section'
+        Assert-WinSecUpdateCoordinator (-not (Test-WinSecCLIFindingsExportEligibility $state $restart))
+        $state.FindingsScope='Control';$state.ControlIndex=2
+        $selection=Get-WinSecCLIFindingsExportSelection $state $restart
+        Assert-WinSecUpdateCoordinator ($selection.ScanId -ceq 'individual-WSA-SYS-003')
+        $state.Screen='MainMenu';$script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=20}
+        Show-WinSecCLICurrentScreen $state $restart
+        Assert-WinSecUpdateCoordinator (@($script:lines|Where-Object {$_.Length -gt 40}).Count -eq 0 -and $reads -eq $script:osReads)
+    }
+    foreach($fullScope in @(@{T='SECTION';K='SystemSecurity'},@{T='DEVICE';K='ALL'})) {
+        Test-WinSecUpdateCoordinator ('A later '+$fullScope.T+' scan refreshes all control views and Findings after independent scans') {
+            $ctx=New-WinSecUpdateCoordinatorContext
+            $script:WU.Services[0].StartMode='Disabled'
+            foreach($id in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')) {
+                $null=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id ('older-'+$id) -ScopeKey $id
+            }
+            $old=$script:store['older-WSA-SYS-003'];$script:WU.Services[0].StartMode='Manual'
+            $all=Invoke-WinSecUpdateCoordinatorFixture $ctx -Id newer-complete -ScopeType $fullScope.T -ScopeKey $fullScope.K
+            $restart=New-WinSecUpdateCoordinatorContext;Restore-WinSecPublicHistory $restart
+            $state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.Devices[0].DeviceId;$state.Screen='Section'
+            $views=@(Get-WinSecCLIControlViews $state $restart)
+            $summary=Get-WinSecLatestSystemSecuritySummary $state $views
+            Assert-WinSecUpdateCoordinator ($views.Count -eq 3 -and @($views|Where-Object ScanId -CNE newer-complete).Count -eq 0 -and
+                $summary.Value -eq 66.67 -and $summary.Source -ceq 'SESSION' -and
+                $old -ceq $script:store['older-WSA-SYS-003'] -and
+                @($all.ConfigurationAssessment.Controls|Where-Object CheckId -CEQ WSA-SYS-003)[0].Value -eq 100)
+            $state.Screen='Findings';$state.FindingsScope='Control';$state.ControlIndex=2
+            $selection=Get-WinSecCLIFindingsExportSelection $state $restart
+            Assert-WinSecUpdateCoordinator ($selection.ScanId -ceq 'newer-complete' -and
+                @($selection.ConfigurationAssessment.Controls|Where-Object CheckId -CEQ WSA-SYS-003)[0].Criteria[0].Profile -ceq 'WSA-W11-25H2-PRO-DEF-BASE')
+        }
     }
     Test-WinSecUpdateCoordinator 'Cancellation during section collection cannot publish partial history or replace the prior result' {
         $ctx=New-WinSecUpdateCoordinatorContext

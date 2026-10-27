@@ -260,13 +260,49 @@ function Get-WinSecCLIActiveAssessment {
         if ($viewScope.ScopeType -ceq 'CONTROL') {
             $sections = @(Get-WinSecMainMenuSections)
             $candidates += [pscustomobject]@{ScopeType='SECTION';ScopeKey=$sections[$State.SectionIndex].Key}
+            $candidates += [pscustomobject]@{ScopeType='DEVICE';ScopeKey='ALL'}
         }
+        $latestCompleted = $null
+        $deviceScanMap = $activeScanMap
         foreach ($candidate in $candidates) {
             $scopeKey = Get-WinSecCLIScopeKey $deviceId $candidate.ScopeType $candidate.ScopeKey
-            if ($scopeMap.ContainsKey($scopeKey)) {
-                $activeScanMap = @{ $deviceId = $scopeMap[$scopeKey] }
+            $candidateScanId = $null
+            if ($candidate.ScopeType -ceq 'DEVICE') {
+                if ($deviceScanMap -isnot [System.Collections.IDictionary] -or -not $deviceScanMap.Contains($deviceId)) { continue }
+                $candidateScanId = $deviceScanMap[$deviceId]
+            }
+            elseif ($scopeMap.ContainsKey($scopeKey)) { $candidateScanId = $scopeMap[$scopeKey] }
+            else { continue }
+            if ($null -eq $candidateScanId) { throw 'Missing control source identifier.' }
+            if ($null -ne $candidateScanId) {
+                if ($viewScope.ScopeType -ceq 'CONTROL') {
+                    # A later section/device scan supersedes an older control
+                    # view. Inspect bounded data only; the selected session is
+                    # deeply validated below before any records are returned.
+                    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
+                        . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
+                    }
+                    if ($candidateScanId -isnot [string] -or -not (Test-WinSecTargetIdentifier $candidateScanId) -or
+                        $publicScanMap -isnot [System.Collections.IDictionary]) { throw 'Invalid control source index.' }
+                    $key = '{0}:{1}{2}:{3}' -f $deviceId.Length,$deviceId,$candidateScanId.Length,$candidateScanId
+                    if (-not $publicScanMap.Contains($key)) { throw 'Missing control source session.' }
+                    $source = Copy-WinSecResultData $publicScanMap[$key]
+                    if ($candidate.ScopeType -ceq 'DEVICE' -and $null -eq $source.ScopeType -and
+                        $null -eq $source.ScopeKey -and $null -eq $source.ConfigurationAssessment) { continue }
+                    if ($source.DeviceId -isnot [string] -or $source.DeviceId -cne $deviceId -or
+                        $source.ScanId -isnot [string] -or $source.ScanId -cne $candidateScanId -or
+                        $source.ScopeType -isnot [string] -or $source.ScopeType -cne $candidate.ScopeType -or
+                        $source.ScopeKey -isnot [string] -or $source.ScopeKey -cne $candidate.ScopeKey -or
+                        $source.StartedAtUTC -isnot [string] -or $source.CompletedAtUTC -isnot [string] -or
+                        $source.ExecutionStatus -isnot [string] -or $source.ExecutionStatus -cne 'COMPLETED') { throw 'Invalid control source identity, scope or time.' }
+                    $completed = ConvertTo-WinSecResultUtc $source.CompletedAtUTC 'CompletedAtUTC'
+                    if ($completed -lt (ConvertTo-WinSecResultUtc $source.StartedAtUTC 'StartedAtUTC')) { throw 'Invalid control source time range.' }
+                    if ($null -ne $latestCompleted -and $completed -le $latestCompleted) { continue }
+                    $latestCompleted = $completed
+                }
+                $activeScanMap = @{ $deviceId = $candidateScanId }
                 $expectedScope = $candidate
-                break
+                if ($viewScope.ScopeType -cne 'CONTROL') { break }
             }
         }
     }
@@ -764,8 +800,8 @@ function Get-WinSecCLIControlViews {
         throw 'Invalid control table selection.'
     }
     $controls = @(Get-WinSecSectionControls -SectionKey $sections[$State.SectionIndex].Key)
-    # Resolve each row independently. Never mutate navigation or combine these
-    # sessions into a new assessment, section score, Findings or report.
+    # Resolve each row independently. A display-only latest-controls summary
+    # may use these views; they never become a historical session or report.
     $views = @(
         for ($i = 0; $i -lt $controls.Count; $i++) {
             $selection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
@@ -925,6 +961,9 @@ function Show-WinSecCLICurrentScreen {
             # Validate local scan authorization
             # -----------------------------------------------
             $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
+            $systemSelection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
+                SectionIndex=0;ControlIndex=0}
+            $systemControlViews = @(Get-WinSecCLIControlViews -State $systemSelection -Context $Context)
 
             # -----------------------------------------------
             # Render existing main menu
@@ -937,6 +976,7 @@ function Show-WinSecCLICurrentScreen {
                 -OverallStatus $assessment.OverallStatus `
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
                 -SectionViews @(Get-WinSecCLISectionViews -State $State -Context $Context) `
+                -SystemControlViews $systemControlViews `
                 -Version $Context.Version `
                 -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) `
                 @scanPresentation
