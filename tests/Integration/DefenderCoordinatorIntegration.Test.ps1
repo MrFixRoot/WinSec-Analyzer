@@ -14,7 +14,10 @@ $script:pendingReader = (Get-Command Read-WinSecPendingKey).ScriptBlock
 . (Join-Path $root 'src/UI/Screens/ScanProgress.ps1')
 $script:catalog = Get-WinSecCheckRegistry -ProjectRoot $root
 $enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
-if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
+if($enabled.Count -ne 3 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    @($enabled | Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -ne 0){
+    throw 'Only validated System Security controls may be enabled in production.'
+}
 $script:passed = 0
 $script:failed = 0
 $script:statusCalls = 0

@@ -95,7 +95,7 @@ Test-WinSecProgress 'Reading is 0 percent and finalizing cannot claim 100 percen
     Show-WinSecScanProgress $script:display (New-WinSecProgressEvent FINALIZING 2)
     Assert-WinSecProgress (($script:lines -join '|') -match '99%' -and ($script:lines -join '|') -notmatch '100%')
     Show-WinSecScanProgress $script:display (New-WinSecProgressEvent COMPLETED 2)
-    Assert-WinSecProgress (($script:lines -join '|') -match '100%' -and ($script:lines -join '|') -match 'NOT_SCORED')
+    Assert-WinSecProgress (($script:lines -join '|') -match '100%' -and ($script:lines -join '|') -match 'Scan COMPLETE' -and ($script:lines -join '|') -notmatch 'NOT_SCORED')
 }
 Test-WinSecProgress 'Cancellation and technical warnings are yellow; normal progress retains cyan' {
     Show-WinSecScanProgress $script:display (New-WinSecProgressEvent)

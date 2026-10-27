@@ -174,6 +174,11 @@ function Test-WinSecFrameworkDocument {
                     $seenCriteria[$id]=$true
                 }
             }
+            if($mapping.checkId -ceq 'WSA-SYS-003' -and
+                ($reference.criterionIds -isnot [array] -or $reference.criterionIds.Count -eq 0 -or
+                @($reference.criterionIds|Where-Object {$_ -cnotin @('WSA-WUP-BASE-001','WSA-WUP-BASE-002','WSA-WUP-BASE-003')}).Count)) {
+                throw 'Windows Update framework references require explicit approved criterion identifiers.'
+            }
 
             if (
                 $reference -isnot [PSCustomObject] -or

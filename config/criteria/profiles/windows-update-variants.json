@@ -1,0 +1,24 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogVersion": "1.0.0",
+  "Purpose": "PROFILE_PRESENTATION_ONLY",
+  "ReviewedOn": "2026-10-26",
+  "Sources": [
+    "https://learn.microsoft.com/en-us/windows/deployment/update/windows-update-client-policies",
+    "https://learn.microsoft.com/en-us/windows/deployment/update/configure-policies-different-device-types",
+    "https://learn.microsoft.com/en-us/windows/deployment/update/wufb-compliancedeadlines",
+    "https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-update",
+    "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
+  ],
+  "EditionGroups": [
+    { "Key": "HOME", "Label": "Home / consumer updates", "Skus": [98, 99, 100, 101], "Channel": "GAC", "PolicySurface": "CONSUMER", "SupportModel": "HOME_PRO" },
+    { "Key": "PRO", "Label": "Pro / GPO and MDM", "Skus": [48, 49, 161, 162, 164, 165], "Channel": "GAC", "PolicySurface": "MANAGED", "SupportModel": "HOME_PRO" },
+    { "Key": "ENTERPRISE_EDUCATION", "Label": "Enterprise-Education / GPO and MDM", "Skus": [4, 27, 121, 122], "Channel": "GAC", "PolicySurface": "MANAGED", "SupportModel": "ENTERPRISE_EDUCATION" },
+    { "Key": "ENTERPRISE_LTSC", "Label": "Enterprise LTSC / GPO and MDM", "Skus": [125, 126], "Channel": "LTSC", "PolicySurface": "MANAGED", "SupportModel": "ENTERPRISE_LTSC" },
+    { "Key": "IOT_LTSC", "Label": "IoT Enterprise LTSC / GPO and MDM", "Skus": [191], "Channel": "LTSC", "PolicySurface": "MANAGED", "SupportModel": "IOT_LTSC" }
+  ],
+  "ReleaseGroups": [
+    { "Key": "LEGACY", "Releases": ["21H2"], "Label": "21H2 / legacy deadline policies" },
+    { "Key": "SPLIT", "Releases": ["22H2", "23H2", "24H2", "25H2", "26H1", "26H2"], "Label": "22H2+ / separate quality and feature deadlines" }
+  ]
+}

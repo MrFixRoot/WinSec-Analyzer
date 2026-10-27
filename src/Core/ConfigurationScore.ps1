@@ -1,6 +1,8 @@
 # Versioned configuration scores and public criterion manifest. No Windows queries.
 . (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
 . (Join-Path $PSScriptRoot 'BitLockerCriterionPrerequisites.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdateCriterionEvidence.ps1')
+. (Join-Path $PSScriptRoot 'CriterionWeight.ps1')
 function Assert-WinSecConfigurationFields {
     param([object]$Value,[string[]]$Fields)
     if ($Value -isnot [pscustomobject] -or @($Value.PSObject.Properties).Count -ne $Fields.Count -or
@@ -24,8 +26,9 @@ function Get-WinSecConfigurationScoringPolicy {
         if ($policy.$field -isnot [string]) {throw 'Scoring policy metadata must be scalar text.'}
     }
     if ($policy.schemaVersion -cne '1.0.0' -or $policy.enabled -isnot [bool] -or
-        $policy.methodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or $policy.methodologyVersion -cnotin @('1.0.0','1.1.0') -or
-        $policy.controlMethod -cne 'PASS_CRITERIA_FRACTION' -or $policy.sectionMethod -cne 'EQUAL_CONTROL_MEAN' -or
+        $policy.methodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or $policy.methodologyVersion -cnotin @('1.0.0','1.1.0','1.2.0') -or
+        ($policy.methodologyVersion -ceq '1.2.0' -and $policy.controlMethod -cne 'WEIGHTED_PASS_CRITERIA_FRACTION') -or
+        ($policy.methodologyVersion -cne '1.2.0' -and $policy.controlMethod -cne 'PASS_CRITERIA_FRACTION') -or $policy.sectionMethod -cne 'EQUAL_CONTROL_MEAN' -or
         $policy.requireCompleteControl -isnot [bool] -or -not $policy.requireCompleteControl -or
         $policy.requireCompleteSection -isnot [bool] -or -not $policy.requireCompleteSection -or
         $policy.globalDeviceScore -isnot [bool] -or $policy.globalDeviceScore) { throw 'Unsupported configuration scoring methodology.' }
@@ -34,13 +37,24 @@ function Get-WinSecConfigurationScoringPolicy {
 
 function Get-WinSecConfigurationControlTotals {
     param([object]$Control,[string]$MethodologyVersion='1.0.0')
+    if($MethodologyVersion -cnotin @('1.0.0','1.1.0','1.2.0')){throw 'Unsupported configuration scoring methodology.'}
     $criteria=@($Control.Criteria);$resolved=@($criteria|Where-Object {$_.Status -cin @('PASS','FAIL')}).Count
     $passed=@($criteria|Where-Object {$_.Status -ceq 'PASS'}).Count
-    $applicable=@($criteria|Where-Object {$MethodologyVersion -cne '1.1.0' -or $_.Status -cne 'NOT_APPLICABLE'}).Count
-    $excluded=($MethodologyVersion -ceq '1.1.0' -and $criteria.Count -gt 0 -and $applicable -eq 0 -and $Control.Permission -ceq 'APPROVED')
+    $applicable=@($criteria|Where-Object {$MethodologyVersion -ceq '1.0.0' -or $_.Status -cne 'NOT_APPLICABLE'}).Count
+    $excluded=($MethodologyVersion -cne '1.0.0' -and $criteria.Count -gt 0 -and $applicable -eq 0 -and $Control.Permission -ceq 'APPROVED')
     $complete=($applicable -gt 0 -and $resolved -eq $applicable -and $Control.Permission -ceq 'APPROVED')
+    $numerator=[long]$passed;$denominator=[long]$applicable
+    if($MethodologyVersion -ceq '1.2.0') {
+        $numerator=0L;$denominator=0L
+        foreach($criterion in $criteria) {
+            $weight=Get-WinSecCriterionWeight $criterion -Required
+            if($criterion.Status -ceq 'NOT_APPLICABLE'){continue}
+            $denominator+=$weight
+            if($criterion.Status -ceq 'PASS'){$numerator+=$weight}
+        }
+    }
     [pscustomobject]@{
-        Value=if ($complete) {[Math]::Round((100.0*$passed/$applicable),2,[MidpointRounding]::AwayFromZero)} else {$null}
+        Value=if ($complete) {[Math]::Round((100.0*$numerator/$denominator),2,[MidpointRounding]::AwayFromZero)} else {$null}
         Coverage=if ($applicable) {[Math]::Round((100.0*$resolved/$applicable),2,[MidpointRounding]::AwayFromZero)} else {$null}
         Status=if ($complete) {'COMPLETE'} elseif($excluded){'NOT_APPLICABLE'} else {'NOT_SCORED'}
         EvaluatedCriteria=$resolved;TotalCriteria=$criteria.Count
@@ -49,21 +63,28 @@ function Get-WinSecConfigurationControlTotals {
 
 function Get-WinSecConfigurationSectionTotals {
     param([object[]]$Controls,[string]$MethodologyVersion='1.0.0')
+    if($MethodologyVersion -cnotin @('1.0.0','1.1.0','1.2.0')){throw 'Unsupported configuration scoring methodology.'}
     $recordedCount=$Controls.Count
-    if($MethodologyVersion -ceq '1.1.0'){$Controls=@($Controls|Where-Object {$_.Status -cne 'NOT_APPLICABLE'})}
+    if($MethodologyVersion -cne '1.0.0'){$Controls=@($Controls|Where-Object {$_.Status -cne 'NOT_APPLICABLE'})}
     $complete=@($Controls|Where-Object {$_.Status -ceq 'COMPLETE'}).Count
     $sum=0.0
     foreach ($control in $Controls) {
         if ($control.Status -ceq 'COMPLETE') {
-            $denominator=@($control.Criteria|Where-Object {$MethodologyVersion -cne '1.1.0' -or $_.Status -cne 'NOT_APPLICABLE'}).Count
+            $denominator=0L;$numerator=0L
+            foreach($criterion in $control.Criteria) {
+                $weight=if($MethodologyVersion -ceq '1.2.0'){Get-WinSecCriterionWeight $criterion -Required}else{1}
+                if($MethodologyVersion -cne '1.0.0' -and $criterion.Status -ceq 'NOT_APPLICABLE'){continue}
+                $denominator+=$weight
+                if($criterion.Status -ceq 'PASS'){$numerator+=$weight}
+            }
             if($denominator -eq 0){throw 'A complete control has no applicable criteria.'}
-            $sum+=100.0*@($control.Criteria|Where-Object {$_.Status -ceq 'PASS'}).Count/$denominator
+            $sum+=100.0*$numerator/$denominator
         }
     }
     [pscustomobject]@{
         Value=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {[Math]::Round(($sum/$Controls.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
         Coverage=if ($Controls.Count) {[Math]::Round((100.0*$complete/$Controls.Count),2,[MidpointRounding]::AwayFromZero)} else {$null}
-        Status=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {'COMPLETE'} elseif($MethodologyVersion -ceq '1.1.0' -and $recordedCount -gt 0 -and $Controls.Count -eq 0){'NOT_APPLICABLE'} else {'NOT_SCORED'}
+        Status=if ($Controls.Count -gt 0 -and $complete -eq $Controls.Count) {'COMPLETE'} elseif($MethodologyVersion -cne '1.0.0' -and $recordedCount -gt 0 -and $Controls.Count -eq 0){'NOT_APPLICABLE'} else {'NOT_SCORED'}
         CompleteControls=$complete;TotalControls=$recordedCount
     }
 }
@@ -92,7 +113,7 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
     }
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
     if ($copy.SchemaVersion -cne '1.0.0' -or $copy.MethodologyId -cne 'WSA_CONTROL_CRITERIA_MEAN' -or
-        $copy.MethodologyVersion -cnotin @('1.0.0','1.1.0') -or $copy.PolicySha256 -isnot [string] -or $copy.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
+        $copy.MethodologyVersion -cnotin @('1.0.0','1.1.0','1.2.0') -or $copy.PolicySha256 -isnot [string] -or $copy.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
         $copy.CatalogVersion -isnot [string] -or $copy.CatalogVersion -cne (Get-WinSecResultField $Owner 'CatalogVersion') -or
         $copy.Controls -isnot [array] -or $copy.Controls.Count -eq 0 -or $copy.Controls.Count -gt 128 -or $copy.Sections -isnot [array]) {
         throw 'Invalid configuration assessment metadata.'
@@ -110,16 +131,19 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
         $seen[$control.CheckId]=$true;$sections[$control.SectionKey]=$true;$ids=@{};$identity=$null
         foreach ($criterion in $control.Criteria) {
             $criterionFields=@('CriterionId','Title','Status','CatalogId','CatalogVersion','CatalogSha256','Profile','OSRelease','Edition','SourceFramework','SourceVersion','SourceControlId','SourceTitle','SourceUrl','Recommendation','VerifiedAtUTC')
-            if($copy.MethodologyVersion -ceq '1.1.0' -and $criterion.Status -ceq 'NOT_APPLICABLE'){$criterionFields+=@('ApplicabilityReason','ApplicabilitySourceUrl')}
+            if($copy.MethodologyVersion -ceq '1.2.0'){$criterionFields+='Weight'}
+            if($copy.MethodologyVersion -cne '1.0.0' -and $criterion.Status -ceq 'NOT_APPLICABLE'){$criterionFields+=@('ApplicabilityReason','ApplicabilitySourceUrl')}
             Assert-WinSecConfigurationFields $criterion $criterionFields
+            if($copy.MethodologyVersion -ceq '1.2.0'){$criterion.Weight=Get-WinSecCriterionWeight $criterion -Required}
             if ($criterion.VerifiedAtUTC -is [datetime] -and $criterion.VerifiedAtUTC.Kind -eq [DateTimeKind]::Utc) {$criterion.VerifiedAtUTC=$criterion.VerifiedAtUTC.ToString('o')}
             foreach ($p in $criterion.PSObject.Properties) {
+                if($p.Name -ceq 'Weight'){continue}
                 $limit=if ($p.Name -ceq 'Recommendation') {4096} elseif ($p.Name -cin @('SourceUrl','ApplicabilitySourceUrl')) {1024} else {256}
                 if ($p.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($p.Value) -or $p.Value.Length -gt $limit -or $p.Value -match '[\p{C}]') { throw 'Invalid public criterion manifest field.' }
             }
             if (-not (Test-WinSecTargetIdentifier $criterion.CriterionId) -or $ids.ContainsKey($criterion.CriterionId) -or
                 ($criterion.Status -cnotin @('PASS','FAIL','UNKNOWN','NOT_EVALUATED') -and
-                 -not ($copy.MethodologyVersion -ceq '1.1.0' -and $criterion.Status -ceq 'NOT_APPLICABLE')) -or
+                 -not ($copy.MethodologyVersion -cne '1.0.0' -and $criterion.Status -ceq 'NOT_APPLICABLE')) -or
                 $criterion.SourceFramework -cnotin @('LOCAL_POLICY','CIS Benchmarks') -or
                 $criterion.SourceControlId -ceq 'NOT_ASSIGNED' -or
                 $criterion.CatalogSha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
@@ -138,6 +162,16 @@ function ConvertTo-WinSecPublicConfigurationAssessment {
                 $exclusion=[pscustomobject]@{NotApplicableTargets=@([pscustomobject]@{OSRelease=$criterion.OSRelease;Edition=$criterion.Edition;
                     Reason=$criterion.ApplicabilityReason;SourceUrl=$criterion.ApplicabilitySourceUrl})}
                 $null=Get-WinSecCriterionPlatformExclusion $exclusion
+            }
+        }
+        if($control.CheckId -ceq 'WSA-SYS-003') {
+            foreach($criterion in @($control.Criteria|Where-Object Status -CEQ NOT_APPLICABLE)) {
+                if($criterion.CriterionId -cne 'WSA-WUP-BASE-002' -or $criterion.CatalogVersion -cnotlike '1.2.0+*' -or
+                    $criterion.ApplicabilityReason -cne 'PATCH_BASELINE_EXCLUDED_AFTER_SUPPORT' -or
+                    $criterion.ApplicabilitySourceUrl -cne 'https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information' -or
+                    @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-WUP-BASE-003' -and $_.Status -ceq 'FAIL'}).Count -ne 1) {
+                    throw 'A Windows Update patch exclusion requires its recorded end-of-support criterion.'
+                }
             }
         }
         Assert-WinSecConfigurationTotals $control (Get-WinSecConfigurationControlTotals $control $copy.MethodologyVersion)
@@ -207,15 +241,22 @@ function New-WinSecConfigurationAssessment {
             foreach ($rule in @($snapshot.Catalog.Criteria)) {
                 $items=@(if ($null -ne $evaluated) {$evaluated.Evaluations|Where-Object {$_.CriterionId -ceq $rule.CriterionId}})
                 $allowedStatuses=@('PASS','FAIL','UNKNOWN','NOT_EVALUATED')
-                if($PolicySnapshot.Policy.methodologyVersion -ceq '1.1.0'){$allowedStatuses+='NOT_APPLICABLE'}
+                if($PolicySnapshot.Policy.methodologyVersion -cne '1.0.0'){$allowedStatuses+='NOT_APPLICABLE'}
                 $status=if ($items.Count -eq 1 -and $items[0].Status -cin $allowedStatuses) {$items[0].Status} else {'NOT_EVALUATED'}
                 $control.Criteria+=@([pscustomobject]@{CriterionId=$rule.CriterionId;Title=$rule.Name;Status=$status;CatalogId=$snapshot.Catalog.CatalogId;
                     CatalogVersion=$snapshot.Catalog.CatalogVersion;CatalogSha256=$snapshot.Sha256;Profile=$rule.Applicability.Profile;
                     OSRelease=$rule.Applicability.OSRelease;Edition=$rule.Applicability.Edition;SourceFramework=$rule.Source.Framework;
                     SourceVersion=$rule.Source.Version;SourceControlId=$rule.Source.ControlId;SourceTitle=$rule.Source.Title;SourceUrl=$rule.Source.Url;
                     Recommendation=$rule.Recommendation;VerifiedAtUTC=([DateTimeOffset]::Parse($rule.Verification.ReviewedAtUTC)).UtcDateTime.ToString('o')})
+                $weight=Get-WinSecCriterionWeight $rule
+                if($PolicySnapshot.Policy.methodologyVersion -ceq '1.2.0'){$control.Criteria[-1]|Add-Member Weight $weight}
+                elseif($weight -ne 1){throw 'Weighted criteria require methodology 1.2.0.'}
                 if($status -ceq 'NOT_APPLICABLE') {
                     $exclusion=Get-WinSecCriterionPlatformExclusion $rule $Context
+                    if($null -eq $exclusion -and $definition.CheckId -ceq 'WSA-SYS-003' -and $collector.Count -eq 1) {
+                        $exclusion=Get-WinSecWindowsUpdateCriterionExclusion -Criterion $rule -Evidence $collector[0].Evidence `
+                            -TargetContext $Context -DeviceId $Audit.DeviceId -ScanId $Audit.ScanId
+                    }
                     if($null -eq $exclusion){throw 'Unverified platform exclusion cannot be scored.'}
                     $control.Criteria[-1]|Add-Member ApplicabilityReason $exclusion.Reason
                     $control.Criteria[-1]|Add-Member ApplicabilitySourceUrl $exclusion.SourceUrl
@@ -301,8 +342,13 @@ function Assert-WinSecConfigurationProvenance {
                 $rules[0].Source.Framework -cne $criterion.SourceFramework -or $rules[0].Source.Version -cne $criterion.SourceVersion -or
                 $rules[0].Source.Title -cne $criterion.SourceTitle -or $rules[0].Applicability.Profile -cne $criterion.Profile -or
                 $rules[0].Applicability.OSRelease -cne $criterion.OSRelease -or $rules[0].Applicability.Edition -cne $criterion.Edition) { throw 'Configuration policy snapshot differs.' }
+            if($Assessment.MethodologyVersion -ceq '1.2.0' -and
+                (Get-WinSecCriterionWeight $rules[0]) -ne $criterion.Weight){throw 'Configuration criterion weight differs from its approved source.'}
             if($control.CheckId -ceq 'WSA-SYS-002' -and $criterion.CriterionId -clike 'WSA-BLK-BASE-*') {
                 Assert-WinSecBitLockerScoredCollection -ControlResult $collectors[0]
+            }
+            if($control.CheckId -ceq 'WSA-SYS-003') {
+                Assert-WinSecWindowsUpdateScoredCollection -ControlResult $collectors[0] -Session $Session
             }
             $context=[pscustomobject]@{DeviceId=$Session.DeviceId;ScanId=$Session.ScanId;OSFamily='Windows';OSRelease=$criterion.OSRelease;Edition=$criterion.Edition;Profile=$criterion.Profile}
             $result=Invoke-WinSecCriterionEvaluation -Criterion $rules[0] -Evidence $collectors[0].Evidence -TargetContext $context `
@@ -310,6 +356,10 @@ function Assert-WinSecConfigurationProvenance {
             if ($result.Status -cne $criterion.Status) { throw 'Configuration result cannot be independently reproduced.' }
             if($criterion.Status -ceq 'NOT_APPLICABLE') {
                 $exclusion=Get-WinSecCriterionPlatformExclusion $rules[0] $context
+                if($null -eq $exclusion -and $control.CheckId -ceq 'WSA-SYS-003') {
+                    $exclusion=Get-WinSecWindowsUpdateCriterionExclusion -Criterion $rules[0] -Evidence $collectors[0].Evidence `
+                        -TargetContext $context -DeviceId $Session.DeviceId -ScanId $Session.ScanId
+                }
                 if($null -eq $exclusion -or $criterion.ApplicabilityReason -cne $exclusion.Reason -or
                     $criterion.ApplicabilitySourceUrl -cne $exclusion.SourceUrl){throw 'Platform exclusion differs from the approved criterion.'}
             }

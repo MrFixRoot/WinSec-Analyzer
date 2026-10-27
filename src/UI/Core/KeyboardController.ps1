@@ -52,7 +52,6 @@ function Test-WinSecKeyboardActionAllowed {
             'Back',
             'Exit',
             'ShowFindings',
-            'ExportTXT',
             'ExportMD',
             'DeleteDevice',
             'RenameDevice',
@@ -155,7 +154,9 @@ function Test-WinSecKeyboardActionAllowed {
             return (
                 $Screen -in @(
                     'Devices',
-                    'MainMenu'
+                    'MainMenu',
+                    'Section',
+                    'Results'
                 )
             )
         }
@@ -179,18 +180,6 @@ function Test-WinSecKeyboardActionAllowed {
         # Report export
         # ----------------------------------------------------
 
-        'ExportTXT' {
-
-            return (
-                [bool]$EnableExport -and
-                $Screen -in @(
-                    'MainMenu',
-                    'Section',
-                    'Results',
-                    'Findings'
-                )
-            )
-        }
         'ExportMD' {
             return ([bool]$EnableExport -and $Screen -eq 'Findings')
         }
@@ -486,7 +475,6 @@ function Get-WinSecKeyboardAction {
     $isCommand = (
         $action -in @(
             'Exit',
-            'ExportTXT',
             'ExportMD',
             'DeleteDevice',
             'RenameDevice',

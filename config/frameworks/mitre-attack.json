@@ -90,6 +90,10 @@
     "subtechniques": [],
     "mitigations": [
         {
+            "id": "M1051",
+            "name": "Update Software"
+        },
+        {
             "id": "M1041",
             "name": "Encrypt Sensitive Information"
         }
@@ -140,6 +144,41 @@
                     ],
                     "description": "Vulnerable signed drivers can support privilege escalation. A missing ASR setting is a local configuration deviation, not evidence that exploitation occurred; this rule does not prevent loading existing vulnerable drivers.",
                     "recommendation": "Review exposure to vulnerable drivers and approved execution protections. Have the authorized administrator configure this specific ASR rule, assess driver allow/block policy separately and review relevant events if exploitation is suspected. Repeat a read-only assessment."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-SYS-003",
+            "references": [
+                {
+                    "id": "M1051",
+                    "mitigationId": "M1051",
+                    "type": "Mitigation",
+                    "title": "Update Software",
+                    "url": "https://attack.mitre.org/mitigations/M1051/",
+                    "criterionIds": ["WSA-WUP-BASE-001"],
+                    "description": "M1051 contextualizes software maintenance as a defensive measure. Disabled automation is not evidence of an attack or a complete mitigation test.",
+                    "recommendation": "Have the administrator restore approved update automation after resolving the confirmed deviation. Verify deployment separately; review application, driver and firmware maintenance outside this OS check."
+                },
+                {
+                    "id": "M1051",
+                    "mitigationId": "M1051",
+                    "type": "Mitigation",
+                    "title": "Update Software",
+                    "url": "https://attack.mitre.org/mitigations/M1051/",
+                    "criterionIds": ["WSA-WUP-BASE-002"],
+                    "description": "A missing cumulative Windows baseline informs software maintenance. It does not identify an exploited vulnerability, detected technique or compromised device.",
+                    "recommendation": "Have the administrator review the confirmed baseline gap and complete approved patch deployment with compatibility and restart checks. Investigate suspected exploitation separately; WinSec performs no remediation."
+                },
+                {
+                    "id": "M1051",
+                    "mitigationId": "M1051",
+                    "type": "Mitigation",
+                    "title": "Update Software",
+                    "url": "https://attack.mitre.org/mitigations/M1051/",
+                    "criterionIds": ["WSA-WUP-BASE-003"],
+                    "description": "A release without reviewed vendor security support requires maintenance planning. This lifecycle observation neither detects an attack nor proves complete protection.",
+                    "recommendation": "Plan migration to a supported Windows release with the administrator, including compatibility and recovery checks. Review remaining software maintenance separately; the original lifecycle result remains unchanged."
                 }
             ]
         }

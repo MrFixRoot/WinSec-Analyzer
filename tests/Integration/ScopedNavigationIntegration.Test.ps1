@@ -11,7 +11,10 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1','src/UI/Screens/Devices.ps1','src/UI/Screens/ScanConfirmation.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
-if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
+if($enabled.Count -ne 3 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    @($enabled | Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -ne 0){
+    throw 'Only validated System Security controls may be enabled in production.'
+}
 $script:passed=0;$script:failed=0
 function Get-CimInstance {[pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}}
 function Assert-WinSecNavigationScan {param([bool]$Condition);if(-not $Condition){throw 'Scoped navigation assertion failed.'}}
@@ -54,8 +57,8 @@ function Invoke-WinSecNavigationKey {
     param([int]$Code,[string]$Character='')
     $event=[pscustomobject]@{VirtualKeyCode=$Code;Character=$Character;ControlKeyState=0;KeyDown=$true}
     if (Invoke-WinSecCLIBackNavigation -KeyInfo $event -State $script:state) { return }
-    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context
     $action=ConvertTo-WinSecKeyboardAction -KeyInfo $event -Screen $script:state.Screen -EnableRescan
+    $counts=Get-WinSecCLINavigationCounts -State $script:state -Context $script:context -Action $action
     $null=Invoke-WinSecNavigationAction -State $script:state -Action $action -Devices $script:context.Devices `
         -SectionCount $counts.SectionCount -ControlCount $counts.ControlCount -FindingCount $counts.FindingCount
 }

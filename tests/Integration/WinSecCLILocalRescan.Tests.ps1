@@ -18,7 +18,7 @@
 #
 # Safety:
 # - Synthetic collector only; no Windows audit
-# - Only the individually validated Defender check may be enabled
+# - Only individually validated System Security controls may be enabled
 # - No security scoring
 # - No remote sessions
 # - No automatic evidence persistence
@@ -220,7 +220,7 @@ Assert-WinSecIntegration `
     -Description 'Automatic execution remains disabled'
 
 # ------------------------------------------------------------
-# TEST 5 - ONLY VALIDATED DEFENDER ENABLED
+# TEST 5 - ONLY VALIDATED SYSTEM SECURITY CONTROLS ENABLED
 # ------------------------------------------------------------
 
 $enabledChecks = @(
@@ -230,8 +230,9 @@ $enabledChecks = @(
 )
 
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 1 -and $enabledChecks[0].checkId -ceq 'WSA-SYS-001' -and $enabledChecks[0].implementationStatus -ceq 'VALIDATED') `
-    -Description 'Only validated Defender is enabled in production'
+    -Condition ($enabledChecks.Count -eq 3 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+        @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -eq 0) `
+    -Description 'Only validated System Security controls are enabled in production'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING POLICY DISABLED
@@ -253,9 +254,9 @@ Assert-WinSecIntegration `
 if (
     -not $readOnly -or
     -not $noAutomaticStartup -or
-    $enabledChecks.Count -ne 1 -or
-    $enabledChecks[0].checkId -cne 'WSA-SYS-001' -or
-    $enabledChecks[0].implementationStatus -cne 'VALIDATED' -or
+    $enabledChecks.Count -ne 3 -or
+    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0 -or
     -not $scoringDisabled
 ) {
     throw (
@@ -271,6 +272,18 @@ if (
 . $cliPath
 . $coordinatorPath
 . (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+# Keep identity and device lookup synthetic, including before the audit mock is installed.
+function Get-CimInstance {
+    [CmdletBinding()]param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
+    if($Namespace -cne 'root/cimv2' -or $ClassName -cne 'Win32_ComputerSystemProduct') {
+        throw 'Unexpected Windows query in CLI rescan fixture.'
+    }
+    [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
+function Import-WinSecDeviceInventory {
+    param($ProjectRoot)
+    [pscustomobject]@{schemaVersion='1.2.0';targets=@(New-WinSecLocalTarget);removedDeviceHashes=@()}
+}
 try {
 
 $coordinator = New-WinSecScanCoordinator `

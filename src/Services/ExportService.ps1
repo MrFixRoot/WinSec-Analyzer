@@ -22,6 +22,12 @@ function Get-WinSecReportTextHash {
 function ConvertFrom-WinSecMarkdownArtifact {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId)
+    if($Text.StartsWith("<!-- WinSec framework findings`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecFrameworkMarkdownArtifact -Text $Text -DeviceId $DeviceId
+    }
+    if($Text.StartsWith("<!-- WinSec technical report`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecTechnicalMarkdownArtifact -Text $Text -DeviceId $DeviceId
+    }
     if ([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or
         $Text -cnotmatch '\A<!-- WinSec public report\n([^\r\n]+)\n-->\n([\s\S]*)\z') { throw 'Unrecognized public report.' }
     $metadataJson=$Matches[1];$body=$Matches[2]
@@ -85,3 +91,31 @@ function Export-WinSecFindingsMarkdown {
     $report=New-WinSecFindingsMarkdown @reportArguments
     return Write-WinSecMarkdownArtifact -ProjectRoot $installation -Report $report
 }
+
+# Legacy TXT reader for ownership checks during confirmed device deletion only.
+# The retired public TXT writer remains absent. Technical TXT has its own format.
+function ConvertFrom-WinSecTextArtifact {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Text,[Parameter(Mandatory)][string]$DeviceId)
+    if($Text.StartsWith("WinSec technical scan report`n",[StringComparison]::Ordinal)) {
+        return ConvertFrom-WinSecTechnicalArtifact -Text $Text -DeviceId $DeviceId
+    }
+    if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
+        $Text -cnotmatch '\AWinSec public text report\n([^\r\n]+)\n\n([\s\S]*)\z'){throw 'Unrecognized public text report.'}
+    $metadataJson=$Matches[1];$body=$Matches[2]
+    $meta=ConvertFrom-WinSecStoredJson $metadataJson
+    Assert-WinSecConfigurationFields $meta @('SchemaVersion','DeviceId','ScanId','ContentSha256')
+    if([string]::IsNullOrWhiteSpace($body) -or $meta.SchemaVersion -isnot [string] -or $meta.SchemaVersion -cne '1.0.0' -or
+        $meta.DeviceId -isnot [string] -or -not (Test-WinSecTargetIdentifier $meta.DeviceId) -or
+        -not (Test-WinSecTargetIdentifier $DeviceId) -or
+        -not [string]::Equals($meta.DeviceId,$DeviceId,[StringComparison]::OrdinalIgnoreCase) -or
+        $meta.ScanId -isnot [string] -or -not (Test-WinSecTargetIdentifier $meta.ScanId) -or
+        $meta.ContentSha256 -isnot [string] -or $meta.ContentSha256 -cne (Get-WinSecReportTextHash $body)) {
+        throw 'Inconsistent public text report ownership or content.'
+    }
+    return $meta
+}
+
+. (Join-Path $PSScriptRoot 'TechnicalReportService.ps1')
+. (Join-Path $PSScriptRoot 'FrameworkAnalysisService.ps1')
+. (Join-Path $PSScriptRoot 'FrameworkReportService.ps1')

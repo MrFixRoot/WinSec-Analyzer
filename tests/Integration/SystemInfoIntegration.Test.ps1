@@ -9,7 +9,10 @@ $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $script:draft=Get-WinSecAssessmentCatalog $root WSA-SYS-001
 $script:assessment=(Get-Command Invoke-WinSecScanAssessment).ScriptBlock
 $enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
-if($enabled.Count -ne 1 -or $enabled[0].CheckId -cne 'WSA-SYS-001' -or -not $enabled[0].ExecutionReady){throw 'Only validated Defender may be enabled in production.'}
+if($enabled.Count -ne 3 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    @($enabled | Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -ne 0){
+    throw 'Only validated System Security controls may be enabled in production.'
+}
 $script:passed=0; $script:failed=0
 function Assert-WinSecSystemInfoIntegration {param([bool]$Value);if(-not $Value){throw 'SystemInfo integration assertion failed.'}}
 function Get-CimInstance {

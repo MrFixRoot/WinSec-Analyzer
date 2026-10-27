@@ -21,11 +21,19 @@ function Get-MpComputerStatus {
 }
 function Get-MpPreference {
     [CmdletBinding()]param()
-    [pscustomobject]@{PUAProtection=if($script:additionalHealthy -and $script:badCriterion -cne 'PUA'){1}else{0};
+    $preferences=[pscustomobject]@{PUAProtection=if($script:additionalHealthy -and $script:badCriterion -cne 'PUA'){1}else{0};
         MAPSReporting=if($script:badCriterion -ceq 'UNKNOWN_CLOUD'){$null}elseif($script:additionalHealthy -and $script:badCriterion -cne 'CLOUD'){2}else{0};ExclusionPath=@('C:\PRIVATE-REVIEW-INTEGRATION');
         AttackSurfaceReductionRules_Ids=@('56a863a9-875e-4185-98a7-b882c64b5ce5','9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2',
             'e6db77e5-3df2-4cf1-b95a-636979351e5b','d4f940ab-401b-4efc-aadc-ad5f3c50688a');
         AttackSurfaceReductionRules_Actions=@($(if($script:badCriterion -ceq 'ASR'){2}else{1}),2,6,0)}
+    switch($script:asrShape) {
+        'NULL_PAIR' {$preferences.AttackSurfaceReductionRules_Ids=$null;$preferences.AttackSurfaceReductionRules_Actions=$null}
+        'MISSING' {$preferences.PSObject.Properties.Remove('AttackSurfaceReductionRules_Actions')}
+        'NULL_IDS' {$preferences.AttackSurfaceReductionRules_Ids=$null}
+        'NULL_ACTIONS' {$preferences.AttackSurfaceReductionRules_Actions=$null}
+        'NULL_ENTRIES' {$preferences.AttackSurfaceReductionRules_Ids=@($null);$preferences.AttackSurfaceReductionRules_Actions=@($null)}
+    }
+    return $preferences
 }
 function Save-WinSecPublicHistory {throw 'Unexpected history write.'}
 function Save-WinSecEvidence {throw 'Unexpected evidence write.'}
@@ -37,6 +45,7 @@ function Write-Host {
     if(-not $NoNewline){$script:lines.Add($script:fragment.ToString());$null=$script:fragment.Clear()}
 }
 $script:passed=0;$script:failed=0;$script:reads=0;$script:realtime=$false;$script:additionalHealthy=$false;$script:badCriterion=''
+$script:asrShape='NORMAL'
 $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55}
 $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
 function Assert-WinSecReviewIntegration {param([bool]$Value);if(-not $Value){throw 'Defender review integration assertion failed.'}}
@@ -215,6 +224,64 @@ Test-WinSecReviewIntegration 'Missing added telemetry is UNKNOWN and never becom
         @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-002' -and $_.Status -ceq 'UNKNOWN'}).Count -eq 1 -and
         @($p.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0)
     $script:badCriterion=''
+}
+Test-WinSecReviewIntegration 'Present null ASR preferences score as not configured and survive public history, UI and export' {
+    $script:asrShape='NULL_PAIR';$script:realtime=$true;$script:additionalHealthy=$true
+    $original=Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]
+    try {
+        $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
+        $fresh.AssessmentEnabled=$true;$fresh.PublicHistoryEnabled=$false
+        $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId 'null-asr-pair' `
+            -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
+        $control=$p.ConfigurationAssessment.Controls[0]
+        Assert-WinSecReviewIntegration ($control.Value -eq 87.5 -and $control.Coverage -eq 100 -and
+            @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-004' -and $_.Status -ceq 'FAIL'}).Count -eq 1 -and
+            $p.Findings.Count -eq 1 -and $p.Findings[0].Guidance.CriterionId -ceq 'WSA-DEF-ADD-004')
+        $inventory=@($p.ReviewItems|Where-Object {$_.DefenderSetting.Topic -ceq 'ASR'})
+        Assert-WinSecReviewIntegration ($inventory.Count -eq 1 -and $inventory[0].DefenderSetting.SettingId -ceq 'INVENTORY' -and
+            $inventory[0].DefenderSetting.InventoryState -ceq 'COMPLETE')
+        $session=($fresh.Sessions.Values|Select-Object -First 1).Session
+        $record=New-WinSecPublicHistoryRecord $session
+        $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
+        # Storage-operation counters returned by the coordinator are not historical fields.
+        $expected=ConvertTo-WinSecPublicScanResult $session
+        Assert-WinSecReviewIntegration ((Get-WinSecPublicHistoryJson $restored.PublicResult) -ceq (Get-WinSecPublicHistoryJson $expected) -and
+            (Get-WinSecPublicHistoryJson $restored.PublicResult.ConfigurationAssessment) -ceq (Get-WinSecPublicHistoryJson $p.ConfigurationAssessment))
+        $sessionKey='{0}:{1}{2}:{3}' -f $p.DeviceId.Length,$p.DeviceId,$p.ScanId.Length,$p.ScanId
+        $exportContext=[pscustomobject]@{ProjectRoot=$root;PublicScans=@{$sessionKey=$restored.PublicResult};ActiveScanByDevice=@{};
+            ActiveScanByScope=@{(Get-WinSecCLIScopeKey $p.DeviceId CONTROL WSA-SYS-001)=$p.ScanId}}
+        $before=$script:reads
+        $active=Get-WinSecCLIActiveAssessment $state $exportContext
+        $rows=@(Get-WinSecResultsControlRows -SectionKey SystemSecurity -NavigationState $state `
+            -ControlResults $active.ControlResults -ConfigurationAssessment $active.ConfigurationAssessment)
+        Assert-WinSecReviewIntegration (@($rows|Where-Object {$_.CheckId -ceq 'WSA-SYS-001' -and $_.Score -eq '87.5/100'}).Count -eq 1)
+        $selection=Get-WinSecCLIFindingsExportSelection $state $exportContext
+        foreach($fw in @('cis-controls','nist-csf','mitre-attack')) {
+            $report=New-WinSecFindingsMarkdown $selection -FrameworkId $fw
+            Assert-WinSecReviewIntegration ($report.Markdown.Contains('87.5/100') -and
+                $report.Markdown.Contains((ConvertTo-WinSecMarkdownText 'WSA-DEF-ADD-004')) -and
+                $report.Markdown.Contains('Framework-oriented manual guidance:') -and
+                $report.Markdown -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"')
+        }
+        Assert-WinSecReviewIntegration ($script:reads -eq $before -and
+            (Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]) -ceq $original)
+    } finally {$script:asrShape='NORMAL'}
+}
+foreach($shape in @('MISSING','NULL_IDS','NULL_ACTIONS','NULL_ENTRIES')) {
+    Test-WinSecReviewIntegration ('Malformed or unavailable ASR preferences stay UNKNOWN without false findings: '+$shape) {
+        $script:asrShape=$shape;$script:realtime=$true;$script:additionalHealthy=$true
+        try {
+            $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
+            $fresh.AssessmentEnabled=$true;$fresh.PublicHistoryEnabled=$false
+            $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId ('asr-'+$shape) `
+                -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
+            $control=$p.ConfigurationAssessment.Controls[0]
+            Assert-WinSecReviewIntegration ($null -eq $control.Value -and $control.Coverage -eq 87.5 -and
+                @($p.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0 -and
+                @($p.Findings|Where-Object {$_.Kind -ceq 'EVIDENCE_GAP' -and $_.EvaluationStatus -ceq 'UNKNOWN'}).Count -eq 1 -and
+                @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-004' -and $_.Status -ceq 'UNKNOWN'}).Count -eq 1)
+        } finally {$script:asrShape='NORMAL'}
+    }
 }
 function Get-FileHash {
     [CmdletBinding()]param([string]$LiteralPath,[string]$Algorithm='SHA256')

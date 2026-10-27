@@ -366,7 +366,7 @@ try {
 
 
     Invoke-WinSecRegistryTest `
-        -Name 'Only individually validated Defender is executable' `
+        -Name 'Only individually validated System Security controls are executable' `
         -Test {
 
             $summary = Get-WinSecCheckRegistrySummary `
@@ -378,18 +378,21 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 11
+                -Expected 9
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `
-                -Expected 1
+                -Expected 3
 
             Assert-WinSecEqual `
                 -Actual $summary.Ready `
-                -Expected 1
+                -Expected 3
             $executable=@($script:BaseRegistry.Checks|Where-Object ExecutionEnabled)
-            Assert-WinSecEqual -Actual $executable[0].CheckId -Expected 'WSA-SYS-001'
-            Assert-WinSecEqual -Actual $executable[0].ImplementationStatus -Expected 'VALIDATED'
+            Assert-WinSecEqual -Actual (($executable.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
+            foreach ($check in $executable) {
+                Assert-WinSecEqual -Actual $check.ImplementationStatus -Expected 'VALIDATED'
+                Assert-WinSecEqual -Actual $check.ExecutionReady -Expected $true
+            }
         }
 
 
@@ -453,8 +456,8 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $ready.Count `
-                -Expected 1
-            Assert-WinSecEqual -Actual $ready[0].CheckId -Expected 'WSA-SYS-001'
+                -Expected 3
+            Assert-WinSecEqual -Actual (($ready.CheckId | Sort-Object) -join '|') -Expected 'WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'
         }
 
 
@@ -842,6 +845,57 @@ function Test-WinSecFixture {
         }
 
 
+    Invoke-WinSecRegistryTest -Name 'Syntax reuse still rejects another function and preserves case-insensitive lookup' -Test {
+        Assert-WinSecEqual (Test-WinSecCheckScript $validScriptPath 'test-winsecfixture') $true
+        Assert-WinSecEqual (Test-WinSecCheckScript $validScriptPath 'TEST-WINSECFIXTURE') $true
+        Assert-WinSecThrows {Test-WinSecCheckScript $validScriptPath 'Test-WinSecOther'} 'Expected function'
+    }
+
+    Invoke-WinSecRegistryTest -Name 'Changed bytes invalidate syntax reuse even with unchanged size and modification time' -Test {
+        $path=Join-Path $script:FixtureRoot 'ChangedSameMetadata.ps1'
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureA {}')
+        $stamp=[IO.File]::GetLastWriteTimeUtc($path);$size=(Get-Item -LiteralPath $path).Length
+        Assert-WinSecEqual (Test-WinSecCheckScript $path 'Test-WinSecFixtureA') $true
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureB {}')
+        [IO.File]::SetLastWriteTimeUtc($path,$stamp)
+        Assert-WinSecEqual (Get-Item -LiteralPath $path).Length $size
+        Assert-WinSecThrows {Test-WinSecCheckScript $path 'Test-WinSecFixtureA'} 'Expected function'
+        Assert-WinSecEqual (Test-WinSecCheckScript $path 'Test-WinSecFixtureB') $true
+    }
+
+    Invoke-WinSecRegistryTest -Name 'New syntax errors are rejected after a cached success and correction is accepted' -Test {
+        $path=Join-Path $script:FixtureRoot 'ChangedSyntax.ps1'
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureA {}')
+        Assert-WinSecEqual (Test-WinSecCheckScript $path 'Test-WinSecFixtureA') $true
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureA {]')
+        Assert-WinSecThrows {Test-WinSecCheckScript $path 'Test-WinSecFixtureA'} 'syntax error'
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureA {}')
+        Assert-WinSecEqual (Test-WinSecCheckScript $path 'Test-WinSecFixtureA') $true
+    }
+
+    Invoke-WinSecRegistryTest -Name 'A cached script must still exist and remain readable' -Test {
+        $path=Join-Path $script:FixtureRoot 'CachedThenUnavailable.ps1'
+        [IO.File]::WriteAllText($path,'function Test-WinSecFixtureA {}')
+        Assert-WinSecEqual (Test-WinSecCheckScript $path 'Test-WinSecFixtureA') $true
+        $block=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+        try {Assert-WinSecThrows {Test-WinSecCheckScript $path 'Test-WinSecFixtureA'}}
+        finally {$block.Dispose()}
+        Remove-Item -LiteralPath $path -Force
+        Assert-WinSecThrows {Test-WinSecCheckScript $path 'Test-WinSecFixtureA'} 'not found'
+    }
+
+    Invoke-WinSecRegistryTest -Name 'Successful syntax reuse does not retain execution permissions from an earlier catalog' -Test {
+        $null=Get-WinSecCheckRegistry -ProjectRoot $projectRoot
+        $copy=Copy-WinSecTestCatalog
+        $copy.checks[0].execution.enabled=$false
+        $path=Join-Path $script:FixtureRoot 'DisabledAfterSyntaxReuse.json'
+        $copy|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $path -Encoding UTF8
+        $r=Get-WinSecCheckRegistry -ProjectRoot $projectRoot -Path $path
+        $check=Get-WinSecRegisteredCheck $r $copy.checks[0].checkId
+        Assert-WinSecEqual $check.ExecutionEnabled $false
+        Assert-WinSecEqual $check.ExecutionReady $false
+    }
+
     # ========================================================
     # GROUP 6 - EXECUTION ELIGIBILITY
     # ========================================================
@@ -861,6 +915,10 @@ function Test-WinSecFixture {
             # -----------------------------------------------
 
             $copy = Copy-WinSecTestCatalog
+            # This temporary project contains only the synthetic script below.
+            foreach ($check in $copy.checks) {
+                $check.execution.enabled = $false
+            }
 
             $firstCheck = $copy.checks[0]
 
@@ -1041,6 +1099,13 @@ finally {
 
         try {
 
+            $fixtureAbsolute=[IO.Path]::GetFullPath($script:FixtureRoot)
+            $fixtureParent=[IO.Path]::GetDirectoryName($fixtureAbsolute).TrimEnd('\','/')
+            $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
+            if(-not [string]::Equals($fixtureParent,$tempParent,[StringComparison]::OrdinalIgnoreCase) -or
+                [IO.Path]::GetFileName($fixtureAbsolute) -cnotmatch '\AWinSec-RegistryTests-[a-f0-9]{32}\z') {
+                throw 'Refusing to remove an unexpected fixture directory.'
+            }
             Remove-Item `
                 -LiteralPath $script:FixtureRoot `
                 -Recurse `

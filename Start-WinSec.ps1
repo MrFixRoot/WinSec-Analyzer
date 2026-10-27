@@ -13,7 +13,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = '0.9.0'
+    [string]$Version = '0.9.0',
+    [switch]$ElevationAttempted
 )
 
 
@@ -48,6 +49,8 @@ $CLIPath = Join-Path `
     -Path $ProjectRoot `
     -ChildPath 'src\CLI\Invoke-WinSecCLI.ps1'
 
+$StartupPath = Join-Path $ProjectRoot 'src\Core\StartupElevation.ps1'
+
 $ConfigPath = Join-Path `
     -Path $ProjectRoot `
     -ChildPath 'config'
@@ -69,6 +72,10 @@ if (-not (Test-Path -LiteralPath $CLIPath -PathType Leaf)) {
     throw "CLI controller not found: $CLIPath"
 }
 
+if (-not (Test-Path -LiteralPath $StartupPath -PathType Leaf)) {
+    throw 'Startup elevation component not found.'
+}
+
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Container)) {
     throw "Configuration directory not found: $ConfigPath"
 }
@@ -79,6 +86,24 @@ if (-not (Test-Path -LiteralPath $ReportsPath -PathType Container)) {
 
 if (-not (Test-Path -LiteralPath $LogsPath -PathType Container)) {
     throw "Logs directory not found: $LogsPath"
+}
+
+
+# ------------------------------------------------------------
+# Request administrator privileges before loading the CLI
+# ------------------------------------------------------------
+
+. $StartupPath
+$StartupResult = Invoke-WinSecStartupElevation -LauncherPath $PSCommandPath `
+    -Version $Version -ElevationAttempted:$ElevationAttempted
+
+if ($StartupResult.Status -cne 'READY') {
+    if ($StartupResult.Status -cin @('CANCELLED', 'FAILED')) {
+        Write-Host $StartupResult.Message -ForegroundColor Yellow
+    }
+    # A successful relaunch starts only the elevated instance. Cancellation or
+    # failure never opens the CLI, registers a device, or starts a scan.
+    return
 }
 
 

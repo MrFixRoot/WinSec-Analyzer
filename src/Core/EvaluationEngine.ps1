@@ -36,6 +36,8 @@
 
 . (Join-Path $PSScriptRoot 'CriterionApplicability.ps1')
 
+. (Join-Path $PSScriptRoot 'WindowsUpdateCriterionEvidence.ps1')
+
 function Get-WinSecEvaluationProperty {
     [CmdletBinding()]
     param(
@@ -416,6 +418,17 @@ function Invoke-WinSecCriterionEvaluation {
         return $output
     }
 
+    if($CheckId -ceq 'WSA-SYS-003') {
+        $exclusion=Get-WinSecWindowsUpdateCriterionExclusion -Criterion $Criterion -Evidence $Evidence `
+            -TargetContext $TargetContext -DeviceId $DeviceId -ScanId $ScanId
+        if($null -ne $exclusion) {
+            $output.Status='NOT_APPLICABLE';$output.Reason=$exclusion.Reason;return $output
+        }
+        # Pure derivation shared by initial evaluation and provenance replay.
+        # No I/O, provider calls, caller verdicts or mutation of original evidence.
+        $Evidence=Get-WinSecWindowsUpdateCriterionEvidence -Criterion $Criterion -Evidence $Evidence `
+            -TargetContext $TargetContext -DeviceId $DeviceId -ScanId $ScanId
+    }
     $resolved = Resolve-WinSecEvaluationPath `
         -Evidence $Evidence -Path $output.EvidencePath
 

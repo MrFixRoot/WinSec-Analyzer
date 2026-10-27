@@ -12,8 +12,16 @@
     },
     "controls": [
         {
+            "id": "2",
+            "name": "Inventory and Control of Software Assets"
+        },
+        {
             "id": "3",
             "name": "Data Protection"
+        },
+        {
+            "id": "7",
+            "name": "Continuous Vulnerability Management"
         },
         {
             "id": "10",
@@ -21,6 +29,14 @@
         }
     ],
     "safeguards": [
+        {
+            "id": "2.2",
+            "name": "Ensure Authorized Software is Currently Supported"
+        },
+        {
+            "id": "7.3",
+            "name": "Perform Automated Operating System Patch Management"
+        },
         {
             "id": "3.6",
             "name": "Encrypt Data on End-User Devices"
@@ -90,6 +106,35 @@
                     ],
                     "description": "ASR vulnerable signed driver blocking is one anti-exploitation configuration. Existing driver loading and other exploit protections are not tested.",
                     "recommendation": "Review the approved anti-exploitation baseline and application compatibility. Have the authorized administrator configure the specific vulnerable-driver ASR rule in Block mode, document exceptions and repeat the read-only scan. Do not enable all ASR rules indiscriminately."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-SYS-003",
+            "references": [
+                {
+                    "id": "7.3",
+                    "title": "Perform Automated Operating System Patch Management",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls7/",
+                    "criterionIds": ["WSA-WUP-BASE-001"],
+                    "description": "CIS 7.3 covers automated OS patching across enterprise assets. Local automation configuration is only part of that process, not proof of installation or enterprise coverage.",
+                    "recommendation": "Have the administrator resolve the confirmed service or policy deviation and establish approved automatic patch deployment. Verify installation separately; repeat the read-only assessment."
+                },
+                {
+                    "id": "7.3",
+                    "title": "Perform Automated Operating System Patch Management",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls7/",
+                    "criterionIds": ["WSA-WUP-BASE-002"],
+                    "description": "CIS 7.3 addresses recurring OS patch deployment. WinSec compares one reviewed cumulative Windows baseline; its seven-day deadline is local policy, not a CIS requirement.",
+                    "recommendation": "Have the administrator verify the missing baseline, compatibility and maintenance arrangements, then complete approved deployment and any required restart. Review other applicable updates separately and reassess."
+                },
+                {
+                    "id": "2.2",
+                    "title": "Ensure Authorized Software is Currently Supported",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls2/",
+                    "criterionIds": ["WSA-WUP-BASE-003"],
+                    "description": "CIS 2.2 links software authorization to vendor support and documented exceptions. This Windows lifecycle check does not assess the complete software inventory or approve an exception.",
+                    "recommendation": "Review exact Windows edition, release and support arrangements with the administrator. Plan migration to a supported release, or document an authorized exception, compensating safeguards and accepted residual risk. An exception does not change this recorded lifecycle result."
                 }
             ]
         }

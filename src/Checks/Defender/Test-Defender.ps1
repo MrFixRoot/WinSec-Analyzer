@@ -420,6 +420,14 @@ function Get-WinSecDefenderASRSummary {
     $idList = @($ids)
     $actionList = @($actions)
 
+    # A successful preference response with both properties present and null
+    # represents no configured rules. Do not normalize missing properties,
+    # one-sided nulls or null entries within arrays.
+    if ($null -eq $ids -and $null -eq $actions) {
+        $idList = @()
+        $actionList = @()
+    }
+
     if ($idList.Count -ne $actionList.Count) {
         $issues.Add(
             'ASR identifiers and actions have different counts; alignment cannot be trusted.'

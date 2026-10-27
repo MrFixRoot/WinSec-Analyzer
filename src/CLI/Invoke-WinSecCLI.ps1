@@ -260,13 +260,49 @@ function Get-WinSecCLIActiveAssessment {
         if ($viewScope.ScopeType -ceq 'CONTROL') {
             $sections = @(Get-WinSecMainMenuSections)
             $candidates += [pscustomobject]@{ScopeType='SECTION';ScopeKey=$sections[$State.SectionIndex].Key}
+            $candidates += [pscustomobject]@{ScopeType='DEVICE';ScopeKey='ALL'}
         }
+        $latestCompleted = $null
+        $deviceScanMap = $activeScanMap
         foreach ($candidate in $candidates) {
             $scopeKey = Get-WinSecCLIScopeKey $deviceId $candidate.ScopeType $candidate.ScopeKey
-            if ($scopeMap.ContainsKey($scopeKey)) {
-                $activeScanMap = @{ $deviceId = $scopeMap[$scopeKey] }
+            $candidateScanId = $null
+            if ($candidate.ScopeType -ceq 'DEVICE') {
+                if ($deviceScanMap -isnot [System.Collections.IDictionary] -or -not $deviceScanMap.Contains($deviceId)) { continue }
+                $candidateScanId = $deviceScanMap[$deviceId]
+            }
+            elseif ($scopeMap.ContainsKey($scopeKey)) { $candidateScanId = $scopeMap[$scopeKey] }
+            else { continue }
+            if ($null -eq $candidateScanId) { throw 'Missing control source identifier.' }
+            if ($null -ne $candidateScanId) {
+                if ($viewScope.ScopeType -ceq 'CONTROL') {
+                    # A later section/device scan supersedes an older control
+                    # view. Inspect bounded data only; the selected session is
+                    # deeply validated below before any records are returned.
+                    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
+                        . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
+                    }
+                    if ($candidateScanId -isnot [string] -or -not (Test-WinSecTargetIdentifier $candidateScanId) -or
+                        $publicScanMap -isnot [System.Collections.IDictionary]) { throw 'Invalid control source index.' }
+                    $key = '{0}:{1}{2}:{3}' -f $deviceId.Length,$deviceId,$candidateScanId.Length,$candidateScanId
+                    if (-not $publicScanMap.Contains($key)) { throw 'Missing control source session.' }
+                    $source = Copy-WinSecResultData $publicScanMap[$key]
+                    if ($candidate.ScopeType -ceq 'DEVICE' -and $null -eq $source.ScopeType -and
+                        $null -eq $source.ScopeKey -and $null -eq $source.ConfigurationAssessment) { continue }
+                    if ($source.DeviceId -isnot [string] -or $source.DeviceId -cne $deviceId -or
+                        $source.ScanId -isnot [string] -or $source.ScanId -cne $candidateScanId -or
+                        $source.ScopeType -isnot [string] -or $source.ScopeType -cne $candidate.ScopeType -or
+                        $source.ScopeKey -isnot [string] -or $source.ScopeKey -cne $candidate.ScopeKey -or
+                        $source.StartedAtUTC -isnot [string] -or $source.CompletedAtUTC -isnot [string] -or
+                        $source.ExecutionStatus -isnot [string] -or $source.ExecutionStatus -cne 'COMPLETED') { throw 'Invalid control source identity, scope or time.' }
+                    $completed = ConvertTo-WinSecResultUtc $source.CompletedAtUTC 'CompletedAtUTC'
+                    if ($completed -lt (ConvertTo-WinSecResultUtc $source.StartedAtUTC 'StartedAtUTC')) { throw 'Invalid control source time range.' }
+                    if ($null -ne $latestCompleted -and $completed -le $latestCompleted) { continue }
+                    $latestCompleted = $completed
+                }
+                $activeScanMap = @{ $deviceId = $candidateScanId }
                 $expectedScope = $candidate
-                break
+                if ($viewScope.ScopeType -cne 'CONTROL') { break }
             }
         }
     }
@@ -422,6 +458,9 @@ function Get-WinSecCLIActiveAssessment {
             }
             if ($null -ne (Get-WinSecCLIValue $review 'BitLockerSetting')) {
                 $null = ConvertTo-WinSecBitLockerReviewItem $review $publicResult
+            }
+            if ($null -ne (Get-WinSecCLIValue $review 'WindowsUpdateSetting')) {
+                $null = ConvertTo-WinSecWindowsUpdateReviewItem $review $publicResult
             }
         }
 
@@ -761,8 +800,8 @@ function Get-WinSecCLIControlViews {
         throw 'Invalid control table selection.'
     }
     $controls = @(Get-WinSecSectionControls -SectionKey $sections[$State.SectionIndex].Key)
-    # Resolve each row independently. Never mutate navigation or combine these
-    # sessions into a new assessment, section score, Findings or report.
+    # Resolve each row independently. A display-only latest-controls summary
+    # may use these views; they never become a historical session or report.
     $views = @(
         for ($i = 0; $i -lt $controls.Count; $i++) {
             $selection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
@@ -782,6 +821,29 @@ function Get-WinSecCLIControlViews {
         }
     )
     return $views
+}
+
+function Get-WinSecCLISectionViews {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+    # Each dashboard row retains its own validated source session. These views
+    # never become a device assessment, a combined score or an export source.
+    $sections=@(Get-WinSecMainMenuSections)
+    for($i=0;$i -lt $sections.Count;$i++) {
+        $selection=[pscustomobject]@{Screen='Findings';FindingsScope='Section';
+            SelectedDeviceId=$State.SelectedDeviceId;SectionIndex=$i;ControlIndex=0}
+        $assessment=Get-WinSecCLIActiveAssessment -State $selection -Context $Context
+        if($assessment.Warning){throw 'Ambiguous section table assessment.'}
+        if([string]::IsNullOrWhiteSpace($assessment.ScanId)){continue}
+        $sourceType=Get-WinSecCLIValue $assessment 'SourceScopeType'
+        $sourceKey=Get-WinSecCLIValue $assessment 'SourceScopeKey'
+        # Legacy unscoped data keeps its existing unscored presentation; it
+        # cannot supply a new row with an invented section/device scope.
+        if($null -eq $sourceType -and $null -eq $sourceKey){continue}
+        [pscustomobject]@{SectionKey=$sections[$i].Key;DeviceId=$State.SelectedDeviceId;ScanId=$assessment.ScanId;
+            ScopeType=$sourceType;ScopeKey=$sourceKey;
+            SectionResults=@($assessment.SectionResults);ConfigurationAssessment=(Get-WinSecCLIValue $assessment 'ConfigurationAssessment')}
+    }
 }
 
 function Get-WinSecCLISystemLabel {
@@ -819,6 +881,10 @@ function Show-WinSecCLICurrentScreen {
         [Parameter(Mandatory)]
         [psobject]$Context
     )
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true -and $State.Screen -cin @('Devices','MainMenu','Section','Results','Findings')) {
+        Show-WinSecWorkflowScreen -State $State -Context $Context
+        return
+    }
 
     # --------------------------------------------------------
     # Devices do not require an assessment
@@ -899,6 +965,9 @@ function Show-WinSecCLICurrentScreen {
             # Validate local scan authorization
             # -----------------------------------------------
             $scanPresentation = Get-WinSecCLIScanPresentation -State $State -Context $Context
+            $systemSelection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
+                SectionIndex=0;ControlIndex=0}
+            $systemControlViews = @(Get-WinSecCLIControlViews -State $systemSelection -Context $Context)
 
             # -----------------------------------------------
             # Render existing main menu
@@ -910,6 +979,8 @@ function Show-WinSecCLICurrentScreen {
                 -OverallScore $assessment.OverallScore `
                 -OverallStatus $assessment.OverallStatus `
                 -ConfigurationAssessment (Get-WinSecCLIValue $assessment 'ConfigurationAssessment') -ScanId $assessment.ScanId `
+                -SectionViews @(Get-WinSecCLISectionViews -State $State -Context $Context) `
+                -SystemControlViews $systemControlViews `
                 -Version $Context.Version `
                 -SystemLabel (Get-WinSecCLISystemLabel -State $State -Context $Context) `
                 @scanPresentation
@@ -961,7 +1032,11 @@ function Show-WinSecCLICurrentScreen {
         }
 
         'Findings' {
-            $enableExport = Test-WinSecCLIFindingsExportEligibility -State $State -Context $Context
+            # The screen validates its own selected rows. Building a complete
+            # export just to draw [P] repeats that work on every scroll/resize.
+            # The actual export still resolves and validates its source anew.
+            $enableExport = [bool](Get-WinSecCLIValue $Context 'ProjectRoot') -and
+                (Get-WinSecCLIValue $assessment 'SourceScopeType') -cin @('DEVICE','SECTION','CONTROL')
             Show-WinSecFindings `
                 -NavigationState $State `
                 -SectionResults $assessment.SectionResults `
@@ -1011,8 +1086,27 @@ function Get-WinSecCLINavigationCounts {
         [psobject]$State,
 
         [Parameter(Mandatory)]
-        [psobject]$Context
+        [psobject]$Context,
+
+        [string]$Action = ''
     )
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true -and $State.Screen -ceq 'Findings') {
+        $scope=Get-WinSecCLIViewScope $State
+        $view=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
+        return [pscustomobject]@{SectionCount=5;ControlCount=0;FindingCount=$view.Rows.Count;SettingsCount=0}
+    }
+
+    if ($Action -and $Action -cne 'ScrollDown') {
+        # Only ScrollDown needs the number of rendered findings. Other keys
+        # navigate catalog rows and must not rebuild a complete findings view.
+        $definitions = @(Get-WinSecMainMenuSections)
+        $index = [Math]::Max(0,[Math]::Min([int]$State.SectionIndex,$definitions.Count-1))
+        $controlCount = 0
+        if ($State.Screen -cin @('Section','Results')) {
+            $controlCount = @(Get-WinSecSectionControls -SectionKey $definitions[$index].Key).Count
+        }
+        return [pscustomobject]@{SectionCount=$definitions.Count;ControlCount=$controlCount;FindingCount=0;SettingsCount=0}
+    }
 
     $assessment = Get-WinSecCLIActiveAssessment `
         -State $State `
@@ -1161,6 +1255,14 @@ function Get-WinSecCLIFindingsExportSelection {
 function Test-WinSecCLIFindingsExportEligibility {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true) {
+        try {
+            if($State.Screen -cne 'Findings'){return $false}
+            $scope=Get-WinSecCLIViewScope $State
+            $null=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
+            return $true
+        }catch{return $false}
+    }
     try { $null=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context;return $true }
     catch { return $false }
 }
@@ -1168,6 +1270,7 @@ function Test-WinSecCLIFindingsExportEligibility {
 function Invoke-WinSecCLIFindingsExport {
     [CmdletBinding()]
     param([psobject]$State,[psobject]$Context)
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true){return Export-WinSecCLIFrameworkFindings $State $Context}
     $selection=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
     $before=ConvertTo-Json -InputObject $selection -Depth 30 -Compress
     $decision=@(Show-WinSecExportFrameworkSelection -Selection (Copy-WinSecResultData $selection))
@@ -1421,6 +1524,10 @@ function Invoke-WinSecCLILocalRescan {
     $coordinator = $Context.ScanCoordinator
     $deviceId = Get-WinSecCLIScanDeviceId -State $State -Devices @($Context.Devices)
     $scope = Get-WinSecCLIScanScope -State $State
+    # Operational notice ownership, separate from immutable scan results.
+    $notice=[pscustomobject]@{DeviceId=$deviceId;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
+    if($null -ne $Context.PSObject.Properties['LastScanMessageContext']){$Context.LastScanMessageContext=$notice}
+    else {$Context|Add-Member LastScanMessageContext $notice}
     $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
     if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
     if ($null -eq $scopeMap) { $scopeMap = @{} }
@@ -1672,6 +1779,17 @@ function Invoke-WinSecCLILocalRescan {
         if ($scope.ScopeType -ceq 'DEVICE') {$Context.LastScanMessage='Device scan completed. Configuration results recorded; overall device score: NOT_SCORED.'}
         else {$Context.LastScanMessage='{0} scan completed. Configuration score: {1}.' -f $scope.Label,(Get-WinSecConfigurationScoreText $configuration $scope.ScopeType $scope.ScopeKey)}
     }
+    if((Get-WinSecCLIValue $coordinator FrameworkWorkflowEnabled) -ceq $true) {
+        $Context.LastScanMessage=if($publicResult.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS') {
+            'Scan PARTIAL: collection issues were recorded. Open [F] to select a framework.'
+        } else {'Scan COMPLETE. Open [F] to select a framework and review saved readings.'}
+    }
+    $technical=Get-WinSecCLIValue $coordinator LastTechnicalReports
+    if($null -ne $technical -and $technical.DeviceId -ceq $deviceId -and $technical.ScanId -ceq $scanId) {
+        if($technical.Status -ceq 'SAVED') {
+            $Context.LastScanMessage += ' Technical Markdown files saved: '+@($technical.Files).Count+' (reports/exports).'
+        } else {$Context.LastScanMessage += ' WARNING: technical Markdown export '+$technical.Status+'; saved '+@($technical.Files).Count+', failed '+@($technical.FailedCheckIds).Count+'.'}
+    }
     # Return only an owned copy of the validated public projection.
     if ($State.Screen -ceq 'Devices') {
         $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
@@ -1759,6 +1877,12 @@ function Invoke-WinSecCLIDeviceRemoval {
         throw 'Invalid device removal result.'
     }
     foreach ($key in $publicKeys) { $Context.PublicScans.Remove($key) }
+    $analysis=Get-WinSecCLIValue $Context FrameworkFindings
+    if($null -ne $analysis -and [string]::Equals([string]$analysis.DeviceId,$deviceId,[StringComparison]::OrdinalIgnoreCase)) {
+        $Context|Add-Member FrameworkFindings $null -Force
+        $Context|Add-Member FrameworkSourcesStamp $null -Force
+        $Context|Add-Member LastExportMessage '' -Force
+    }
     foreach ($key in @($Context.ActiveScanByDevice.GetEnumerator() | ForEach-Object { $_.Key })) {
         if ([string]::Equals([string]$key,$deviceId,[StringComparison]::OrdinalIgnoreCase)) { $Context.ActiveScanByDevice.Remove($key) }
     }
@@ -1840,6 +1964,8 @@ function Invoke-WinSecCLI {
         'src/UI/Screens/AssessmentProfileSelection.ps1'
         'src/UI/Screens/ExportFrameworkSelection.ps1'
         'src/UI/Screens/ScanProgress.ps1'
+        'src/UI/Screens/FrameworkFindings.ps1'
+        'src/CLI/FrameworkWorkflow.ps1'
         'src/UI/Screens/DeviceRemovalConfirmation.ps1'
         'src/UI/Screens/DeviceName.ps1'
         'src/Services/DeviceManagementService.ps1'
@@ -1950,6 +2076,8 @@ function Invoke-WinSecCLI {
     }
     # Evaluation is distinct from numeric scoring. Draft criteria stay blocked.
     $scanCoordinator.AssessmentEnabled = $true
+    $scanCoordinator.FrameworkWorkflowEnabled = $true
+    $scanCoordinator.TechnicalReportsEnabled = $true
 
     # Production security invariants.
 
@@ -2182,6 +2310,8 @@ function Invoke-WinSecCLI {
         LastScanMessage = ''
         LastDeviceMessage = ''
         LocalSystemInfo = $null
+        LocalDeviceId = $registration.DeviceId
+        FrameworkWorkflowEnabled = $true
     }
 
     # Informational OS metadata only, requested for selecting the correct profile.
@@ -2263,13 +2393,31 @@ function Invoke-WinSecCLI {
             -KeyInfo $keyInfo `
             -Screen $navigationState.Screen `
             -EnableRescan:$enableLocalRescan `
-            -EnableExport:(Test-WinSecCLIFindingsExportEligibility -State $navigationState -Context $context)
+            -EnableExport:($navigationState.Screen -ceq 'Findings')
 
         # Disabled or unsupported key
 
         if ($keyboardEvent.Action -eq 'None') {
             continue
         }
+        if($keyboardEvent.Action -ceq 'ShowFindings' -and $context.FrameworkWorkflowEnabled) {
+            try {
+                if(Invoke-WinSecCLIFrameworkFindings -State $navigationState -Context $context -ShowProgress) {
+                    $bounds=Get-WinSecCLINavigationCounts -State $navigationState -Context $context -Action ShowFindings
+                    $null=Invoke-WinSecNavigationAction -State $navigationState -Action ShowFindings -SectionCount $bounds.SectionCount -ControlCount $bounds.ControlCount
+                }
+            } catch {
+                $scope=Get-WinSecCLIViewScope $navigationState
+                $notice=[pscustomobject]@{DeviceId=$navigationState.SelectedDeviceId;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
+                if($null -ne $context.PSObject.Properties['LastScanMessageContext']){$context.LastScanMessageContext=$notice}
+                else {$context|Add-Member LastScanMessageContext $notice}
+                $context.LastScanMessage='Framework review failed or was rejected. Previous results were preserved.'
+            }
+            $null=& $renderAction $navigationState
+            continue
+        }
+        if ($keyboardEvent.Action -ceq 'ExportMD' -and
+            -not (Test-WinSecCLIFindingsExportEligibility -State $navigationState -Context $context)) { continue }
 
         # ----------------------------------------------------
         # Determine navigation boundaries
@@ -2277,7 +2425,7 @@ function Invoke-WinSecCLI {
 
         $counts = Get-WinSecCLINavigationCounts `
             -State $navigationState `
-            -Context $context
+            -Context $context -Action $keyboardEvent.Action
 
         # ----------------------------------------------------
         # Apply navigation action
@@ -2420,12 +2568,10 @@ function Invoke-WinSecCLI {
 
         if (
             $navigationState.PendingCommand -in @(
-                'ExportTXT',
                 'SelectSetting'
             )
         ) {
-            # Export and settings editing remain disabled
-            # until their implementations are connected.
+            # Settings editing remains disabled until connected.
 
             $navigationState.PendingCommand = $null
             $navigationState.PendingScope = $null

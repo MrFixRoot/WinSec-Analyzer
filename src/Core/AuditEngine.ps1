@@ -54,6 +54,11 @@ $script:WinSecAuditScorePath = Join-Path `
 # Load required components
 # ------------------------------------------------------------
 
+# Definitions only; no compilation or policy query while importing the engine.
+# Keep check scripts function-only for Get-WinSecAuditImplementation validation.
+. (Join-Path $PSScriptRoot '../Checks/System/WindowsUpdatePolicyReader.ps1')
+. (Join-Path $PSScriptRoot 'WindowsUpdatePolicyApplicability.ps1')
+
 function Import-WinSecAuditDependencies {
     [CmdletBinding()]
     param(

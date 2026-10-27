@@ -243,7 +243,11 @@ function Get-WinSecStatusColor {
         'WARNING'        { return 'Yellow' }
         'ERROR'          { return 'Red' }
         'RUNNING'        { return 'Cyan' }
-        'PENDING'        { return 'DarkGray' }
+        'PENDING'        { return 'Red' }
+        'PARTIAL'        { return 'Yellow' }
+        'COMPLETE'       { return 'Green' }
+        'LIVE'           { return 'Green' }
+        'RECORDS'        { return 'DarkBlue' }
         'NOT_APPLICABLE' { return 'DarkGray' }
         'UNKNOWN'        { return 'DarkGray' }
 

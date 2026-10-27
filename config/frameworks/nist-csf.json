@@ -59,6 +59,10 @@
     ],
     "subcategories": [
         {
+            "id": "PR.PS-02",
+            "name": "Maintain, replace and remove software according to risk"
+        },
+        {
             "id": "PR.DS-01",
             "name": "Protect data at rest"
         },
@@ -123,6 +127,44 @@
                     ],
                     "description": "The outcome concerns monitoring computing environments for adverse events. Behavior monitoring contributes context; this check does not assess the complete monitoring program.",
                     "recommendation": "Review whether disabling behavior monitoring was authorized, document the monitoring gap, and restore the approved protection through authorized administration. Retain and review relevant monitoring records separately."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-SYS-003",
+            "references": [
+                {
+                    "id": "PR.PS-02",
+                    "functionId": "PR",
+                    "categoryId": "PR.PS",
+                    "subcategoryId": "PR.PS-02",
+                    "title": "Maintain, replace and remove software according to risk",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": ["WSA-WUP-BASE-001"],
+                    "description": "PR.PS-02 concerns risk-informed software maintenance. Automatic OS update configuration contributes to maintenance; it does not demonstrate the entire CSF outcome.",
+                    "recommendation": "Review the confirmed automation deviation with the administrator and risk owner. Resolve conflicting policies, document approved maintenance responsibilities and verify deployment through supported administration. Reassess without changing the recorded result."
+                },
+                {
+                    "id": "PR.PS-02",
+                    "functionId": "PR",
+                    "categoryId": "PR.PS",
+                    "subcategoryId": "PR.PS-02",
+                    "title": "Maintain, replace and remove software according to risk",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": ["WSA-WUP-BASE-002"],
+                    "description": "The missing reviewed cumulative Windows baseline provides partial maintenance context. CSF 2.0 does not prescribe WinSec weights or a universal seven-day patch deadline.",
+                    "recommendation": "Prioritize the confirmed baseline gap using business impact, exposure and vulnerability risk. Have the administrator validate compatibility and complete approved deployment and restart arrangements; verify other products separately."
+                },
+                {
+                    "id": "PR.PS-02",
+                    "functionId": "PR",
+                    "categoryId": "PR.PS",
+                    "subcategoryId": "PR.PS-02",
+                    "title": "Maintain, replace and remove software according to risk",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": ["WSA-WUP-BASE-003"],
+                    "description": "Software replacement when vendor maintenance ends contributes to PR.PS-02. This observed Windows lifecycle result does not assess organizational risk acceptance or certify the outcome.",
+                    "recommendation": "Have the risk owner and administrator plan migration to a supported Windows release, with compatibility, recovery and continuity arrangements. Document any temporary exception and residual risk separately; do not relabel the historical result."
                 }
             ]
         }

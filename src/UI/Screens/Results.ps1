@@ -204,7 +204,7 @@ function Get-WinSecResultsControlRows {
         $matches[0].Score = $source.Score
         $matches[0].Status = $source.Status
         $matches[0].ObservedStatus = $source.ObservedStatus
-        # Row provenance is kept separately; it is never used to aggregate scores.
+        # Keep provenance with each display row; historical sessions stay intact.
         $matches[0] | Add-Member -NotePropertyName DeviceId -NotePropertyValue $view.DeviceId
         $matches[0] | Add-Member -NotePropertyName ScanId -NotePropertyValue $view.ScanId
         $matches[0] | Add-Member -NotePropertyName SourceScopeType -NotePropertyValue $view.ScopeType
@@ -212,6 +212,57 @@ function Get-WinSecResultsControlRows {
     }
     # Do not publish any rows until every session has been validated.
     return $rows
+}
+
+function Get-WinSecLatestSystemSecuritySummary {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][psobject]$NavigationState,
+        [AllowEmptyCollection()][object[]]$ControlViews = @()
+    )
+    # Display-only snapshot, never a public scan/session or an export source.
+    # Reuse all row ownership, scope and reproducible-manifest checks first.
+    $views = Copy-WinSecResultData $ControlViews
+    $null = @(Get-WinSecResultsControlRows -SectionKey SystemSecurity -NavigationState $NavigationState -ControlViews $views)
+    if ($views.Count -eq 0) { return $null }
+    $sources = @($views | ForEach-Object {
+        [pscustomobject]@{CheckId=$_.CheckId;ScanId=$_.ScanId;ScopeType=$_.ScopeType;ScopeKey=$_.ScopeKey}
+    })
+    $sourceByScan = @{}
+    foreach ($view in $views) {
+        $identity = ConvertTo-Json -InputObject @($view.ScopeType,$view.ScopeKey,$view.ConfigurationAssessment) -Depth 32 -Compress
+        if ($sourceByScan.ContainsKey($view.ScanId) -and $sourceByScan[$view.ScanId] -cne $identity) {
+            throw 'Contradictory sources share a scan identifier.'
+        }
+        $sourceByScan[$view.ScanId]=$identity
+    }
+    $scanCount = @($sources.ScanId | Sort-Object -Unique -CaseSensitive).Count
+    $summary = [pscustomobject]@{Value=$null;Status='NOT_SCORED';Source='LATEST_CONTROLS';
+        Reason='INCOMPLETE_CONTROLS';Sources=$sources;ScanCount=$scanCount}
+    if ($views.Count -ne 3) { return $summary }
+    $controls = @(); $contextKey = $null; $version = $null
+    foreach ($view in $views) {
+        if ($null -eq $view.ConfigurationAssessment) { return $summary }
+        $assessment = ConvertTo-WinSecPublicConfigurationAssessment $view.ConfigurationAssessment $view.ConfigurationAssessment
+        $control = @($assessment.Controls | Where-Object CheckId -CEQ $view.CheckId)
+        if ($control.Count -ne 1 -or $control[0].Criteria.Count -eq 0) { return $summary }
+        foreach ($criterion in $control[0].Criteria) {
+            $key = ConvertTo-Json -InputObject @($assessment.CatalogVersion,$assessment.MethodologyId,
+                $assessment.MethodologyVersion,$assessment.PolicySha256,$criterion.Profile,$criterion.OSRelease,$criterion.Edition) -Compress
+            if ($null -ne $contextKey -and $key -cne $contextKey) {
+                $summary.Reason='INCOMPATIBLE_CONTEXTS'; return $summary
+            }
+            $contextKey=$key
+        }
+        $version=$assessment.MethodologyVersion
+        $controls += $control[0]
+    }
+    # Use original criterion fractions, avoiding a mean of rounded UI strings.
+    $totals = Get-WinSecConfigurationSectionTotals -Controls $controls -MethodologyVersion $version
+    $summary.Value=$totals.Value; $summary.Status=$totals.Status
+    $summary.Reason=if ($totals.Status -ceq 'NOT_SCORED') {'INCOMPLETE_CONTROLS'} else {''}
+    if ($scanCount -eq 1) { $summary.Source='SESSION' }
+    return $summary
 }
 
 # ------------------------------------------------------------
@@ -323,6 +374,14 @@ function Show-WinSecResults {
             -ControlResults $ControlResults -ConfigurationAssessment $ConfigurationAssessment `
             -NavigationState $NavigationState -ControlViews $ControlViews
     )
+    $latestSummary = $null
+    if ($section.Key -ceq 'SystemSecurity' -and $ControlViews.Count -gt 0) {
+        $latestSummary = Get-WinSecLatestSystemSecuritySummary -NavigationState $NavigationState -ControlViews $ControlViews
+        $section.Score = if ($null -ne $latestSummary.Value) {
+            $latestSummary.Value.ToString('0.##',[Globalization.CultureInfo]::InvariantCulture)+'/100'
+        } else { 'NOT_SCORED' }
+        $section.Status = $latestSummary.Status
+    }
 
     if ($controls.Count -gt 0) {
 
@@ -396,6 +455,10 @@ function Show-WinSecResults {
     $summary = 'SECTION SCORE: {0} | STATUS: {1}' -f `
         $section.Score,
         $section.Status
+    if ($null -ne $latestSummary -and $latestSummary.Source -ceq 'LATEST_CONTROLS') {
+        $summary += ' | SOURCE: latest controls ('+$latestSummary.ScanCount+' scans)'
+        if ($latestSummary.Reason -ceq 'INCOMPATIBLE_CONTEXTS') { $summary += ' | incompatible profiles or methodology' }
+    }
 
     Write-WinSecText `
         -Text $summary `

@@ -1,0 +1,104 @@
+{
+  "SchemaVersion": "1.0.0",
+  "CatalogVersion": "2026.10.24.1",
+  "Status": "REVIEWED_REFERENCE_DATA",
+  "Scope": "WINDOWS_OS_CUMULATIVE_SECURITY_BASELINE",
+  "AsOfUTC": "2026-10-24T00:00:00Z",
+  "ValidUntilUTC": "2026-10-31T00:00:00Z",
+  "PatchDeadlineDays": 7,
+  "SourceUrl": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information",
+  "EditionGroups": [
+    {
+      "Key": "HOME_PRO", "Channel": "GAC",
+      "Skus": [48, 49, 98, 99, 100, 101, 161, 162, 164, 165],
+      "SourceUrl": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"
+    },
+    {
+      "Key": "ENTERPRISE_EDUCATION", "Channel": "GAC", "Skus": [4, 27, 121, 122],
+      "SourceUrl": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-enterprise-and-education"
+    },
+    {
+      "Key": "ENTERPRISE_LTSC", "Channel": "LTSC", "Skus": [125, 126],
+      "SourceUrl": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-enterprise-ltsc-2024"
+    },
+    {
+      "Key": "IOT_ENTERPRISE_LTSC", "Channel": "LTSC", "Skus": [191],
+      "SourceUrl": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-iot-enterprise-ltsc-2024"
+    }
+  ],
+  "Releases": [
+    {
+      "Release": "21H2", "Build": 22000, "AvailableOn": "2021-10-05",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2023-10-10"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2024-10-08"}
+      ],
+      "SecurityBaseline": null
+    },
+    {
+      "Release": "22H2", "Build": 22621, "AvailableOn": "2022-09-20",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2024-10-08"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2025-10-14"}
+      ],
+      "SecurityBaseline": null
+    },
+    {
+      "Release": "23H2", "Build": 22631, "AvailableOn": "2023-10-31",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2025-11-11"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2026-11-10"}
+      ],
+      "SecurityBaseline": {
+        "Kb": "KB5126653", "Revision": 7652, "PublishedOn": "2026-10-13",
+        "SourceUrl": "https://support.microsoft.com/help/5126653"
+      }
+    },
+    {
+      "Release": "24H2", "Build": 26100, "AvailableOn": "2024-10-01",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2026-10-13"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2027-10-12"},
+        {"EditionGroup": "ENTERPRISE_LTSC", "SupportEndsOn": "2029-10-09"},
+        {"EditionGroup": "IOT_ENTERPRISE_LTSC", "SupportEndsOn": "2034-10-10"}
+      ],
+      "SecurityBaseline": {
+        "Kb": "KB5127648", "Revision": 9711, "PublishedOn": "2026-10-13",
+        "SourceUrl": "https://support.microsoft.com/help/5127648"
+      }
+    },
+    {
+      "Release": "25H2", "Build": 26200, "AvailableOn": "2025-09-30",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2027-10-12"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2028-10-10"}
+      ],
+      "SecurityBaseline": {
+        "Kb": "KB5127648", "Revision": 9711, "PublishedOn": "2026-10-13",
+        "SourceUrl": "https://support.microsoft.com/help/5127648"
+      }
+    },
+    {
+      "Release": "26H1", "Build": 28000, "AvailableOn": "2026-02-10",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2028-03-14"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2029-03-13"}
+      ],
+      "SecurityBaseline": {
+        "Kb": "KB5127646", "Revision": 3231, "PublishedOn": "2026-10-13",
+        "SourceUrl": "https://support.microsoft.com/help/5127646"
+      }
+    },
+    {
+      "Release": "26H2", "Build": 26300, "AvailableOn": "2026-09-29",
+      "Support": [
+        {"EditionGroup": "HOME_PRO", "SupportEndsOn": "2028-10-10"},
+        {"EditionGroup": "ENTERPRISE_EDUCATION", "SupportEndsOn": "2029-10-09"}
+      ],
+      "SecurityBaseline": {
+        "Kb": "KB5127648", "Revision": 9711, "PublishedOn": "2026-10-13",
+        "SourceUrl": "https://support.microsoft.com/help/5127648"
+      }
+    }
+  ]
+}

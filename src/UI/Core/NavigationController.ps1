@@ -534,44 +534,6 @@ function Invoke-WinSecNavigationAction {
                 $State.PendingScope = $State.FindingsScope
             }
         }
-        'ExportTXT' {
-
-            switch ($State.Screen) {
-
-                'MainMenu' {
-
-                    if ($SectionCount -gt 0) {
-
-                        $State.PendingCommand = 'ExportTXT'
-                        $State.PendingScope = 'Section'
-                    }
-                }
-
-                'Section' {
-
-                    if ($SectionCount -gt 0) {
-
-                        $State.PendingCommand = 'ExportTXT'
-                        $State.PendingScope = 'Section'
-                    }
-                }
-
-                'Results' {
-
-                    if ($SectionCount -gt 0) {
-
-                        $State.PendingCommand = 'ExportTXT'
-                        $State.PendingScope = 'Section'
-                    }
-                }
-
-                'Findings' {
-
-                    $State.PendingCommand = 'ExportTXT'
-                    $State.PendingScope = $State.FindingsScope
-                }
-            }
-        }
 
         # ----------------------------------------------------
         # Request security rescan
@@ -641,7 +603,7 @@ function Invoke-WinSecNavigationAction {
 
         'Exit' {
 
-            if ($State.Screen -in @('Devices', 'MainMenu')) {
+            if ($State.Screen -in @('Devices', 'MainMenu', 'Section', 'Results')) {
 
                 $State.ExitRequested = $true
 

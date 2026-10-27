@@ -33,6 +33,11 @@ function Get-MpPreference {
 function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $copy=Copy-WinSecResultData $script:registry
+    # This suite supplies only Defender providers. BitLocker production
+    # permissions are validated independently in BitLockerCoordinatorIntegration.
+    foreach($other in @($copy.Checks|Where-Object CheckId -CNE WSA-SYS-001)) {
+        $other.ExecutionEnabled=$false;$other.ExecutionReady=$false
+    }
     $check=$copy.Checks|Where-Object CheckId -CEQ WSA-SYS-001
     $check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'
     $copy
@@ -335,7 +340,7 @@ Test-WinSecConfigIntegration 'Verified platform exclusion reaches scan, history,
     $script:syntheticExclusion=$true
     try {
         $ctx=New-WinSecConfigIntegrationContext;$p=Invoke-WinSecConfigIntegrationScan $ctx
-        Assert-WinSecConfigIntegration ($p.ConfigurationAssessment.MethodologyVersion -ceq '1.1.0' -and
+        Assert-WinSecConfigIntegration ($p.ConfigurationAssessment.MethodologyVersion -ceq '1.2.0' -and
             $p.ConfigurationAssessment.Controls[0].Value -eq 85.71 -and $p.ConfigurationAssessment.Controls[0].EvaluatedCriteria -eq 7 -and $p.Findings.Count -eq 1)
         $restart=New-WinSecConfigIntegrationContext;Restore-WinSecPublicHistory $restart
         $state=New-WinSecNavigationState;$state.Screen='Findings';$state.FindingsScope='Control';$state.SelectedDeviceId=$p.DeviceId

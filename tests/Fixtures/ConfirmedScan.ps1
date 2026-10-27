@@ -11,6 +11,10 @@ function Get-WinSecCheckRegistry {
     param($ProjectRoot)
     $registry = & $script:confirmedScanOriginalFunctions['Get-WinSecCheckRegistry'] -ProjectRoot $ProjectRoot
     # Only this newly loaded, in-memory test object is changed.
+    foreach ($check in $registry.Checks) {
+        $check.ExecutionEnabled = $false
+        $check.ExecutionReady = $false
+    }
     $selected = @($registry.Checks | Where-Object { $_.CheckId -ceq 'WSA-SYS-001' })
     if ($selected.Count -ne 1) { throw 'Synthetic integration control is missing.' }
     $selected[0].ExecutionEnabled = $true

@@ -69,8 +69,16 @@ foreach ($path in @(
 function Get-CimInstance {
     [CmdletBinding()]
     param($Namespace, $ClassName, $Property, $OperationTimeoutSec)
+    if($ClassName -cne 'Win32_ComputerSystemProduct') {
+        $script:UnexpectedSecurityReads++;throw 'Only synthetic hardware identity is allowed in AuditEngine tests.'
+    }
     return [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
 }
+$script:UnexpectedSecurityReads=0
+function Get-MpComputerStatus {$script:UnexpectedSecurityReads++;throw 'Native Defender is forbidden in AuditEngine tests.'}
+function Get-MpPreference {$script:UnexpectedSecurityReads++;throw 'Native Defender is forbidden in AuditEngine tests.'}
+function Get-BitLockerVolume {$script:UnexpectedSecurityReads++;throw 'Native BitLocker is forbidden in AuditEngine tests.'}
+function Read-WinSecWindowsUpdateNamedPolicy {$script:UnexpectedSecurityReads++;throw 'Native policies are forbidden in AuditEngine tests.'}
 
 # ------------------------------------------------------------
 # Test state
@@ -521,8 +529,12 @@ function Assert-WinSecFixtureError {
 
     Assert-WinSecAuditEqual $Audit.ExecutionErrors 1
 
-    Assert-WinSecAuditEqual $Audit.OverallScore 0
-    Assert-WinSecAuditEqual $Audit.OverallCoverage 0
+    Assert-WinSecAuditEqual $Audit.OverallScore $null
+    Assert-WinSecAuditEqual $Audit.OverallCoverage $null
+    # Legacy ScoringEnabled means calculation requested, not policy activation.
+    Assert-WinSecAuditEqual $Audit.ScoringEnabled $true
+    Assert-WinSecAuditEqual $Audit.ScoreResult.ScoringEligible $false
+    Assert-WinSecAuditEqual $Audit.OverallStatus 'NOT_SCORED'
 
     if ($ExpectedMessage) {
 
@@ -560,9 +572,14 @@ try {
                 -Encoding UTF8
         )
 
+    # Execution tests own a disabled baseline. Never inherit enabled production
+    # controls or invoke real implementations from the developer's repository.
+    foreach($check in $script:BaseCatalog.checks){$check.execution.enabled=$false}
+    $script:DisabledCatalogPath=Join-Path $script:FixtureRoot 'disabled-checks.json'
+    Set-Content -LiteralPath $script:DisabledCatalogPath -Value (ConvertTo-Json $script:BaseCatalog -Depth 50) -Encoding UTF8
     $script:BaseRegistry = Get-WinSecCheckRegistry `
-        -ProjectRoot $script:ProjectRoot `
-        -Path $script:CatalogPath
+        -ProjectRoot $script:FixtureRoot `
+        -Path $script:DisabledCatalogPath
 
     # ========================================================
     # GROUP 1 - EXECUTION SAFETY
@@ -691,7 +708,7 @@ try {
     Write-Host ''
 
     Invoke-WinSecAuditTest `
-        -Name 'Authorized PASS produces a verified score' `
+        -Name 'Synthetic PASS preserves its record without activating overall scoring' `
         -Test {
 
             $audit = Invoke-WinSecFixtureAudit -Scenario 'PASS'
@@ -701,14 +718,16 @@ try {
             Assert-WinSecAuditEqual $audit.SelectedChecks 1
 
             Assert-WinSecAuditEqual $record.Status 'PASS'
-            Assert-WinSecAuditEqual $audit.OverallScore 100
-            Assert-WinSecAuditEqual $audit.OverallCoverage 100
+            Assert-WinSecAuditEqual $audit.OverallScore $null
+            Assert-WinSecAuditEqual $audit.OverallCoverage $null
+            Assert-WinSecAuditEqual $audit.ScoringEnabled $true
+            Assert-WinSecAuditEqual $audit.ScoreResult.ScoringEligible $false
 
             Assert-WinSecAuditEqual `
                 $audit.ExecutionStatus 'COMPLETED'
 
             Assert-WinSecAuditEqual `
-                $audit.OverallStatus 'COMPLETE'
+                $audit.OverallStatus 'NOT_SCORED'
 
             Assert-WinSecAuditTrue (
                 $record.DeviceId -eq $audit.DeviceId -and
@@ -717,20 +736,22 @@ try {
         }
 
     Invoke-WinSecAuditTest `
-        -Name 'FAIL produces zero score and full coverage' `
+        -Name 'Synthetic FAIL preserves its record without inventing an overall zero' `
         -Test {
 
             $audit = Invoke-WinSecFixtureAudit -Scenario 'FAIL'
             $record = Get-WinSecFixtureRecord -Audit $audit
 
             Assert-WinSecAuditEqual $record.Status 'FAIL'
-            Assert-WinSecAuditEqual $audit.OverallScore 0
-            Assert-WinSecAuditEqual $audit.OverallCoverage 100
-            Assert-WinSecAuditEqual $audit.OverallStatus 'COMPLETE'
+            Assert-WinSecAuditEqual $audit.OverallScore $null
+            Assert-WinSecAuditEqual $audit.OverallCoverage $null
+            Assert-WinSecAuditEqual $audit.OverallStatus 'NOT_SCORED'
+            Assert-WinSecAuditEqual $audit.ScoringEnabled $true
+            Assert-WinSecAuditEqual $audit.ScoreResult.ScoringEligible $false
         }
 
     Invoke-WinSecAuditTest `
-        -Name 'Reported ERROR reduces verification coverage' `
+        -Name 'Reported ERROR remains an execution error without activating overall scoring' `
         -Test {
 
             $audit = Invoke-WinSecFixtureAudit -Scenario 'ERROR'
@@ -748,8 +769,8 @@ try {
 
             Assert-WinSecAuditEqual $record.Status 'PENDING'
             Assert-WinSecAuditEqual $audit.OverallScore $null
-            Assert-WinSecAuditEqual $audit.OverallCoverage 0
-            Assert-WinSecAuditEqual $audit.OverallStatus 'PROVISIONAL'
+            Assert-WinSecAuditEqual $audit.OverallCoverage $null
+            Assert-WinSecAuditEqual $audit.OverallStatus 'NOT_SCORED'
         }
 
     Invoke-WinSecAuditTest `
@@ -832,8 +853,8 @@ try {
                 Assert-WinSecAuditEqual $record.ScanId $second.ScanId
             }
 
-            Assert-WinSecAuditEqual $first.OverallScore 100
-            Assert-WinSecAuditEqual $second.OverallScore 100
+            Assert-WinSecAuditEqual $first.OverallScore $null
+            Assert-WinSecAuditEqual $second.OverallScore $null
         }
 
     # ========================================================
@@ -854,8 +875,8 @@ try {
             $record = Get-WinSecFixtureRecord -Audit $audit
 
             Assert-WinSecAuditEqual $record.Status 'UNKNOWN'
-            Assert-WinSecAuditEqual $audit.OverallScore 0
-            Assert-WinSecAuditEqual $audit.OverallCoverage 0
+            Assert-WinSecAuditEqual $audit.OverallScore $null
+            Assert-WinSecAuditEqual $audit.OverallCoverage $null
 
             Assert-WinSecAuditTrue (
                 $record.ValidationIssue -match 'without evidence'
@@ -1055,6 +1076,8 @@ try {
                 $escapedPath = (
                     $script:AuditEnginePath.Replace("'", "''")
                 )
+                $escapedRoot=$script:FixtureRoot.Replace("'","''")
+                $escapedCatalog=$script:DisabledCatalogPath.Replace("'","''")
 
                 $testScript = @"
 `$ErrorActionPreference = 'Stop'
@@ -1062,14 +1085,24 @@ try {
 . '$escapedPath'
 
 function Get-CimInstance {
+    [CmdletBinding()]param(`$Namespace,`$ClassName,`$Property,`$OperationTimeoutSec)
+    if (`$ClassName -cne 'Win32_ComputerSystemProduct') {`$script:unexpectedReads++;throw 'Native provider forbidden.'}
     [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
 }
+`$script:unexpectedReads=0
+function Get-MpComputerStatus {`$script:unexpectedReads++;throw 'Native provider forbidden.'}
+function Get-MpPreference {`$script:unexpectedReads++;throw 'Native provider forbidden.'}
+function Get-BitLockerVolume {`$script:unexpectedReads++;throw 'Native provider forbidden.'}
+function Read-WinSecWindowsUpdateNamedPolicy {`$script:unexpectedReads++;throw 'Native provider forbidden.'}
 
-`$audit = Invoke-WinSecAudit -SkipScoring
+. Import-WinSecAuditDependencies -SkipScoring
+`$registry=Get-WinSecCheckRegistry -ProjectRoot '$escapedRoot' -Path '$escapedCatalog'
+`$audit = Invoke-WinSecAudit -Registry `$registry -SkipScoring
 
 if (`$audit.ExecutionStatus -ne 'NO_EXECUTABLE_CHECKS') {
     throw 'Unexpected standalone audit status.'
 }
+if (`$script:unexpectedReads -ne 0) {throw 'Standalone audit invoked a native provider.'}
 "@
 
                 $null = $instance.AddScript($testScript).Invoke()
@@ -1091,6 +1124,9 @@ if (`$audit.ExecutionStatus -ne 'NO_EXECUTABLE_CHECKS') {
             }
         }
 
+    Invoke-WinSecAuditTest -Name 'No native security provider was invoked' -Test {
+        Assert-WinSecAuditEqual $script:UnexpectedSecurityReads 0
+    }
 }
 finally {
 
