@@ -21,10 +21,10 @@ function Get-WinSecTechnicalField {
 }
 
 function Get-WinSecTechnicalDefinitions {
-    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002','WSA-NET-003')][string]$CheckId)
+    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002','WSA-NET-003')][string]$CheckId,[string]$CatalogVersion='1.1.0')
     if($CheckId -ceq 'WSA-NET-001'){return Get-WinSecFirewallTechnicalDefinitions}
     if($CheckId -ceq 'WSA-NET-002'){return Get-WinSecSmbTechnicalDefinitions}
-    if($CheckId -ceq 'WSA-NET-003'){return Get-WinSecRdpTechnicalDefinitions}
+    if($CheckId -ceq 'WSA-NET-003'){return Get-WinSecRdpTechnicalDefinitions -Legacy:($CatalogVersion -ceq '1.0.0')}
     $spec=@(
         'CollectionSuccessful|Coleccion|bool|Collector|'
         'CollectionComplete|Coleccion|bool|Collector|'
@@ -218,7 +218,7 @@ function ConvertTo-WinSecTechnicalReport {
     foreach($field in @('SchemaVersion','CatalogVersion','DeviceId','ScanId','SectionKey','CheckId','ScopeType','ScopeKey')) {
         if($r.$field -isnot [string]){throw 'Technical identities must be scalar text.'}
     }
-    if($r.SchemaVersion -cne '1.0.0' -or $r.CatalogVersion -cne '1.0.0' -or
+    if($r.SchemaVersion -cne '1.0.0' -or ($r.CatalogVersion -cne '1.0.0' -and -not ($r.CheckId -ceq 'WSA-NET-003' -and $r.CatalogVersion -ceq '1.1.0')) -or
         $r.DeviceId -cnotmatch '\Alocal:hw1-[a-f0-9]{64}\z' -or -not (Test-WinSecTargetIdentifier $r.ScanId) -or
         $r.CheckId -isnot [string] -or $r.SectionKey -cne (Get-WinSecTechnicalControl $r.CheckId).SectionKey) {
         throw 'Invalid technical report identity.'
@@ -235,7 +235,7 @@ function ConvertTo-WinSecTechnicalReport {
         $r.$name=(ConvertTo-WinSecResultUtc $r.$name $name).UtcDateTime.ToString('o')
     }
     if($r.StartedAtUTC -cgt $r.CollectedAtUTC -or $r.CollectedAtUTC -cgt $r.CompletedAtUTC -or $r.CompletedAtUTC -cgt $r.GeneratedAtUTC){throw 'Invalid technical report timeline.'}
-    $defs=@(Get-WinSecTechnicalDefinitions $r.CheckId);$seen=@{}
+    $defs=@(Get-WinSecTechnicalDefinitions $r.CheckId $r.CatalogVersion);$seen=@{}
     $limit=if($r.CheckId -ceq 'WSA-NET-001'){1000}else{600}
     if($r.Rows -isnot [array] -or $r.Rows.Count -gt $limit){throw 'Invalid technical reading count.'}
     foreach($row in $r.Rows) {
@@ -263,6 +263,31 @@ function ConvertTo-WinSecTechnicalReport {
         $seen[$row.SettingId]=$true
     }
     if(@($defs|Where-Object {-not $seen.ContainsKey($_.Id)}).Count){throw 'Missing technical catalog readings.'}
+    if($r.CheckId -ceq 'WSA-NET-003'){
+        $platform=[pscustomobject]@{BuildNumber=(@($r.Rows|Where-Object SettingId -CEQ Platform.BuildNumber)[0]).Value;ProductType=(@($r.Rows|Where-Object SettingId -CEQ Platform.ProductType)[0]).Value}
+        $missingRequired=0;$missingInfo=0;$excludedCount=0
+        foreach($row in @($r.Rows|Where-Object {$_.SettingId -clike 'Inventory.*' -and $_.State -ceq 'OBSERVED'})){
+            $batch=ConvertTo-WinSecRdpInventory $row.Value
+            $excluded=if($null -ne $batch.PSObject.Properties['NotApplicableFields']){@($batch.NotApplicableFields)}else{@()}
+            $allowed=@(Get-WinSecRdpNotApplicableFields $batch.Class $platform)
+            if(@($excluded|Where-Object {$_ -cnotin $allowed}).Count){throw 'RDP field exclusion lacks observed platform support.'}
+            $required=@(Get-WinSecRdpRequiredFields $batch.Class)
+            foreach($item in $batch.Items){foreach($field in $item.Values.PSObject.Properties){
+                if($field.Name -cin $excluded){$excludedCount++}elseif($null -eq $field.Value){if($field.Name -cin $required){$missingRequired++}else{$missingInfo++}}
+            }}
+        }
+        if($r.CatalogVersion -ceq '1.1.0'){
+            $totals=@{UnknownFieldCount=($missingRequired+$missingInfo);RequiredUnknownFieldCount=$missingRequired;InformationalUnknownFieldCount=$missingInfo;NotApplicableFieldCount=$excludedCount}
+            foreach($name in $totals.Keys){$row=@($r.Rows|Where-Object SettingId -CEQ $name)[0];if($row.State -ceq 'OBSERVED' -and $row.Value -ne $totals[$name]){throw 'RDP coverage count mismatch.'}}
+            $coverage=@($r.Rows|Where-Object SettingId -CEQ CoverageComplete)[0];$complete=@($r.Rows|Where-Object SettingId -CEQ CollectionComplete)[0]
+            if($complete.State -ceq 'OBSERVED' -and $complete.Value -ceq $true){
+                $requiredRows=@($r.Rows|Where-Object {$_.SettingId -clike 'Platform.*' -or $_.SettingId -ceq 'HostSupport' -or $_.SettingId -clike 'Services.*' -or $_.SettingId -clike 'Registry.*.State'})
+                if($missingRequired -gt 0 -or @($requiredRows|Where-Object State -CNE OBSERVED).Count -or
+                    @($r.Rows|Where-Object {$_.SettingId -clike 'Inventory.*' -and $_.State -cnotin @('OBSERVED','NOT_APPLICABLE')}).Count){throw 'RDP scan completion lacks required readings.'}
+            }
+            if($coverage.State -ceq 'OBSERVED' -and $coverage.Value -ne ($complete.State -ceq 'OBSERVED' -and $complete.Value -ceq $true -and ($missingRequired+$missingInfo) -eq 0)){throw 'Invalid RDP coverage claim.'}
+        }
+    }
     if($r.CheckId -ceq 'WSA-NET-001') {
         $identities=@{};$counts=@{}
         foreach($row in @($r.Rows|Where-Object {$_.SettingId -clike 'Inventory.*'})) {
@@ -378,7 +403,7 @@ function New-WinSecTechnicalReport {
         if($Context.DeviceId -cne $Session.DeviceId -or $Context.ScanId -cne $Session.ScanId){throw 'Foreign technical Windows context.'}
         $profile=$Context.Profile;$release=$Context.OSRelease;$edition=$Context.Edition
     }
-    ConvertTo-WinSecTechnicalReport ([pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion='1.0.0';DeviceId=$Session.DeviceId;
+    ConvertTo-WinSecTechnicalReport ([pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion=$(if($CheckId -ceq 'WSA-NET-003'){'1.1.0'}else{'1.0.0'});DeviceId=$Session.DeviceId;
         ScanId=$Session.ScanId;SectionKey=(Get-WinSecTechnicalControl $CheckId).SectionKey;CheckId=$CheckId;ScopeType=$Session.ScopeType;ScopeKey=$Session.ScopeKey;
         DeviceName=$DeviceName;Hostname=$Hostname;Profile=$profile;ObservedOSRelease=$release;ObservedEdition=$edition;
         StartedAtUTC=$Session.StartedAtUTC;CompletedAtUTC=$Session.CompletedAtUTC;CollectedAtUTC=$collected;

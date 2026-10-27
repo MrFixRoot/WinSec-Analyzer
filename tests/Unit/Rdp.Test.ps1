@@ -72,13 +72,14 @@ Test-Rdp 'Tampered inventories, foreign classes and unsupported exclusions fail 
     $row=@($r.Rows|Where-Object SettingId -CEQ Inventory.General)[0];$original=$row.Value
     $row.Value=$s.ControlResults[0].Evidence.Inventory.Session;Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
     $row.Value=$original.Replace('"SecurityLayer":0','"SecurityLayer":"PRIVATE"');Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+    $row.Value=$original.Replace('"SecurityLayer":0','"SecurityLayer":9999');Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
     $row.Value=$null;$row.State='NOT_APPLICABLE';$row.Reason='UNAVAILABLE';Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
 }
 foreach($framework in @('nist-csf','cis-controls','mitre-attack')){
     Test-Rdp ('Saved RDP data generates contextual warnings with reviewed references: '+$framework) {
         $a=New-WinSecRdpFixtureAnalysis $root $framework;$md=New-WinSecFrameworkMarkdown $a
         Assert-Rdp ($a.Rows.Count -eq 8 -and @($a.Rows|Where-Object {$_.References.Count -eq 0}).Count -eq 0 -and
-            $md -notmatch 'PRIVATE-|NOT_SCORED|/100' -and $a.RuleCatalogVersion -ceq '1.3.0')
+            $md -notmatch 'PRIVATE-|NOT_SCORED|/100' -and $a.RuleCatalogVersion -ceq '1.4.0')
     }
 }
 Test-Rdp 'Disabled Home unknown and conflicting hosts cannot produce listener-security warnings' {
@@ -117,6 +118,61 @@ Test-Rdp 'Schema absence null values missing properties and booleans remain dist
         $reason=switch($kind){schema {'NOT_IN_PROVIDER_SCHEMA'};null {'NULL_VALUE'};missing {'MISSING_PROPERTY'};boolean {'BOOLEAN_VALUE'}}
         Assert-Rdp ($e.UnknownFieldCount -eq 2 -and -not $e.CollectionComplete -and $e.FieldDiagnostics -contains ('General.'+$field+':'+$reason))
         Assert-Rdp ((ConvertTo-Json $e -Depth 10 -Compress) -notmatch 'PRIVATE-')
+    }
+}
+Test-Rdp 'Informational unknowns limit coverage without changing a successful collection into a failed scan' {
+    $script:RdpNullField='NetworkAdapterLanaID';$s=New-WinSecRdpFixtureSession;$e=$s.ControlResults[0].Evidence
+    Assert-Rdp ($e.CollectionComplete -and -not $e.CoverageComplete -and $s.ExecutionStatus -ceq 'COMPLETED' -and
+        $e.UnknownFieldCount -eq 2 -and $e.InformationalUnknownFieldCount -eq 2 -and $e.RequiredUnknownFieldCount -eq 0 -and $e.CollectionIssues.Count -eq 0)
+    $r=New-WinSecTechnicalReport $s WSA-NET-003 SYNTHETIC SYNTHETIC;$md=ConvertTo-WinSecTechnicalMarkdown $r
+    Assert-Rdp ($r.CatalogVersion -ceq '1.1.0' -and $md.Contains('Reading coverage: LIMITED') -and $md.Contains('UNKNOWN'))
+    $a=New-WinSecRdpFixtureAnalysis $root
+    Assert-Rdp ($a.UnknownReadingCount -ge 1)
+}
+Test-Rdp 'Documented retired DWM fields are not applicable only with supported observed Windows context' {
+    $script:RdpSchemaMissing='AllowDwm';$s=New-WinSecRdpFixtureSession;$e=$s.ControlResults[0].Evidence
+    $batch=ConvertTo-WinSecRdpInventory $e.Inventory.Redirection
+    Assert-Rdp ($e.CollectionComplete -and $e.CoverageComplete -and $e.UnknownFieldCount -eq 0 -and $e.NotApplicableFieldCount -eq 4 -and
+        ($batch.NotApplicableFields -join '|') -ceq 'AllowDwm|PolicySourceAllowDwm')
+    $r=New-WinSecTechnicalReport $s WSA-NET-003 SYNTHETIC SYNTHETIC
+    Assert-Rdp ((ConvertTo-WinSecTechnicalMarkdown $r).Contains('NOT_APPLICABLE'))
+    $row=@($r.Rows|Where-Object SettingId -CEQ Platform.BuildNumber)[0];$row.Value=99999
+    Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+    $row.Value=22631;$row=@($r.Rows|Where-Object SettingId -CEQ Inventory.Redirection)[0]
+    $row.Value=$row.Value.Replace('"AllowDwm","PolicySourceAllowDwm"','"ClipboardMapping"')
+    Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+}
+Test-Rdp 'Coverage claims and counters cannot hide unresolved readings' {
+    $script:RdpNullField='NetworkAdapterLanaID';$s=New-WinSecRdpFixtureSession;$r=New-WinSecTechnicalReport $s WSA-NET-003 SYNTHETIC SYNTHETIC
+    $row=@($r.Rows|Where-Object SettingId -CEQ CoverageComplete)[0];$row.Value=$true;Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+    $row.Value=$false;$row=@($r.Rows|Where-Object SettingId -CEQ UnknownFieldCount)[0];$row.Value=0;Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+    $script:RdpNullField='UserAuthenticationRequired';$s=New-WinSecRdpFixtureSession;$r=New-WinSecTechnicalReport $s WSA-NET-003 SYNTHETIC SYNTHETIC
+    $row=@($r.Rows|Where-Object SettingId -CEQ CollectionComplete)[0];$row.Value=$true;Reject-Rdp {ConvertTo-WinSecTechnicalReport $r}
+}
+Test-Rdp 'Legacy 1.0 RDP snapshots remain readable without new coverage fields or invented exclusions' {
+    $s=New-WinSecRdpFixtureSession;$r=New-WinSecTechnicalReport $s WSA-NET-003 SYNTHETIC SYNTHETIC
+    $r.CatalogVersion='1.0.0';$ids=@(Get-WinSecRdpTechnicalDefinitions -Legacy|ForEach-Object Id)
+    $r.Rows=@($r.Rows|Where-Object {$_.SettingId -cin $ids})
+    foreach($row in @($r.Rows|Where-Object {$_.SettingId -clike 'Inventory.*' -and $_.State -ceq 'OBSERVED'})){
+        $b=ConvertTo-WinSecRdpInventory $row.Value;$row.Value=ConvertTo-Json -InputObject ([pscustomobject]@{Class=$b.Class;Items=$b.Items}) -Depth 8 -Compress
+    }
+    $r=ConvertTo-WinSecTechnicalReport $r;$md=ConvertTo-WinSecTechnicalMarkdown $r
+    Assert-Rdp ($r.Rows.Count -eq 115 -and -not $md.Contains('Reading coverage:') -and $md.Contains('UNKNOWN'))
+}
+Test-Rdp 'The reported native null pattern completes collection with seven explicit unknowns and two documented exclusions' {
+    $script:RdpNullFields=@('NetworkAdapterLanaID','DenyAdminPermissionForCustomization','PolicySourceDenyAdminPermissionForCustomization','VideoPlaybackRedir','PolicySourceVideoPlaybackRedir')
+    $script:RdpListenerCounts=@{Network=1;Permissions=2;Redirection=1}
+    $s=New-WinSecRdpFixtureSession;$e=$s.ControlResults[0].Evidence
+    Assert-Rdp ($s.ExecutionStatus -ceq 'COMPLETED' -and $e.CollectionComplete -and -not $e.CoverageComplete -and
+        $e.UnknownFieldCount -eq 7 -and $e.InformationalUnknownFieldCount -eq 7 -and $e.RequiredUnknownFieldCount -eq 0 -and $e.NotApplicableFieldCount -eq 2)
+    $a=New-WinSecRdpFixtureAnalysis $root
+    Assert-Rdp ($a.UnknownReadingCount -eq 3 -and $a.Rows.Count -eq 8)
+}
+Test-Rdp 'Out-of-range principal configuration values cannot complete collection or manufacture warnings' {
+    foreach($field in @('AllowTSConnections','UserAuthenticationRequired','SecurityLayer','MinEncryptionLevel')){
+        Initialize-WinSecRdpFixture;$script:RdpInvalidField=$field;$s=New-WinSecRdpFixtureSession;$e=$s.ControlResults[0].Evidence
+        Assert-Rdp (-not $e.CollectionComplete -and -not $e.CoverageComplete -and $e.RequiredUnknownFieldCount -ge 1 -and
+            $s.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS' -and $e.CollectionIssues -contains 'CONFIGURATION_FIELDS_UNAVAILABLE')
     }
 }
 Write-Host ('RDP: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'RDP tests failed.'}

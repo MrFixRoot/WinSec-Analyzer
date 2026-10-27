@@ -94,6 +94,17 @@ try {
             $ctx.FrameworkFindings.Rows.Count -eq 8 -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and
             $RdpCalls.Count -eq $calls -and $FirewallCalls.Count -eq $fwCalls -and $script:SmbCalls.Count -eq $smbCalls)
     }
+    Test-RdpIntegration 'A scan with the native informational-null pattern persists complete execution and limited coverage' {
+        $script:RdpNullFields=@('NetworkAdapterLanaID','DenyAdminPermissionForCustomization','PolicySourceDenyAdminPermissionForCustomization','VideoPlaybackRedir','PolicySourceVideoPlaybackRedir')
+        $script:RdpListenerCounts=@{Network=1;Permissions=2;Redirection=1}
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId rdp-limited -ScopeType CONTROL -ScopeKey WSA-NET-003 `
+            -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
+        $technical=Read-WinSecTechnicalReport $sandbox $target.DeviceId rdp-limited WSA-NET-003
+        $coverage=@($technical.Rows|Where-Object SettingId -CEQ CoverageComplete)[0]
+        $unknown=@($technical.Rows|Where-Object SettingId -CEQ InformationalUnknownFieldCount)[0]
+        Assert-RdpIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $coverage.Value -ceq $false -and $unknown.Value -eq 7 -and
+            $c.LastTechnicalReports.Status -ceq 'SAVED' -and (ConvertTo-WinSecTechnicalMarkdown $technical).Contains('Reading coverage: LIMITED'))
+    }
     Test-RdpIntegration 'Detailed RDP progress survives small and resized terminals without collection' {
         $script:rendered=New-Object 'Collections.Generic.List[string]'
         function Write-Host {param([object[]]$Object,$ForegroundColor,$BackgroundColor,[switch]$NoNewline);$script:rendered.Add(($Object -join ' '))}

@@ -50,7 +50,20 @@ function Get-WinSecRdpIssueCodes {
     foreach($c in Get-WinSecRdpClasses){'PROVIDER_'+$c.Id.ToUpperInvariant()+'_UNAVAILABLE'}
     foreach($d in Get-WinSecRdpRegistryDefinitions){'REGISTRY_'+$d.Id.ToUpperInvariant()+'_UNAVAILABLE'}
 }
+function Get-WinSecRdpRequiredFields {
+    param([string]$ClassId)
+    switch($ClassId){Global {@('AllowTSConnections')};General {@('UserAuthenticationRequired','SecurityLayer','MinEncryptionLevel')}}
+}
+function Get-WinSecRdpNotApplicableFields {
+    param([string]$ClassId,[AllowNull()][object]$Platform)
+    # Documented retired desktop-composition fields, not arbitrary provider nulls.
+    if($ClassId -ceq 'Redirection' -and $null -ne $Platform -and $Platform.ProductType -eq 1 -and
+        $Platform.BuildNumber -cin @(22000,22621,22631,26100,26200,28000)){
+        @('AllowDwm','PolicySourceAllowDwm')
+    }
+}
 function Get-WinSecRdpTechnicalDefinitions {
+    param([switch]$Legacy)
     $spec=@('CollectionSuccessful|Collection|bool|Collector|','CollectionComplete|Collection|bool|Collector|',
         'CollectionIssueCount|Collection|number|Collector|','CollectionIssueCodes|Collection|rdpIssues|Collector|',
         'UnknownFieldCount|Collection|number|Collector|','HostSupport|Windows context|rdpSupport|Observed Windows|',
@@ -58,6 +71,9 @@ function Get-WinSecRdpTechnicalDefinitions {
         'Platform.BuildNumber|Windows context|number|CIM:Win32_OperatingSystem|',
         'Platform.OperatingSystemSKU|Windows context|number|CIM:Win32_OperatingSystem|',
         'Platform.ProductType|Windows context|number|CIM:Win32_OperatingSystem|')
+    if(-not $Legacy){$spec+=@('CoverageComplete|Collection coverage|bool|Collector|',
+        'InformationalUnknownFieldCount|Collection coverage|number|Collector|','RequiredUnknownFieldCount|Collection coverage|number|Collector|',
+        'NotApplicableFieldCount|Collection coverage|number|Collector|')}
     foreach($name in @('TermService','UmRdpService','SessionEnv')){
         foreach($field in @('State','StartMode')){$spec+=('Services.'+$name+'.'+$field+'|RDP services|mode|CIM:Win32_Service|')}
     }
@@ -78,7 +94,13 @@ function ConvertTo-WinSecRdpInventory {
     param([string]$Json)
     if($Json.Length -gt 300000){throw 'RDP inventory exceeds the reviewed limit.'}
     $b=ConvertFrom-WinSecStoredJson $Json
-    Assert-WinSecConfigurationFields $b @('Class','Items')
+    $modern=($null -ne $b.PSObject.Properties['SchemaVersion'])
+    if($modern){
+        Assert-WinSecConfigurationFields $b @('SchemaVersion','Class','NotApplicableFields','Items')
+        if($b.SchemaVersion -cne '1.1.0' -or $b.NotApplicableFields -isnot [array] -or $b.NotApplicableFields.Count -gt 2 -or
+            @($b.NotApplicableFields|Select-Object -Unique).Count -ne $b.NotApplicableFields.Count -or
+            @($b.NotApplicableFields|Where-Object {$_ -isnot [string] -or $_ -cnotin @('AllowDwm','PolicySourceAllowDwm') -or $b.Class -cne 'Redirection'}).Count){throw 'Invalid RDP field exclusions.'}
+    } else {Assert-WinSecConfigurationFields $b @('Class','Items')}
     $defs=@(Get-WinSecRdpClasses|Where-Object Id -CEQ $b.Class)
     if($defs.Count -ne 1 -or $b.Items -isnot [array] -or $b.Items.Count -gt 64 -or ($defs[0].Singleton -and $b.Items.Count -ne 1)){throw 'Invalid RDP inventory.'}
     $seen=@{}
@@ -88,7 +110,21 @@ function ConvertTo-WinSecRdpInventory {
             ($defs[0].Singleton -ne ($item.Id -ceq 'GLOBAL'))){throw 'Invalid RDP listener identity.'}
         $seen[$item.Id]=$true
         Assert-WinSecConfigurationFields $item.Values $defs[0].Fields
-        foreach($name in $defs[0].Fields){if($null -ne $item.Values.$name -and $null -eq (ConvertTo-WinSecRdpNumber $item.Values.$name)){throw 'Unsafe RDP configuration value.'}}
+        foreach($name in $defs[0].Fields){
+            if($modern -and $name -cin $b.NotApplicableFields -and $null -ne $item.Values.$name){throw 'Excluded RDP field cannot supply a value.'}
+            if($null -ne $item.Values.$name -and $null -eq (ConvertTo-WinSecRdpNumber $item.Values.$name)){throw 'Unsafe RDP configuration value.'}
+            if($modern -and $null -ne $item.Values.$name -and $null -eq (ConvertTo-WinSecRdpConfigurationValue $b.Class $name $item.Values.$name)){throw 'Invalid principal RDP configuration value.'}
+        }
     }
     return $b
+}
+function ConvertTo-WinSecRdpConfigurationValue {
+    param([string]$ClassId,[string]$Field,[AllowNull()][object]$Value)
+    $v=ConvertTo-WinSecRdpNumber $Value
+    if($null -eq $v){return $null}
+    if(($ClassId -ceq 'Global' -and $Field -ceq 'AllowTSConnections' -and $v -notin @(0,1)) -or
+        ($ClassId -ceq 'General' -and $Field -ceq 'UserAuthenticationRequired' -and $v -notin @(0,1)) -or
+        ($ClassId -ceq 'General' -and $Field -ceq 'MinEncryptionLevel' -and $v -notin @(1,2,3,4)) -or
+        ($ClassId -ceq 'General' -and $Field -ceq 'SecurityLayer' -and $v -notin @(0,1,2,3,4))){return $null}
+    return $v
 }

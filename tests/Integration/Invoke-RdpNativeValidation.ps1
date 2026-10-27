@@ -23,7 +23,7 @@ try {
         Profile=$Profile;ProfileSha256=$profilePlan.Preview.Policies[0].CatalogSha256
         DependencyManifestSha256=$lease.Sha256;DependencyCount=$lease.Files.Count
         ReadOnly=$true;PersistPublicHistory=$false;PersistRawEvidence=$false;PersistReports=$false
-        Note='Only Remote Desktop runs in an isolated in-memory registry. Reads local Windows metadata, RDP services, reviewed TerminalServices class metadata and available reviewed configuration fields for all returned listeners, plus fixed machine registry policies. Windows Home host providers are not applicable. No users, sessions, credentials, saved connections, certificates, security descriptors, network connections, port probes or service/policy changes. Custom listener names are hashed. Technical Markdown, immutable public-history roundtrip and three framework reports are checked only in memory. No production permissions change.'
+        Note='Only Remote Desktop runs in an isolated in-memory registry. Reads local Windows metadata, RDP services, reviewed TerminalServices class metadata and available reviewed configuration fields for all returned listeners, plus fixed machine registry policies. Scan completion requires successful queries and required readings; informational unknowns remain visible as limited coverage. Documented retired DWM fields are not applicable on reviewed observed Windows 11 builds. Windows Home host providers are not applicable. No users, sessions, credentials, saved connections, certificates, security descriptors, network connections, port probes or service/policy changes. Custom listener names are hashed. Technical Markdown, immutable public-history roundtrip and three framework reports are checked only in memory. No production permissions change.'
     }
     $hash=Get-WinSecRdpValidationHash (ConvertTo-Json $request -Depth 6 -Compress)
     Assert-WinSecRdpValidationSnapshot $root $lease
@@ -74,13 +74,16 @@ try {
     $views=Test-WinSecNativeFrameworkViews $root $session WSA-NET-003 $target.Hostname
     $unavailable=@(foreach($row in @($technical.Rows|Where-Object {$_.SettingId -clike 'Inventory.*' -and $_.State -ceq 'OBSERVED'})){
         $batch=ConvertTo-WinSecRdpInventory $row.Value
-        foreach($item in $batch.Items){foreach($field in $item.Values.PSObject.Properties){if($null -eq $field.Value){$batch.Class+'.'+$field.Name}}}
+        $excluded=if($null -ne $batch.PSObject.Properties['NotApplicableFields']){@($batch.NotApplicableFields)}else{@()}
+        foreach($item in $batch.Items){foreach($field in $item.Values.PSObject.Properties){if($null -eq $field.Value -and $field.Name -cnotin $excluded){$batch.Class+'.'+$field.Name}}}
     })
     [pscustomobject]@{OperationId=$OperationId;Runtime=$PSVersionTable.PSVersion.ToString();ExecutionStatus=$session.ExecutionStatus;
         CollectionValidated=($null -ne $e -and $e.CollectionSuccessful -ceq $true);
         CollectionSuccessful=($e.CollectionSuccessful -ceq $true);CollectionComplete=($e.CollectionComplete -ceq $true);CollectionIssues=$issues;
         ObservedStatus=$control.ObservedStatus;ActualBuild=$e.Platform.BuildNumber;HostSupport=$e.HostSupport;
         UnknownFieldCount=$e.UnknownFieldCount;UnavailableFields=@($unavailable|Sort-Object -Unique);
+        CoverageComplete=$e.CoverageComplete;RequiredUnknownFieldCount=$e.RequiredUnknownFieldCount;
+        InformationalUnknownFieldCount=$e.InformationalUnknownFieldCount;NotApplicableFieldCount=$e.NotApplicableFieldCount;
         FieldDiagnostics=@(Get-WinSecRdpNativeDetailDiagnostics $control Field);ProviderDiagnostics=@(Get-WinSecRdpNativeDetailDiagnostics $control Provider);
         TechnicalMarkdownValidated=$true;PublicHistoryRoundtripValidated=$views.PublicHistoryRoundtripValidated;InMemoryFrameworkReports=$views.InMemoryReports;
         ProgressEvents=$script:rdpNativeEvents.Count;PublicHistoryPersisted=$false;RawEvidencePersisted=$false;ReportsPersisted=$false;

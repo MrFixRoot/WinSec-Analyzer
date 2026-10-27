@@ -4,13 +4,16 @@
 function Invoke-WinSecRdpQuery {
     [CmdletBinding()]
     param([ValidateSet('Platform','Services','Global','General','Logon','Session','Redirection','Network','Permissions')][string]$Role,
-        [scriptblock]$CancellationAction,[scriptblock]$Heartbeat,[ref]$Metadata)
+        [scriptblock]$CancellationAction,[scriptblock]$Heartbeat,[ref]$Metadata,
+        [ValidateSet('AllowDwm','PolicySourceAllowDwm')][string[]]$SkipFields=@())
+    if($SkipFields.Count -and $Role -cne 'Redirection'){throw 'Unreviewed RDP property exclusion.'}
     $namespace='root/cimv2/TerminalServices';$filter=$null
     switch($Role){
         Platform {$namespace='root/cimv2';$class='Win32_OperatingSystem';$properties=@('Caption','Version','BuildNumber','OperatingSystemSKU','ProductType')}
         Services {$namespace='root/cimv2';$class='Win32_Service';$properties=@('Name','State','StartMode');$filter="Name = 'TermService' OR Name = 'UmRdpService' OR Name = 'SessionEnv'"}
         default {$d=@(Get-WinSecRdpClasses|Where-Object Id -CEQ $Role)[0];$class=$d.Class;$properties=@($d.Fields);if(-not $d.Singleton){$properties=@('TerminalName')+$properties}}
     }
+    $properties=@($properties|Where-Object {$_ -cnotin $SkipFields})
     $job=$null;$timer=[Diagnostics.Stopwatch]::StartNew();$items=New-Object 'Collections.Generic.List[object]'
     try {
         $job=Start-Job -ScriptBlock {
@@ -104,7 +107,8 @@ function Test-WinSecRDP {
     if($CheckId -cne 'WSA-NET-003' -or -not (Test-WinSecTargetIdentifier $DeviceId) -or -not (Test-WinSecTargetIdentifier $ScanId)){throw 'Invalid RDP identity.'}
     $issues=New-Object 'Collections.Generic.List[string]';$classes=@(Get-WinSecRdpClasses);$registry=@(Get-WinSecRdpRegistryDefinitions)
     $e=[pscustomobject]@{DeviceId=$DeviceId;ScanId=$ScanId;CheckId=$CheckId;CollectedAtUTC='';CollectionSuccessful=$false;CollectionComplete=$false;
-        CollectionIssues=@();FieldDiagnostics=@();ProviderDiagnostics=@();UnknownFieldCount=0;Platform=[pscustomobject]@{BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null};
+        CollectionIssues=@();FieldDiagnostics=@();ProviderDiagnostics=@();UnknownFieldCount=0;RequiredUnknownFieldCount=0;InformationalUnknownFieldCount=0;
+        NotApplicableFieldCount=0;CoverageComplete=$false;Platform=[pscustomobject]@{BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null};
         HostSupport='UNKNOWN';HostEnabled=$null;HostState='UNKNOWN';Services=[pscustomobject]@{};Registry=[pscustomobject]@{};Inventory=[pscustomobject]@{};Availability=[pscustomobject]@{}}
     $completed=0;$total=3+$classes.Count+$registry.Count;$phase='PLATFORM';$successful=0
     $emit={if($ProgressCallback){$null=& $ProgressCallback ([pscustomobject]@{Stage=$phase;CompletedSteps=$completed;TotalSteps=$total})}}
@@ -137,9 +141,11 @@ function Test-WinSecRDP {
         else {
             try {
                 $schemaMissing=@()
-                $raw=@(Invoke-WinSecRdpQuery $c.Id -CancellationAction $CancellationAction -Heartbeat $emit -Metadata ([ref]$schemaMissing))
+                $excluded=@(Get-WinSecRdpNotApplicableFields $c.Id $e.Platform)
+                $raw=@(Invoke-WinSecRdpQuery $c.Id -CancellationAction $CancellationAction -Heartbeat $emit -Metadata ([ref]$schemaMissing) -SkipFields $excluded)
                 if($raw.Count -lt 1 -or $raw.Count -gt 64 -or ($c.Singleton -and $raw.Count -ne 1)){throw 'Missing or excessive RDP listener configuration.'}
-                $items=@();$seen=@{};$missing=0
+                $items=@();$seen=@{};$missing=0;$missingRequired=0;$missingInformational=0;$excludedCount=0
+                $required=@(Get-WinSecRdpRequiredFields $c.Id)
                 foreach($record in $raw){
                     $id='GLOBAL'
                     if(-not $c.Singleton){
@@ -150,18 +156,22 @@ function Test-WinSecRDP {
                     if($seen.ContainsKey($id)){throw 'Duplicate RDP listener identity.'};$seen[$id]=$true
                     $values=[ordered]@{}
                     foreach($field in $c.Fields){
+                        if($field -cin $excluded){$values[$field]=$null;$excludedCount++;$e.FieldDiagnostics+=($c.Id+'.'+$field+':NOT_APPLICABLE');continue}
                         $property=$record.PSObject.Properties[$field];$rawValue=if($null -ne $property){$property.Value}else{$null}
-                        $v=ConvertTo-WinSecRdpNumber $rawValue;$values[$field]=$v
+                        $v=ConvertTo-WinSecRdpConfigurationValue $c.Id $field $rawValue
+                        $values[$field]=$v
                         if($null -eq $v){
                             $missing++
+                            if($field -cin $required){$missingRequired++}else{$missingInformational++}
                             $reason=if($field -cin $schemaMissing){'NOT_IN_PROVIDER_SCHEMA'}elseif($null -eq $property){'MISSING_PROPERTY'}elseif($null -eq $rawValue){'NULL_VALUE'}elseif($rawValue -is [bool]){'BOOLEAN_VALUE'}else{'INVALID_SCALAR'}
                             $e.FieldDiagnostics+=($c.Id+'.'+$field+':'+$reason)
                         }
                     }
                     $items+=[pscustomobject]@{Id=$id;Values=[pscustomobject]$values}
                 }
-                $json=ConvertTo-Json -InputObject ([pscustomobject]@{Class=$c.Id;Items=@($items|Sort-Object Id)}) -Depth 8 -Compress
+                $json=ConvertTo-Json -InputObject ([pscustomobject]@{SchemaVersion='1.1.0';Class=$c.Id;NotApplicableFields=@($excluded);Items=@($items|Sort-Object Id)}) -Depth 8 -Compress
                 $null=ConvertTo-WinSecRdpInventory $json;$state='OBSERVED';$successful++;$e.UnknownFieldCount+=$missing
+                $e.RequiredUnknownFieldCount+=$missingRequired;$e.InformationalUnknownFieldCount+=$missingInformational;$e.NotApplicableFieldCount+=$excludedCount
                 if($c.Id -ceq 'Global'){
                     $enabled=$items[0].Values.AllowTSConnections
                     if($e.HostSupport -ceq 'SUPPORTED' -and $null -ne $enabled -and $enabled -in @(0,1)){$e.HostEnabled=($enabled -eq 1);$e.HostState='OBSERVED'}
@@ -196,11 +206,12 @@ function Test-WinSecRDP {
         $e.HostEnabled=$null;$e.HostState='UNKNOWN';$issues.Add('HOST_STATE_CONFLICT')
     }
     if($e.HostSupport -ceq 'UNSUPPORTED_HOME'){$e.HostState='NOT_APPLICABLE';$e.HostEnabled=$null}
-    if($e.UnknownFieldCount){$issues.Add('CONFIGURATION_FIELDS_UNAVAILABLE')}
+    if($e.RequiredUnknownFieldCount){$issues.Add('CONFIGURATION_FIELDS_UNAVAILABLE')}
     $phase='NORMALIZING';$null=& $cancel;$null=& $emit
     $e.CollectedAtUTC=[datetime]::UtcNow.ToString('o');$e.CollectionIssues=@($issues|Select-Object -Unique)
     $e.FieldDiagnostics=@($e.FieldDiagnostics|Sort-Object -Unique);$e.ProviderDiagnostics=@($e.ProviderDiagnostics|Sort-Object -Unique)
     $e.CollectionSuccessful=($successful -gt 0);$e.CollectionComplete=($issues.Count -eq 0)
+    $e.CoverageComplete=($e.CollectionComplete -and $e.UnknownFieldCount -eq 0)
     $completed++;$null=& $emit
     [pscustomobject]@{DeviceId=$DeviceId;ScanId=$ScanId;CheckId=$CheckId;SectionKey='NetworkSecurity';
         Status=if($e.CollectionComplete){'INFORMATIONAL'}else{'UNKNOWN'};Evidence=$e}

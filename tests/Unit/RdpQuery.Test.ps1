@@ -80,7 +80,12 @@ try {
     try{$null=Invoke-WinSecRdpQuery General}catch{$caught=($_.Exception.Data['WinSecRdpQueryStatus'] -ceq 'QUERY_FAILED' -and $_.Exception.Message -notmatch 'PRIVATE-')}
     Assert-RdpQuery $caught
     Write-Host '[PASS] Schema read failures remain failures and expose only a closed diagnostic'
+    $script:metadataFailure=$false;$null=Invoke-WinSecRdpQuery Redirection -SkipFields @('AllowDwm','PolicySourceAllowDwm')
+    Assert-RdpQuery ($lastArgs[2] -notcontains 'AllowDwm' -and $lastArgs[2] -notcontains 'PolicySourceAllowDwm' -and $lastArgs[2] -contains 'ClipboardMapping')
+    $before=$queryCount;$caught=$false;try{$null=Invoke-WinSecRdpQuery General -SkipFields AllowDwm}catch{$caught=$true}
+    Assert-RdpQuery ($caught -and $queryCount -eq $before)
+    Write-Host '[PASS] Only reviewed retired redirection properties can be skipped before a query'
 } finally {
     foreach($job in @($owned,$unrelated)){if($job -and $null -ne (Get-Job -Id $job.Id -ErrorAction SilentlyContinue)){Stop-Job $job -ErrorAction SilentlyContinue;Remove-Job $job -Force -ErrorAction SilentlyContinue}}
 }
-Write-Host 'RDP query: 9 passed; 0 failed.'
+Write-Host 'RDP query: 10 passed; 0 failed.'

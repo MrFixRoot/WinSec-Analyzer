@@ -24,7 +24,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
     $rules=ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8)
     Assert-WinSecConfigurationFields $rules @('schemaVersion','catalogVersion','interpretation','rules','sources')
-    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0') -or
+    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0','1.4.0') -or
         $rules.interpretation -cne 'REVIEW_WARNINGS_NOT_COMPLIANCE' -or $rules.rules -isnot [array] -or $rules.rules.Count -gt 200){throw 'Invalid warning catalog.'}
     $seen=@{}
     foreach($rule in $rules.rules) {
@@ -196,6 +196,16 @@ function New-WinSecFrameworkAnalysis {
         $done++;$null=& $emit
     }
     $unknown=@($readings|Where-Object {$_.Reading.State -cin @('UNKNOWN','ERROR','NOT_COLLECTED')}).Count
+    # Inventories are typed containers: an observed container can still hold
+    # unresolved informational readings. Count such containers as limited too.
+    foreach($entry in @($readings|Where-Object {$_.CheckId -ceq 'WSA-NET-003' -and $_.Reading.SettingId -clike 'Inventory.*' -and $_.Reading.State -ceq 'OBSERVED'})){
+        if(& $cancel){return $null}
+        $batch=ConvertTo-WinSecRdpInventory $entry.Reading.Value
+        $excluded=if($null -ne $batch.PSObject.Properties['NotApplicableFields']){@($batch.NotApplicableFields)}else{@()}
+        $limited=$false
+        foreach($item in $batch.Items){foreach($field in $item.Values.PSObject.Properties){if($null -eq $field.Value -and $field.Name -cnotin $excluded){$limited=$true}}}
+        if($limited){$unknown++}
+    }
     $result=[pscustomobject]@{SchemaVersion='1.0.0';AnalysisId=$id;DeviceId=$DeviceId;DeviceName=$DeviceName;
         ScopeType=$ScopeType;ScopeKey=$ScopeKey;FrameworkId=$FrameworkId;FrameworkVersion=$catalog.Framework.frameworkVersion;
         FrameworkSha256=$catalog.FrameworkHash;RuleCatalogVersion=$catalog.Rules.catalogVersion;RuleCatalogSha256=$catalog.RuleHash;

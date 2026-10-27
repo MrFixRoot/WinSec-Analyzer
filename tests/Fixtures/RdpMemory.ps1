@@ -4,9 +4,10 @@ function Initialize-WinSecRdpFixture {
     $script:RdpBuild=22631;$script:RdpSku=48;$script:RdpFailure='';$script:RdpEnabled=$true;$script:RdpMissing=''
     $script:RdpListeners=2;$script:RdpDuplicate=$false;$script:RdpConflict=$false;$script:RdpSafe=$false;$script:RdpNativePolicy=$true
     $script:RdpSchemaMissing='';$script:RdpNullField='';$script:RdpBooleanField=''
+    $script:RdpNullFields=@();$script:RdpListenerCounts=@{};$script:RdpInvalidField=''
 }
 function Invoke-WinSecRdpFixtureQuery {
-    param($Role,$CancellationAction,$Heartbeat,[ref]$Metadata)
+    param($Role,$CancellationAction,$Heartbeat,[ref]$Metadata,[string[]]$SkipFields=@())
     $script:RdpCalls.Add($Role)
     if($CancellationAction -and (& $CancellationAction)){throw [OperationCanceledException]::new('Synthetic cancellation.')}
     if($Heartbeat){$null=& $Heartbeat}
@@ -19,13 +20,15 @@ function Invoke-WinSecRdpFixtureQuery {
     if($defs.Count -ne 1){throw 'Unreviewed fixture provider.'};$d=$defs[0]
     if($Metadata){$Metadata.Value=@($d.Fields|Where-Object {$_ -ceq $script:RdpSchemaMissing})}
     $count=if($d.Singleton){1}else{$script:RdpListeners}
+    if($script:RdpListenerCounts.ContainsKey($Role)){$count=$script:RdpListenerCounts[$Role]}
     for($i=0;$i -lt $count;$i++){
         $r=[pscustomobject]@{TerminalName=if($i -eq 0 -or $script:RdpDuplicate){'RDP-Tcp'}else{'PRIVATE-LISTENER-'+$i};Password='PRIVATE-PASSWORD';UserName='PRIVATE-USER';SSLCertificateSHA1Hash='PRIVATE-CERT';StringSecurityDescriptor='PRIVATE-ACL'}
         foreach($field in $d.Fields){
-            if($field -ceq $script:RdpMissing -or $field -ceq $script:RdpSchemaMissing){continue}
+            if($field -ceq $script:RdpMissing -or $field -ceq $script:RdpSchemaMissing -or $field -cin $SkipFields){continue}
             $v=switch($field){AllowTSConnections {[long][int]$script:RdpEnabled};UserAuthenticationRequired {if($script:RdpSafe){[long]1}else{[long]0}};SecurityLayer {if($script:RdpSafe){[long]2}else{[long]0}};MinEncryptionLevel {if($script:RdpSafe){[long]3}else{[long]1}};default {[long]0}}
-            if($field -ceq $script:RdpNullField){$v=$null}
+            if($field -ceq $script:RdpNullField -or $field -cin $script:RdpNullFields){$v=$null}
             if($field -ceq $script:RdpBooleanField){$v=$false}
+            if($field -ceq $script:RdpInvalidField){$v=[long]9999}
             $r|Add-Member $field $v
         }
         $r

@@ -11,7 +11,7 @@ function ConvertTo-WinSecTechnicalCell {
 function ConvertTo-WinSecTechnicalMarkdown {
     param([object]$Report)
     $r=ConvertTo-WinSecTechnicalReport $Report
-    $defs=@(Get-WinSecTechnicalDefinitions $r.CheckId)
+    $defs=@(Get-WinSecTechnicalDefinitions $r.CheckId $r.CatalogVersion)
     $lines=New-Object 'Collections.Generic.List[string]'
     $lines.Add('# WinSec Analyzer - Technical snapshot');$lines.Add('')
     $lines.Add('This is a read-only configuration record, not a compliance decision. No numeric rating is calculated.')
@@ -24,6 +24,11 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
         'WSA-NET-003' {
+            if($r.CatalogVersion -ceq '1.1.0'){
+                $coverage=@($r.Rows|Where-Object SettingId -CEQ CoverageComplete)[0]
+                $lines.Add('- Scan completion and reading coverage are separate. Informational UNKNOWN values remain visible; they do not imply safe configuration or a complete framework assessment.')
+                $lines.Add('- Reading coverage: '+$(if($coverage.State -ceq 'OBSERVED' -and $coverage.Value -ceq $true){'COMPLETE'}else{'LIMITED'})+'. Retired Windows 11 desktop-composition fields are NOT_APPLICABLE; other nulls stay UNKNOWN.')
+            }
             $lines.Add('- Windows Home has no supported built-in RDP host. Only observed Windows edition can justify NOT_APPLICABLE for host providers; RDP client configuration remains relevant.')
             $lines.Add('- Effective host permission, listener authentication, encryption, session limits, redirection, services and explicit machine policies are separate readings. Missing registry values are NOT_CONFIGURED, not an inferred default.')
             $lines.Add('- General settings: UserAuthenticationRequired 1 requires NLA; MinEncryptionLevel 1 low, 2 client compatible, 3 high, 4 FIPS describes native RDP encryption, not TLS. WMI SecurityLayer is retained as a raw enum: Microsoft getter/setter documentation differs, so it is not silently interpreted using registry labels. Machine SecurityLayer policy 0 requires native RDP, 1 negotiate, 2 TLS. Native encryption warnings require an explicit native-only machine policy. These settings do not prove negotiated TLS, MFA or network reachability.')
@@ -66,7 +71,8 @@ function ConvertTo-WinSecTechnicalMarkdown {
                 $lines.Add('### Listener / configuration '+$item.Id);$lines.Add('')
                 $lines.Add('| Setting | Value | Collection state | Source |');$lines.Add('| --- | --- | --- | --- |')
                 foreach($p in $item.Values.PSObject.Properties){
-                    $state=if($null -eq $p.Value){'UNKNOWN'}else{'OBSERVED'}
+                    $excluded=if($null -ne $batch.PSObject.Properties['NotApplicableFields']){@($batch.NotApplicableFields)}else{@()}
+                    $state=if($p.Name -cin $excluded){'NOT_APPLICABLE'}elseif($null -eq $p.Value){'UNKNOWN'}else{'OBSERVED'}
                     $value=if($null -eq $p.Value){'Not available'}else{[string]$p.Value}
                     $lines.Add('| '+(ConvertTo-WinSecTechnicalCell $p.Name)+' | '+$value+' | '+$state+' | '+$d.Source+' |')
                 }

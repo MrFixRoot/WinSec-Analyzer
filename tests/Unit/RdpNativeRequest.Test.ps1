@@ -41,7 +41,7 @@ try {
     $control.Evidence|Add-Member FieldDiagnostics @('Permissions.DenyAdminPermissionForCustomization:BOOLEAN_VALUE')
     $control.Evidence|Add-Member ProviderDiagnostics @('Redirection:INVALID_PROPERTY')
     Assert-Request (@(Get-WinSecRdpNativeDetailDiagnostics $control Field).Count -eq 1 -and @(Get-WinSecRdpNativeDetailDiagnostics $control Provider).Count -eq 1)
-    foreach($bad in @(@('General.Password:NULL_VALUE'),@('PRIVATE-ERROR'),@($null),$null,'General.SecurityLayer:NULL_VALUE')){
+    foreach($bad in @(@('General.Password:NULL_VALUE'),@('General.SecurityLayer:NOT_APPLICABLE'),@('PRIVATE-ERROR'),@($null),$null,'General.SecurityLayer:NULL_VALUE')){
         $control.Evidence.FieldDiagnostics=$bad;$caught=$false
         try{$null=Get-WinSecRdpNativeDetailDiagnostics $control Field}catch{$caught=$true};Assert-Request $caught
     }
@@ -56,7 +56,8 @@ try {
     Assert-Request ($result.ExecutionStatus -ceq 'COMPLETED' -and $result.CollectionComplete -and $result.CollectionValidated -and
         $result.CollectionIssues.Count -eq 0 -and $result.TechnicalMarkdownValidated -and $result.PublicHistoryRoundtripValidated -and
         $result.HostSupport -ceq 'SUPPORTED' -and $result.UnknownFieldCount -eq 0 -and $result.UnavailableFields.Count -eq 0 -and
-        $result.FieldDiagnostics.Count -eq 0 -and $result.ProviderDiagnostics.Count -eq 0 -and
+        $result.CoverageComplete -and $result.RequiredUnknownFieldCount -eq 0 -and $result.InformationalUnknownFieldCount -eq 0 -and
+        $result.NotApplicableFieldCount -eq 4 -and $result.FieldDiagnostics.Count -eq 2 -and $result.ProviderDiagnostics.Count -eq 0 -and
         $result.InMemoryFrameworkReports -eq 3 -and -not $result.ReportsPersisted -and -not $result.WindowsChanges -and
         $script:RdpCalls.Count -eq (9+@(Get-WinSecRdpRegistryDefinitions).Count))
     Write-Host '[PASS] Exact approval runs the full validator with synthetic providers and no persistence'

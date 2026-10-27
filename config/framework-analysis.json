@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "catalogVersion": "1.3.0",
+  "catalogVersion": "1.4.0",
   "interpretation": "REVIEW_WARNINGS_NOT_COMPLIANCE",
   "rules": [
     {"id":"RDP-HOST-REVIEW","checkId":"WSA-NET-003","setting":"HostEnabled","condition":"TRUE","criterion":"WSA-RDP-REVIEW-001","title":"Remote Desktop host is enabled: review necessity and access","recommendation":"Confirm the approved business need, allowed users and network restrictions with the administrator. Disable an unnecessary host through authorized administration; if needed, restrict access through a managed gateway or VPN and appropriate MFA. NLA does not prove MFA, and this reading does not prove external exposure."},

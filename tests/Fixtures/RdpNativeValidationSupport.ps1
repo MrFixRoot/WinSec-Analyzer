@@ -95,7 +95,10 @@ function Get-WinSecRdpNativeDetailDiagnostics {
     $allowed=@{}
     foreach($class in Get-WinSecRdpClasses){
         if($Kind -ceq 'Field'){
-            foreach($field in $class.Fields){foreach($reason in @('NOT_IN_PROVIDER_SCHEMA','MISSING_PROPERTY','NULL_VALUE','BOOLEAN_VALUE','INVALID_SCALAR')){$allowed[$class.Id+'.'+$field+':'+$reason]=$true}}
+            foreach($field in $class.Fields){
+                foreach($reason in @('NOT_IN_PROVIDER_SCHEMA','MISSING_PROPERTY','NULL_VALUE','BOOLEAN_VALUE','INVALID_SCALAR')){$allowed[$class.Id+'.'+$field+':'+$reason]=$true}
+                if($class.Id -ceq 'Redirection' -and $field -cin @('AllowDwm','PolicySourceAllowDwm')){$allowed[$class.Id+'.'+$field+':NOT_APPLICABLE']=$true}
+            }
         } else {
             foreach($reason in @('RECORD_LIMIT','SCHEMA_INVALID','QUERY_FAILED','INVALID_PROPERTY','INVALID_CLASS','ACCESS_DENIED','NOT_SUPPORTED')){$allowed[$class.Id+':'+$reason]=$true}
         }
