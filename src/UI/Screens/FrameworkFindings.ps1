@@ -39,6 +39,12 @@ function Show-WinSecFrameworkFindings {
     $layout=Get-WinSecLayout -Screen Findings -ReservedRows 16
     Clear-WinSecScreen
     if($layout.IsTooSmall){Write-WinSecText -Text 'Resize the terminal. [Esc] Back' -Color Yellow;return}
+    if($layout.BannerRows -gt 2) {
+        Show-Banner -Version $Context.Version
+    } else {
+        Write-WinSecText -Text ('WINSEC ANALYZER v'+$Context.Version) -Color Cyan -Align Center
+        Write-WinSecText -Text 'mrRoot | Security Findings' -Color DarkGray -Align Center
+    }
     Write-WinSecText -Text ('FINDINGS - '+$a.FrameworkId+' '+$a.FrameworkVersion) -Color Cyan
     Write-WinSecText -Text ('DEVICE: '+$a.DeviceName+' | '+$a.ScopeType+' / '+$a.ScopeKey) -Color Gray
     $coverageColor=if($a.UnknownReadingCount -gt 0){'Yellow'}else{'Gray'}
@@ -98,6 +104,12 @@ function Show-WinSecWorkflowScreen {
     $layout=Get-WinSecLayout -Screen $State.Screen -ReservedRows 12
     Clear-WinSecScreen
     if($layout.IsTooSmall){Write-WinSecText -Text 'Resize the terminal. [Esc] Back' -Color Yellow;return}
+    if($layout.BannerRows -gt 2) {
+        Show-Banner -Version $Context.Version
+    } else {
+        Write-WinSecText -Text ('WINSEC ANALYZER v'+$Context.Version) -Color Cyan -Align Center
+        Write-WinSecText -Text 'mrRoot | Security Assessment' -Color DarkGray -Align Center
+    }
     Write-WinSecText -Text ('WINSEC ANALYZER - '+$title) -Color Cyan
     if($State.Screen -cne 'Devices') {
         Write-WinSecText -Text ('DEVICE: '+$State.SelectedDeviceName) -Color Gray

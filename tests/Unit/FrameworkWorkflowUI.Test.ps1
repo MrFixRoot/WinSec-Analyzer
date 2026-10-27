@@ -47,6 +47,12 @@ Test-WorkflowUI 'Device, section and control screens hide every numeric rating a
     foreach($screen in @('Devices','MainMenu','Section')) {
         $state.Screen=$screen;Show-WinSecCLICurrentScreen $state $ctx;$text=$script:lines -join '|'
         Assert-WorkflowUI ($text -notmatch 'SCORE|/100|NOT_SCORED|Config %' -and $text.Contains('COMPLETE') -and $text.Contains('RECORDS') -and $script:colors.Contains('DarkBlue'))
+        Assert-WorkflowUI ($text.Contains('WinSec-Analyzer v0.9.0') -and $text.Contains('https://github.com/MrFixRoot/WinSec-Analyzer') -and $text.Contains('mrRoot'))
+        $script:terminal=[pscustomobject]@{Width=80;ContentWidth=79;Height=25;IsCompact=$false}
+        Show-WinSecCLICurrentScreen $state $ctx;$text=$script:lines -join '|'
+        Assert-WorkflowUI ($text.Contains('WINSEC ANALYZER v0.9.0') -and $text.Contains('mrRoot | Security Assessment') -and
+            @($script:lines|Where-Object {$_.Length -gt 79}).Count -eq 0 -and $script:lines.Count -lt 25)
+        $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55;IsCompact=$false}
     }
 }
 Test-WorkflowUI 'Mixed sources are records and an unfinished section is partial' {
@@ -70,11 +76,13 @@ Test-WorkflowUI 'Findings remain interactive and Esc restores the previous scree
     $null=Invoke-WinSecNavigationAction $state ScrollDown -FindingCount $counts.FindingCount
     Show-WinSecCLICurrentScreen $state $ctx
     Assert-WorkflowUI ($state.FindingsOffset -eq 1 -and ($script:lines -join '|').Contains('[P] Print report') -and ($script:lines -join '|') -notmatch 'SCORE|/100')
+    Assert-WorkflowUI (($script:lines -join '|').Contains('WinSec-Analyzer v0.9.0') -and ($script:lines -join '|').Contains('https://github.com/MrFixRoot/WinSec-Analyzer'))
     foreach($size in @(@{W=40;H=12},@{W=40;H=20},@{W=80;H=25})) {
         $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=($size.W-1);Height=$size.H}
         Show-WinSecCLICurrentScreen $state $ctx
         Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt ($size.W-1)}).Count -eq 0 -and
             $script:lines.Count -lt $size.H -and $state.Screen -ceq 'Findings' -and $state.FindingsOffset -eq 1)
+        if($size.H -ge 20){Assert-WorkflowUI (($script:lines -join '|').Contains('WINSEC ANALYZER v0.9.0'))}
     }
     $null=Invoke-WinSecNavigationAction $state Back;Assert-WorkflowUI ($state.Screen -ceq 'MainMenu')
 }
