@@ -11,6 +11,7 @@
         "url": "https://www.cisecurity.org/controls"
     },
     "controls": [
+        {"id":"4","name":"Secure Configuration of Enterprise Assets and Software"},
         {
             "id": "2",
             "name": "Inventory and Control of Software Assets"
@@ -29,6 +30,7 @@
         }
     ],
     "safeguards": [
+        {"id":"4.5","name":"Implement and Manage a Firewall on End-User Devices"},
         {
             "id": "2.2",
             "name": "Ensure Authorized Software is Currently Supported"
@@ -135,6 +137,24 @@
                     "criterionIds": ["WSA-WUP-BASE-003"],
                     "description": "CIS 2.2 links software authorization to vendor support and documented exceptions. This Windows lifecycle check does not assess the complete software inventory or approve an exception.",
                     "recommendation": "Review exact Windows edition, release and support arrangements with the administrator. Plan migration to a supported release, or document an authorized exception, compensating safeguards and accepted residual risk. An exception does not change this recorded lifecycle result."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-001",
+            "references": [
+                {
+                    "id": "4.5",
+                    "title": "Implement and Manage a Firewall on End-User Devices",
+                    "url": "https://cas.docs.cisecurity.org/en/latest/source/Controls4/",
+                    "criterionIds": [
+                        "WSA-FW-REVIEW-001",
+                        "WSA-FW-REVIEW-002",
+                        "WSA-FW-REVIEW-003",
+                        "WSA-FW-REVIEW-004"
+                    ],
+                    "description": "Host Firewall configuration contributes context to network filtering. Disabled profiles, permissive defaults and broad exceptions require review. Logging is complementary monitoring context. These observations do not prove compliance, reachability, exploitation or complete mitigation.",
+                    "recommendation": "Review the effective policy for Domain, Private and Public profiles, approved application and service exceptions, block precedence, and monitoring requirements. Have an authorized administrator apply the approved filtering policy; reassess through a confirmed read-only scan."
                 }
             ]
         }

@@ -23,6 +23,12 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        'WSA-NET-001' {
+            $lines.Add('- ActiveStore is the effective policy; PersistentStore is local configuration, not a second independent effective policy.')
+            $lines.Add('- Every returned rule is inventoried. Custom names, program paths, addresses and identities use stable SHA256 tokens. This is normalized telemetry, not raw evidence.')
+            $lines.Add('- Exceptions are not automatically vulnerabilities. Block precedence, interfaces and approved business needs require review; no network reachability test is performed.')
+            $lines.Add('- Hyper-V Firewall starts with Windows 11 22H2. Missing providers or fields remain unknown; a selected profile cannot override observed Windows.')
+        }
         'WSA-SYS-001' {
             $lines.Add('- Disable-prefixed preferences: true disables the named function. PUA: 0 disabled, 1 block, 2 audit. MAPS: 0 disabled, 1 basic, 2 advanced.')
             $lines.Add('- ASR BLOCK, AUDIT and WARN describe configured modes; they do not independently prove effective enforcement. Review applicability and approved exceptions.')
@@ -39,6 +45,17 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $group=''
     foreach($row in $r.Rows) {
         $d=Get-WinSecTechnicalRowDefinition $row.SettingId $defs
+        if($d.Kind -cin @('firewallBatch','firewallMetadata')) {
+            $group='';$lines.Add('');$lines.Add('## '+$row.SettingId);$lines.Add('')
+            $items=if($d.Kind -ceq 'firewallBatch'){ConvertTo-WinSecFirewallBatch $row.Value}else{ConvertTo-WinSecFirewallMetadataBatch $row.Value}
+            foreach($item in $items) {
+                $lines.Add('### Record '+$item.Id);$lines.Add('');$lines.Add('| Setting | Value |');$lines.Add('| --- | --- |')
+                $properties=if($d.Kind -ceq 'firewallBatch'){$item.PSObject.Properties}else{$item.Values.PSObject.Properties}
+                foreach($p in $properties){$lines.Add('| '+(ConvertTo-WinSecTechnicalCell $p.Name)+' | '+(ConvertTo-WinSecTechnicalCell $p.Value)+' |')}
+                $lines.Add('')
+            }
+            continue
+        }
         if($group -cne $d.Group){$group=$d.Group;$lines.Add('');$lines.Add('## '+$group);$lines.Add('');
             $lines.Add('| Setting | Value | Collection state | Reason | Type / source |');$lines.Add('| --- | --- | --- | --- | --- |')}
         $value=if($null -eq $row.Value){'Not available'}else{ConvertTo-Json -InputObject $row.Value -Compress}
@@ -58,14 +75,19 @@ function ConvertTo-WinSecTechnicalMarkdown {
 
 function ConvertFrom-WinSecTechnicalMarkdownArtifact {
     param([string]$Text,[string]$DeviceId,[switch]$IncludeReport)
-    if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
+    if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 16777216 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
         $Text -cnotmatch '\A<!-- WinSec technical report\n([^\r\n]+)\n-->\n([\s\S]*)\z'){throw 'Unrecognized technical Markdown.'}
     $metadata=$Matches[1];$body=$Matches[2];$m=ConvertFrom-WinSecStoredJson $metadata
     Assert-WinSecConfigurationFields $m @('SchemaVersion','DeviceId','ScanId','CheckId','ScopeType','ScopeKey','ContentSha256')
-    if($m.SchemaVersion -cne '2.0.0' -or $m.DeviceId -isnot [string] -or $m.DeviceId -cne $DeviceId -or
+    $large=($m.SchemaVersion -ceq '3.0.0' -and $m.CheckId -ceq 'WSA-NET-001')
+    if(($m.SchemaVersion -cne '2.0.0' -and -not $large) -or
+        (-not $large -and [Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576) -or $m.DeviceId -isnot [string] -or $m.DeviceId -cne $DeviceId -or
         $m.ContentSha256 -cne (Get-WinSecReportTextHash $body)){throw 'Invalid technical Markdown ownership or digest.'}
     if($body -cnotmatch '\n## Structured data\n\n```json\n([^\r\n]+)\n```\n\z'){throw 'Missing technical snapshot.'}
-    $r=ConvertTo-WinSecTechnicalReport (ConvertFrom-WinSecStoredJson $Matches[1])
+    $json=$Matches[1]
+    $snapshot=if($large){ConvertFrom-WinSecBoundedStoredJson $json -MaxBytes 16777216}else{ConvertFrom-WinSecStoredJson $json}
+    $r=ConvertTo-WinSecTechnicalReport $snapshot
+    if($large -and $r.CheckId -cne 'WSA-NET-001'){throw 'Foreign large technical artifact.'}
     foreach($field in @('DeviceId','ScanId','CheckId','ScopeType','ScopeKey')) {
         if($m.$field -isnot [string] -or $m.$field -cne $r.$field){throw 'Mixed technical Markdown identity.'}
     }
@@ -84,11 +106,11 @@ function Read-WinSecTechnicalReport {
     foreach($file in $files) {
         if($file.Extension -cnotin @('.md','.txt')){continue}
         Assert-WinSecDeviceRemovalPath $ProjectRoot $file.FullName
-        if($file.Length -gt 1048576 -or ($bytes+=$file.Length) -gt 67108864){throw 'Stored report limit exceeded.'}
+        if($file.Length -gt 16777216 -or ($bytes+=$file.Length) -gt 67108864){throw 'Stored report limit exceeded.'}
         $hash=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
         $text=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8
         if(-not ($text.StartsWith("<!-- WinSec technical report`n",[StringComparison]::Ordinal) -or
-            $text.StartsWith("WinSec technical scan report`n",[StringComparison]::Ordinal))){continue}
+            $text.StartsWith("WinSec technical scan report`n",[StringComparison]::Ordinal))){if($file.Length -gt 1048576){throw 'Unrecognized large report.'};continue}
         $report=ConvertFrom-WinSecTechnicalArtifact $text $DeviceId -IncludeReport
         if((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -cne $hash){throw 'Technical report changed while reading.'}
         if($report.ScanId -ceq $ScanId -and $report.CheckId -ceq $CheckId){$found+=,$report}

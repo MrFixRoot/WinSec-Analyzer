@@ -58,6 +58,7 @@ $script:WinSecAuditScorePath = Join-Path `
 # Keep check scripts function-only for Get-WinSecAuditImplementation validation.
 . (Join-Path $PSScriptRoot '../Checks/System/WindowsUpdatePolicyReader.ps1')
 . (Join-Path $PSScriptRoot 'WindowsUpdatePolicyApplicability.ps1')
+. (Join-Path $PSScriptRoot 'FirewallTelemetry.ps1')
 
 function Import-WinSecAuditDependencies {
     [CmdletBinding()]
@@ -578,7 +579,9 @@ function Invoke-WinSecAuditCheck {
         [string]$DeviceId,
 
         [Parameter(Mandatory)]
-        [string]$ScanId
+        [string]$ScanId,
+        [scriptblock]$CollectorProgress,
+        [scriptblock]$CancellationAction
     )
 
     try {
@@ -601,7 +604,9 @@ function Invoke-WinSecAuditCheck {
                     [string]$FunctionName,
                     [string]$TargetDeviceId,
                     [string]$CurrentScanId,
-                    [string]$CurrentCheckId
+                    [string]$CurrentCheckId,
+                    [scriptblock]$CollectorProgress,
+                    [scriptblock]$CancellationAction
                 )
 
                 # Import function declarations locally.
@@ -613,17 +618,20 @@ function Invoke-WinSecAuditCheck {
                     -ErrorAction Stop
 
                 # Standard function contract for all checks.
-                & $command `
-                    -DeviceId $TargetDeviceId `
-                    -ScanId $CurrentScanId `
-                    -CheckId $CurrentCheckId
+                $arguments=@{DeviceId=$TargetDeviceId;ScanId=$CurrentScanId;CheckId=$CurrentCheckId}
+                if($CurrentCheckId -ceq 'WSA-NET-001') {
+                    $arguments.ProgressCallback=$CollectorProgress;$arguments.CancellationAction=$CancellationAction
+                }
+                & $command @arguments
 
             } `
                 $implementation `
                 $Check.FunctionName `
                 $DeviceId `
                 $ScanId `
-                $Check.CheckId
+                $Check.CheckId `
+                $CollectorProgress `
+                $CancellationAction
         )
 
         # ----------------------------------------------------
@@ -654,6 +662,7 @@ function Invoke-WinSecAuditCheck {
             -ScanId $ScanId
 
     }
+    catch [OperationCanceledException] { throw }
     catch {
 
         # ----------------------------------------------------
@@ -895,16 +904,29 @@ function Invoke-WinSecAudit {
         Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `
             -Phase READING -CompletedChecks $executedCount -TotalChecks $selectedIds.Count -CheckId $check.CheckId
 
-        $record = Invoke-WinSecAuditCheck `
-            -Check $check `
-            -DeviceId $DeviceId `
-            -ScanId $ScanId
+        $firewallProgressSink=$ProgressCallback
+        $firewallProgressDevice=$DeviceId;$firewallProgressScan=$ScanId
+        $firewallProgressCompleted=$executedCount;$firewallProgressTotal=$selectedIds.Count;$firewallProgressCheck=$check.CheckId
+        $collectorProgress={
+            param($detail)
+            if($null -eq $firewallProgressSink){return}
+            if($detail.Stage -isnot [string] -or $detail.Stage -cnotmatch '\A[A-Z]{1,40}\z' -or
+                $detail.CompletedSteps -isnot [int] -or $detail.TotalSteps -isnot [int] -or $detail.TotalSteps -lt 1 -or
+                $detail.CompletedSteps -lt 0 -or $detail.CompletedSteps -gt $detail.TotalSteps){throw 'Invalid collector progress.'}
+            $event=[pscustomobject]@{SchemaVersion='2.0.0';DeviceId=$firewallProgressDevice;ScanId=$firewallProgressScan;Phase='READING';
+                CompletedChecks=$firewallProgressCompleted;TotalChecks=$firewallProgressTotal;CheckId=$firewallProgressCheck;
+                Stage=$detail.Stage;CompletedSteps=$detail.CompletedSteps;TotalSteps=$detail.TotalSteps}
+            try {$null=& $firewallProgressSink $event} catch { } # Display failures cannot alter collection.
+        }.GetNewClosure()
+        $checkArguments=@{Check=$check;DeviceId=$DeviceId;ScanId=$ScanId}
+        if($check.CheckId -ceq 'WSA-NET-001'){$checkArguments.CollectorProgress=$collectorProgress;$checkArguments.CancellationAction=$CancellationAction}
+        $record = Invoke-WinSecAuditCheck @checkArguments
 
         $results.Add($record)
 
         $executedCount++
 
-        if ($record.ObservedStatus -eq 'ERROR') {
+        if ($record.ObservedStatus -eq 'ERROR' -or ($check.CheckId -ceq 'WSA-NET-001' -and $record.ObservedStatus -ceq 'UNKNOWN')) {
             $executionErrorCount++
         }
         Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `

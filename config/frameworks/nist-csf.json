@@ -44,6 +44,7 @@
         }
     ],
     "categories": [
+        {"id":"PR.IR","name":"Technology Infrastructure Resilience"},
         {
             "id": "PR.DS",
             "name": "Data Security"
@@ -58,6 +59,7 @@
         }
     ],
     "subcategories": [
+        {"id":"PR.IR-01","name":"Protect networks and environments from unauthorized logical access and usage"},
         {
             "id": "PR.PS-02",
             "name": "Maintain, replace and remove software according to risk"
@@ -165,6 +167,27 @@
                     "criterionIds": ["WSA-WUP-BASE-003"],
                     "description": "Software replacement when vendor maintenance ends contributes to PR.PS-02. This observed Windows lifecycle result does not assess organizational risk acceptance or certify the outcome.",
                     "recommendation": "Have the risk owner and administrator plan migration to a supported Windows release, with compatibility, recovery and continuity arrangements. Document any temporary exception and residual risk separately; do not relabel the historical result."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-001",
+            "references": [
+                {
+                    "id": "PR.IR-01",
+                    "functionId": "PR",
+                    "categoryId": "PR.IR",
+                    "subcategoryId": "PR.IR-01",
+                    "title": "Protect networks and environments from unauthorized logical access and usage",
+                    "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+                    "criterionIds": [
+                        "WSA-FW-REVIEW-001",
+                        "WSA-FW-REVIEW-002",
+                        "WSA-FW-REVIEW-003",
+                        "WSA-FW-REVIEW-004"
+                    ],
+                    "description": "Host Firewall configuration contributes context to network filtering. Disabled profiles, permissive defaults and broad exceptions require review. Logging is complementary monitoring context. These observations do not prove compliance, reachability, exploitation or complete mitigation.",
+                    "recommendation": "Review the effective policy for Domain, Private and Public profiles, approved application and service exceptions, block precedence, and monitoring requirements. Have an authorized administrator apply the approved filtering policy; reassess through a confirmed read-only scan."
                 }
             ]
         }

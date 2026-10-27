@@ -18,7 +18,8 @@ function New-WinSecFrameworkMarkdown {
     $lines.Add('');$lines.Add('## Coverage');$lines.Add('')
     $lines.Add('Readings reviewed: '+$a.ReadingCount+'. Unknown/unavailable: '+$a.UnknownReadingCount+'. Warnings: '+$a.Rows.Count+'.')
     $lines.Add('A reading without a reviewed warning rule is informational. No warnings does not prove full framework coverage or compliance.')
-    $expected=if($a.ScopeType -ceq 'SECTION'){@('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}else{@($a.ScopeKey)}
+    if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$lines.Add('Only Windows Firewall currently has a reviewed collector in this section. SMB and RDP remain pending; this is not a complete Network Security assessment.')}
+    $expected=@(Get-WinSecTechnicalScopeChecks $a.ScopeType $a.ScopeKey)
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){$lines.Add('Controls without a saved scan: '+($unscanned -join ', ')+'. Run a separately confirmed scan to collect them.')}
     if($a.MissingTechnicalCheckIds.Count){$lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only recorded, verified deviations could be reviewed for these controls.')}

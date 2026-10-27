@@ -3,11 +3,11 @@
 
 function Get-WinSecTechnicalReportPolicy {
     param([string]$ProjectRoot,[string]$DeviceId,[string[]]$CheckIds)
-    if(@($CheckIds|Where-Object {$_ -cnotin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}).Count){throw 'Technical report adapter is not validated.'}
-    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
+    foreach($check in $CheckIds){$null=Get-WinSecTechnicalControl $check}
+    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Core/TechnicalControlRegistry.ps1','src/Core/FirewallTelemetry.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
         (Get-FileHash -LiteralPath (Join-Path $ProjectRoot $file) -Algorithm SHA256 -ErrorAction Stop).Hash
     })
-    [pscustomobject]@{SchemaVersion='2.0.0';CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
+    [pscustomobject]@{SchemaVersion=if($CheckIds -ccontains 'WSA-NET-001'){'3.0.0'}else{'2.0.0'};CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
         Directory=('reports/exports/'+(Get-WinSecEvidenceHash $DeviceId));PolicySha256=(Get-WinSecReportTextHash ($parts -join '|'))}
 }
 
@@ -82,7 +82,7 @@ function Write-WinSecTechnicalArtifact {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][object]$Report)
     $ProjectRoot=Get-WinSecReportInstallation $ProjectRoot
     $r=ConvertTo-WinSecTechnicalReport $Report;$body=ConvertTo-WinSecTechnicalMarkdown $r
-    $m=[ordered]@{SchemaVersion='2.0.0';DeviceId=$r.DeviceId;ScanId=$r.ScanId;CheckId=$r.CheckId;
+    $m=[ordered]@{SchemaVersion=if($r.CheckId -ceq 'WSA-NET-001'){'3.0.0'}else{'2.0.0'};DeviceId=$r.DeviceId;ScanId=$r.ScanId;CheckId=$r.CheckId;
         ScopeType=$r.ScopeType;ScopeKey=$r.ScopeKey;ContentSha256=(Get-WinSecReportTextHash $body)}
     $text="<!-- WinSec technical report`n"+(ConvertTo-Json $m -Compress)+"`n-->`n"+$body
     $null=ConvertFrom-WinSecTechnicalArtifact $text $r.DeviceId

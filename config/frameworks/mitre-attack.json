@@ -89,6 +89,7 @@
     ],
     "subtechniques": [],
     "mitigations": [
+        {"id":"M1037","name":"Filter Network Traffic"},
         {
             "id": "M1051",
             "name": "Update Software"
@@ -179,6 +180,26 @@
                     "criterionIds": ["WSA-WUP-BASE-003"],
                     "description": "A release without reviewed vendor security support requires maintenance planning. This lifecycle observation neither detects an attack nor proves complete protection.",
                     "recommendation": "Plan migration to a supported Windows release with the administrator, including compatibility and recovery checks. Review remaining software maintenance separately; the original lifecycle result remains unchanged."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-001",
+            "references": [
+                {
+                    "id": "M1037",
+                    "mitigationId": "M1037",
+                    "type": "Mitigation",
+                    "title": "Filter Network Traffic",
+                    "url": "https://attack.mitre.org/mitigations/M1037/",
+                    "criterionIds": [
+                        "WSA-FW-REVIEW-001",
+                        "WSA-FW-REVIEW-002",
+                        "WSA-FW-REVIEW-003",
+                        "WSA-FW-REVIEW-004"
+                    ],
+                    "description": "Host Firewall configuration contributes context to network filtering. Disabled profiles, permissive defaults and broad exceptions require review. Logging is complementary monitoring context. These observations do not prove compliance, reachability, exploitation or complete mitigation.",
+                    "recommendation": "Review the effective policy for Domain, Private and Public profiles, approved application and service exceptions, block precedence, and monitoring requirements. Have an authorized administrator apply the approved filtering policy; reassess through a confirmed read-only scan."
                 }
             ]
         }

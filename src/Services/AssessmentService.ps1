@@ -105,6 +105,15 @@ function Get-WinSecAssessmentProfilePlan {
         if (-not (Test-WinSecTargetIdentifier $checkId) -or $snapshots.ContainsKey($checkId)) {
             throw 'Invalid assessment profile control selection.'
         }
+        if($checkId -ceq 'WSA-NET-001') {
+            $definition=@(Get-WinSecInstalledAssessmentProfiles $ProjectRoot|Where-Object Profile -CEQ $Profile)
+            if($definition.Count -ne 1){throw 'Unknown Windows collection context.'}
+            $snapshots[$checkId]=$null
+            $policies.Add([pscustomobject]@{CheckId=$checkId;CatalogId='WSA-FIREWALL-COLLECTION';CatalogVersion='1.0.0';
+                CatalogSha256=(Get-WinSecReportTextHash ($definition[0].MatrixSha256+'|'+(Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'src/Core/FirewallTelemetry.ps1')).Hash));
+                OSFamily='Windows';OSRelease=$definition[0].OSRelease;Edition=$definition[0].Edition})
+            continue
+        }
         $snapshot = Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId)
         if ($checkId -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003') -and @((Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)|Where-Object {$_.Profile -ceq $Profile}).Count -eq 1) {
             $snapshot=Copy-WinSecResultData (Get-WinSecAssessmentCatalog -ProjectRoot $ProjectRoot -CheckId $checkId -Profile $Profile)
@@ -135,6 +144,16 @@ function Get-WinSecAssessmentProfileOptions {
     )
     $seen = @{}
     $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    if($CheckIds.Count -eq 1 -and $CheckIds[0] -ceq 'WSA-NET-001') {
+        $schema=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'src/Core/FirewallTelemetry.ps1') -Algorithm SHA256).Hash
+        foreach($definition in @(Get-WinSecInstalledAssessmentProfiles $ProjectRoot)) {
+            Assert-WinSecAssessmentProfilePreview ([pscustomobject]@{Profile=$definition.Profile;Policies=@([pscustomobject]@{
+                CheckId='WSA-NET-001';CatalogId='WSA-FIREWALL-COLLECTION';CatalogVersion='1.0.0';
+                CatalogSha256=(Get-WinSecReportTextHash ($definition.MatrixSha256+'|'+$schema));OSFamily='Windows';
+                OSRelease=$definition.OSRelease;Edition=$definition.Edition})})
+        }
+        return
+    }
     foreach ($id in $CheckIds) {
         if (-not (Test-WinSecTargetIdentifier $id) -or $seen.ContainsKey($id)) { throw 'Invalid profile discovery selection.' }
         $seen[$id] = $true
@@ -151,7 +170,7 @@ function Get-WinSecAssessmentProfileOptions {
         # Reuse the exact approval and metadata contract of the coordinator.
         (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $name).Preview
     }
-    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}).Count) {
+    if (@($CheckIds|Where-Object {$_ -cin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001')}).Count) {
         $installed = @(Get-WinSecInstalledAssessmentProfiles -ProjectRoot $ProjectRoot)
         $expanded = @($installed | Where-Object {$null -eq $_.FileName})
         $template = $null
@@ -171,6 +190,10 @@ function Get-WinSecAssessmentProfileOptions {
         }
         foreach ($definition in $installed) {
             if ($names.Contains($definition.Profile)) { continue }
+            if($CheckIds -ccontains 'WSA-NET-001') {
+                (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
+                continue
+            }
             if ($null -ne $definition.FileName) {
                 (Get-WinSecAssessmentProfilePlan -ProjectRoot $ProjectRoot -CheckIds $CheckIds -Profile $definition.Profile).Preview
                 continue

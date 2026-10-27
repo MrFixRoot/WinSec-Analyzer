@@ -23,11 +23,12 @@ function Show-WinSecScanProgress {
     param([Parameter(Mandatory)][psobject]$State, [Parameter(Mandatory)][object]$Progress)
     $event = Copy-WinSecResultData $Progress
     $fields = @('SchemaVersion','DeviceId','ScanId','Phase','CompletedChecks','TotalChecks','CheckId')
+    if($event.SchemaVersion -ceq '2.0.0'){$fields+=@('Stage','CompletedSteps','TotalSteps')}
     if (@($event.PSObject.Properties).Count -ne $fields.Count -or
         @($event.PSObject.Properties | Where-Object { $_.Name -cnotin $fields }).Count -gt 0) {
         throw 'Scan progress contains unsupported fields.'
     }
-    if ($event.SchemaVersion -cne '1.0.0' -or $event.DeviceId -cne $State.DeviceId -or
+    if ($event.SchemaVersion -cnotin @('1.0.0','2.0.0') -or $event.DeviceId -cne $State.DeviceId -or
         $event.ScanId -isnot [string] -or $event.ScanId -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z' -or
         $event.Phase -isnot [string] -or
         $event.Phase -cnotin @('READING','CHECK_COMPLETED','FINALIZING','COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED') -or
@@ -43,13 +44,22 @@ function Show-WinSecScanProgress {
         throw 'Scan progress identity or counts changed.'
     }
     $finished = $event.Phase -cin @('COMPLETED','COMPLETED_WITH_ERRORS')
+    $fraction=0.0
+    if($event.SchemaVersion -ceq '2.0.0') {
+        if($event.Phase -cne 'READING' -or $event.CheckId -cne 'WSA-NET-001' -or $event.Stage -isnot [string] -or
+            $event.Stage -cnotmatch '\A[A-Z]{1,40}\z' -or $event.CompletedSteps -isnot [int] -or $event.TotalSteps -isnot [int] -or
+            $event.TotalSteps -lt 1 -or $event.CompletedSteps -lt 0 -or $event.CompletedSteps -gt $event.TotalSteps){throw 'Invalid collector progress detail.'}
+        $fraction=[double]$event.CompletedSteps/$event.TotalSteps
+    }
     if (($finished -or $event.Phase -ceq 'FINALIZING') -and $event.CompletedChecks -ne $event.TotalChecks) {
         throw 'Scan progress cannot finish before every selected control returns.'
     }
     $percent = if ($finished) { 100 } else {
-        [Math]::Min(99, [int][Math]::Floor(100.0 * $event.CompletedChecks / $event.TotalChecks))
+        [Math]::Min(99, [int][Math]::Floor(100.0 * ($event.CompletedChecks+$fraction) / $event.TotalChecks))
     }
     $terminal = Get-WinSecTerminalSize
+    if($null -ne $State.LastProgress -and $terminal.Width -eq $State.Width -and $terminal.Height -eq $State.Height -and
+        (ConvertTo-Json -InputObject $event -Compress -Depth 5) -ceq (ConvertTo-Json -InputObject $State.LastProgress -Compress -Depth 5)){return}
     $width = [Math]::Max(1, [int]$terminal.ContentWidth)
     $barWidth = [Math]::Max(1, [Math]::Min(30, $width - 9))
     $filled = [int][Math]::Floor($barWidth * $percent / 100.0)
@@ -62,8 +72,9 @@ function Show-WinSecScanProgress {
         'COMPLETED_WITH_ERRORS' { 'Scan PARTIAL. Collection issues were recorded.' }
         'CANCELLED' { 'Cancelled. No new scan saved.' }
     }
+    if($event.SchemaVersion -ceq '2.0.0'){$message='Firewall: '+$event.Stage+' ('+$event.CompletedSteps+'/'+$event.TotalSteps+')'}
     $hint = if ($event.Phase -cin @('READING','CHECK_COMPLETED')) {
-        'Esc: stop after current control'
+        if($event.CheckId -ceq 'WSA-NET-001'){'Esc: cancel Firewall collection'}else{'Esc: stop after current control'}
     } elseif ($event.Phase -ceq 'FINALIZING') { 'Finishing; please wait.' } else { '' }
     $lines = @(
         ('WINSEC - ' + $State.ScanAction.ToUpperInvariant() + ' - READ ONLY'),

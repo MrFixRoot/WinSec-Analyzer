@@ -114,14 +114,24 @@ function Get-WinSecDeviceInventoryPath {
 
 function ConvertFrom-WinSecStoredJson {
     [CmdletBinding()]
+    param([AllowNull()][AllowEmptyString()][object]$Json)
+    ConvertFrom-WinSecBoundedStoredJson -Json $Json -MaxBytes 1048576
+}
+
+# Larger bounds are reserved for validated technical Firewall artifacts.
+# Inventory and public-history callers retain the original one MiB limit.
+function ConvertFrom-WinSecBoundedStoredJson {
+    [CmdletBinding()]
     param(
         [AllowNull()]
         [AllowEmptyString()]
-        [object]$Json
+        [object]$Json,
+        [ValidateSet(1048576,16777216)]
+        [int]$MaxBytes = 1048576
     )
 
     if ($Json -isnot [string] -or
-        [System.Text.Encoding]::UTF8.GetByteCount($Json) -gt 1048576) {
+        [System.Text.Encoding]::UTF8.GetByteCount($Json) -gt $MaxBytes) {
         throw 'Invalid device inventory JSON.'
     }
     $text = $Json.TrimStart([char]0xFEFF).Trim([char[]]@([char]32, [char]9, [char]13, [char]10))
@@ -141,6 +151,7 @@ function ConvertFrom-WinSecStoredJson {
     # boundaries and decoding escaped property names before duplicate checks.
     $tokens = [regex]::Matches($text, '"(?:\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4})|[^"\\\x00-\x1F])*"|//[^\r\n]*|/\*[\s\S]*?\*/|[{}\[\]:,]|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null')
     $containers = New-Object 'System.Collections.Generic.Stack[object]'
+    $decodedKeys = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
     $consumed = 0
     for ($index = 0; $index -lt $tokens.Count; $index++) {
         # No unquoted keys, single-quoted strings, unknown escapes or other
@@ -174,7 +185,10 @@ function ConvertFrom-WinSecStoredJson {
         }
         elseif ($token.StartsWith('"') -and $index + 1 -lt $tokens.Count -and
             $tokens[$index + 1].Value -ceq ':') {
-            $key = (ConvertFrom-Json -InputObject ('{"Key":' + $token + '}') -ErrorAction Stop).Key
+            if(-not $decodedKeys.ContainsKey($token)) {
+                $decodedKeys[$token] = (ConvertFrom-Json -InputObject ('{"Key":' + $token + '}') -ErrorAction Stop).Key
+            }
+            $key = $decodedKeys[$token]
             if ($key -iin @('PSObject','psbase')) { throw 'Reserved stored JSON property.' }
             if ($containers.Count -eq 0 -or $containers.Peek().Kind -cne 'OBJECT' -or
                 -not $containers.Peek().Keys.Add([string]$key)) {
