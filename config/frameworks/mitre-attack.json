@@ -78,6 +78,7 @@
         }
     ],
     "techniques": [
+        {"id":"T1021","name":"Remote Services"},
         {
             "id": "T1685",
             "name": "Disable or Modify Tools"
@@ -87,7 +88,7 @@
             "name": "Exploitation for Privilege Escalation"
         }
     ],
-    "subtechniques": [],
+    "subtechniques": [{"id":"T1021.001","name":"Remote Desktop Protocol","parentTechniqueId":"T1021"}],
     "mitigations": [
         {"id":"M1037","name":"Filter Network Traffic"},
         {"id":"M1042","name":"Disable or Remove Feature or Program"},
@@ -101,6 +102,29 @@
         }
     ],
     "mappings": [
+        {
+            "checkId": "WSA-NET-003",
+            "references": [
+                {
+                    "id": "T1021.001",
+                    "techniqueId": "T1021",
+                    "subtechniqueId": "T1021.001",
+                    "type": "Subtechnique",
+                    "title": "Remote Desktop Protocol",
+                    "url": "https://attack.mitre.org/techniques/T1021/001/",
+                    "criterionIds": [
+                        "WSA-RDP-REVIEW-001",
+                        "WSA-RDP-REVIEW-002",
+                        "WSA-RDP-REVIEW-003",
+                        "WSA-RDP-REVIEW-004",
+                        "WSA-RDP-REVIEW-005",
+                        "WSA-RDP-REVIEW-006"
+                    ],
+                    "description": "Remote Desktop configuration contributes context to secure remote access and configuration management. Enabling a needed host is not automatically a vulnerability. NLA is not MFA; these local observations prove neither network exposure, an attack nor compliance.",
+                    "recommendation": "Review the approved need for RDP, authentication, TLS, native encryption, credential handling and trusted connection files. Have an authorized administrator apply the reviewed policy. Validate access restrictions and MFA separately; reassess only through a confirmed read-only scan."
+                }
+            ]
+        },
         {
             "checkId": "WSA-SYS-002",
             "references": [

@@ -23,6 +23,13 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        'WSA-NET-003' {
+            $lines.Add('- Windows Home has no supported built-in RDP host. Only observed Windows edition can justify NOT_APPLICABLE for host providers; RDP client configuration remains relevant.')
+            $lines.Add('- Effective host permission, listener authentication, encryption, session limits, redirection, services and explicit machine policies are separate readings. Missing registry values are NOT_CONFIGURED, not an inferred default.')
+            $lines.Add('- General settings: UserAuthenticationRequired 1 requires NLA; MinEncryptionLevel 1 low, 2 client compatible, 3 high, 4 FIPS describes native RDP encryption, not TLS. WMI SecurityLayer is retained as a raw enum: Microsoft getter/setter documentation differs, so it is not silently interpreted using registry labels. Machine SecurityLayer policy 0 requires native RDP, 1 negotiate, 2 TLS. Native encryption warnings require an explicit native-only machine policy. These settings do not prove negotiated TLS, MFA or network reachability.')
+            $lines.Add('- Every returned listener is retained within the explicit 64-record bound per provider. RDP_TCP is the standard listener; custom listener names are SHA256 tokens. Exceeding a bound is reported, never silently truncated.')
+            $lines.Add('- Null inventory fields are UNKNOWN. Windows/provider-dependent missing fields limit completeness. No users, session identities, passwords, saved connections, certificates, security descriptors, remote targets or network probes are collected.')
+        }
         'WSA-NET-002' {
             $lines.Add('- SMBv1 client installation, server configuration and driver dependencies are separate readings. Installed does not prove enabled, negotiated traffic or a reachable service.')
             $lines.Add('- Microsoft recommends removing SMBv1 across Windows 11 editions. Signing and encryption settings describe broader SMB context; defaults differ by release and edition.')
@@ -52,6 +59,21 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $group=''
     foreach($row in $r.Rows) {
         $d=Get-WinSecTechnicalRowDefinition $row.SettingId $defs
+        if($d.Kind -ceq 'rdpInventory' -and $row.State -ceq 'OBSERVED'){
+            $group='';$lines.Add('');$lines.Add('## '+$d.Group);$lines.Add('')
+            $batch=ConvertTo-WinSecRdpInventory $row.Value
+            foreach($item in $batch.Items){
+                $lines.Add('### Listener / configuration '+$item.Id);$lines.Add('')
+                $lines.Add('| Setting | Value | Collection state | Source |');$lines.Add('| --- | --- | --- | --- |')
+                foreach($p in $item.Values.PSObject.Properties){
+                    $state=if($null -eq $p.Value){'UNKNOWN'}else{'OBSERVED'}
+                    $value=if($null -eq $p.Value){'Not available'}else{[string]$p.Value}
+                    $lines.Add('| '+(ConvertTo-WinSecTechnicalCell $p.Name)+' | '+$value+' | '+$state+' | '+$d.Source+' |')
+                }
+                $lines.Add('')
+            }
+            continue
+        }
         if($d.Kind -cin @('firewallBatch','firewallMetadata')) {
             $group='';$lines.Add('');$lines.Add('## '+$row.SettingId);$lines.Add('')
             $items=if($d.Kind -ceq 'firewallBatch'){ConvertTo-WinSecFirewallBatch $row.Value}else{ConvertTo-WinSecFirewallMetadataBatch $row.Value}

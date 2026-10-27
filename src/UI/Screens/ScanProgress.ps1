@@ -46,7 +46,7 @@ function Show-WinSecScanProgress {
     $finished = $event.Phase -cin @('COMPLETED','COMPLETED_WITH_ERRORS')
     $fraction=0.0
     if($event.SchemaVersion -ceq '2.0.0') {
-        if($event.Phase -cne 'READING' -or $event.CheckId -cnotin @('WSA-NET-001','WSA-NET-002') -or $event.Stage -isnot [string] -or
+        if($event.Phase -cne 'READING' -or $event.CheckId -cnotin @('WSA-NET-001','WSA-NET-002','WSA-NET-003') -or $event.Stage -isnot [string] -or
             $event.Stage -cnotmatch '\A[A-Z]{1,40}\z' -or $event.CompletedSteps -isnot [int] -or $event.TotalSteps -isnot [int] -or
             $event.TotalSteps -lt 1 -or $event.CompletedSteps -lt 0 -or $event.CompletedSteps -gt $event.TotalSteps){throw 'Invalid collector progress detail.'}
         $fraction=[double]$event.CompletedSteps/$event.TotalSteps
@@ -72,9 +72,9 @@ function Show-WinSecScanProgress {
         'COMPLETED_WITH_ERRORS' { 'Scan PARTIAL. Collection issues were recorded.' }
         'CANCELLED' { 'Cancelled. No new scan saved.' }
     }
-    if($event.SchemaVersion -ceq '2.0.0'){$name=if($event.CheckId -ceq 'WSA-NET-001'){'Firewall'}else{'SMBv1'};$message=$name+': '+$event.Stage+' ('+$event.CompletedSteps+'/'+$event.TotalSteps+')'}
+    if($event.SchemaVersion -ceq '2.0.0'){$name=if($event.CheckId -ceq 'WSA-NET-001'){'Firewall'}elseif($event.CheckId -ceq 'WSA-NET-002'){'SMBv1'}else{'Remote Desktop'};$message=$name+': '+$event.Stage+' ('+$event.CompletedSteps+'/'+$event.TotalSteps+')'}
     $hint = if ($event.Phase -cin @('READING','CHECK_COMPLETED')) {
-        if($event.CheckId -ceq 'WSA-NET-001'){'Esc: cancel Firewall collection'}elseif($event.CheckId -ceq 'WSA-NET-002'){'Esc: cancel SMBv1 collection'}else{'Esc: stop after current control'}
+        if($event.CheckId -ceq 'WSA-NET-001'){'Esc: cancel Firewall collection'}elseif($event.CheckId -ceq 'WSA-NET-002'){'Esc: cancel SMBv1 collection'}elseif($event.CheckId -ceq 'WSA-NET-003'){'Esc: cancel RDP collection'}else{'Esc: stop after current control'}
     } elseif ($event.Phase -ceq 'FINALIZING') { 'Finishing; please wait.' } else { '' }
     $lines = @(
         ('WINSEC - ' + $State.ScanAction.ToUpperInvariant() + ' - READ ONLY'),

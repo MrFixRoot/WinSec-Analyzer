@@ -2,6 +2,7 @@
 . (Join-Path $PSScriptRoot 'TechnicalControlRegistry.ps1')
 . (Join-Path $PSScriptRoot 'FirewallTelemetry.ps1')
 . (Join-Path $PSScriptRoot 'SmbTelemetry.ps1')
+. (Join-Path $PSScriptRoot 'RdpTelemetry.ps1')
 function Get-WinSecTechnicalField {
     param([AllowNull()][object]$Value,[string]$Path)
     foreach($name in $Path.Split('.')) {
@@ -20,9 +21,10 @@ function Get-WinSecTechnicalField {
 }
 
 function Get-WinSecTechnicalDefinitions {
-    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002')][string]$CheckId)
+    param([ValidateSet('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003','WSA-NET-001','WSA-NET-002','WSA-NET-003')][string]$CheckId)
     if($CheckId -ceq 'WSA-NET-001'){return Get-WinSecFirewallTechnicalDefinitions}
     if($CheckId -ceq 'WSA-NET-002'){return Get-WinSecSmbTechnicalDefinitions}
+    if($CheckId -ceq 'WSA-NET-003'){return Get-WinSecRdpTechnicalDefinitions}
     $spec=@(
         'CollectionSuccessful|Coleccion|bool|Collector|'
         'CollectionComplete|Coleccion|bool|Collector|'
@@ -122,6 +124,15 @@ function ConvertTo-WinSecTechnicalValue {
     if($null -eq $Value){return $null}
     if($Value.GetType().IsEnum){$Value=[Convert]::ToInt64($Value)}
     switch($Kind) {
+        rdpSupport {if($Value -is [string] -and $Value -cin @('SUPPORTED','UNSUPPORTED_HOME','UNKNOWN')){return $Value};throw 'Invalid RDP applicability.'}
+        rdpInventory {$null=ConvertTo-WinSecRdpInventory $Value;return $Value}
+        rdpIssues {
+            if($Value -isnot [string]){throw 'Invalid RDP diagnostics.'}
+            if($Value -ceq 'NONE'){return $Value}
+            $codes=@($Value.Split(','));$allowed=@(Get-WinSecRdpIssueCodes)
+            if(@($codes|Where-Object {$_ -cnotin $allowed}).Count -or @($codes|Select-Object -Unique).Count -ne $codes.Count){throw 'Unreviewed RDP diagnostics.'}
+            return $Value
+        }
         smbIssues {
             if($Value -is [string] -and $Value -ceq 'NONE'){return $Value}
             if($Value -is [string]){
@@ -239,6 +250,13 @@ function ConvertTo-WinSecTechnicalReport {
         } elseif($null -ne $row.Value -or $row.Reason -ceq 'NONE'){throw 'Unresolved telemetry cannot supply a value.'}
         $excluded=if($r.CheckId -ceq 'WSA-NET-001'){@('Inventories.HyperVRulesCount','Inventories.HyperVCreatorsCount','Inventories.HyperVSettingsCount','Inventories.HyperVProfilesCount')}else{@('AutomationPolicy.IgnoreWindowsUpdateGroupPolicies.Managed','AutomationPolicy.IgnoreWindowsUpdateGroupPolicies.Value')}
         if($r.CheckId -ceq 'WSA-NET-002'){$excluded=@($defs|Where-Object {$_.StatePath -clike 'Availability.*'}|ForEach-Object Id)}
+        if($r.CheckId -ceq 'WSA-NET-003'){$excluded=@('HostEnabled')+@($defs|Where-Object {$_.StatePath -clike 'Availability.*'}|ForEach-Object Id)}
+        if($d.Kind -ceq 'rdpInventory' -and $row.State -ceq 'OBSERVED' -and ('Inventory.'+(ConvertTo-WinSecRdpInventory $row.Value).Class) -cne $row.SettingId){throw 'Foreign RDP inventory class.'}
+        if($r.CheckId -ceq 'WSA-NET-003' -and $row.State -ceq 'OBSERVED' -and $row.SettingId -cmatch '\ARegistry\.([A-Za-z0-9_]+)\.Value\z'){
+            $registryId=$Matches[1];$registryDef=@(Get-WinSecRdpRegistryDefinitions|Where-Object Id -CEQ $registryId)
+            if($registryDef.Count -ne 1 -or $row.Value -lt 0 -or $row.Value -gt $registryDef[0].Max -or
+                ($registryId -ceq 'ListenerPort' -and $row.Value -lt 1)){throw 'Invalid stored RDP registry range.'}
+        }
         if($row.State -ceq 'NOT_APPLICABLE' -and $row.SettingId -cnotin $excluded) {
             throw 'Unreviewed technical exclusion.'
         }
@@ -272,6 +290,12 @@ function ConvertTo-WinSecTechnicalReport {
             $hyper=@($r.Rows|Where-Object SettingId -CEQ HyperVState)
             if($build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or $build[0].Value -ne 22000 -or $type.Count -ne 1 -or
                 $type[0].State -cne 'OBSERVED' -or $type[0].Value -ne 1 -or $hyper.Count -ne 1 -or $hyper[0].Value -cne 'NOT_APPLICABLE'){throw 'Firewall exclusion lacks observed platform support.'}
+        } elseif($r.CheckId -ceq 'WSA-NET-003') {
+            $sku=@($r.Rows|Where-Object SettingId -CEQ Platform.OperatingSystemSKU)
+            $support=@($r.Rows|Where-Object SettingId -CEQ HostSupport)
+            if($build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or $sku.Count -ne 1 -or $sku[0].State -cne 'OBSERVED' -or
+                $type.Count -ne 1 -or $type[0].State -cne 'OBSERVED' -or $support[0].Value -cne 'UNSUPPORTED_HOME' -or
+                (Get-WinSecRdpHostSupport $build[0].Value $sku[0].Value $type[0].Value) -cne 'UNSUPPORTED_HOME'){throw 'RDP exclusion lacks observed Home edition.'}
         } elseif($r.CheckId -ceq 'WSA-NET-002') {
             if($build.Count -ne 1 -or $build[0].State -cne 'OBSERVED' -or $build[0].Value -cnotin @(22000,22621,22631) -or
                 $type.Count -ne 1 -or $type[0].State -cne 'OBSERVED' -or $type[0].Value -ne 1){throw 'SMB exclusion lacks observed platform support.'}
@@ -327,14 +351,14 @@ function New-WinSecTechnicalReport {
             $issues=Get-WinSecTechnicalField $evidence CollectionIssues
             if($issues.Exists -and $issues.Value -is [array]){$reading=[pscustomobject]@{Exists=$true;Value=$issues.Value.Count}}
         }
-        if($CheckId -cin @('WSA-NET-001','WSA-NET-002') -and $d.Id -ceq 'CollectionIssueCodes') {
+        if($CheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003') -and $d.Id -ceq 'CollectionIssueCodes') {
             $issues=Get-WinSecTechnicalField $evidence CollectionIssues
             if($issues.Exists -and $issues.Value -is [array]){$reading=[pscustomobject]@{Exists=$true;Value=if($issues.Value.Count){$issues.Value -join ','}else{'NONE'}}}
         }
         $state=if($reading.Exists){'UNKNOWN'}else{'NOT_COLLECTED'};$reason='UNAVAILABLE'
         if($null -ne $reading.Value) {
             try {$value=ConvertTo-WinSecTechnicalValue $reading.Value $d.Kind;$state='OBSERVED';$reason='NONE'}
-            catch {if($d.Kind -cin @('firewallBatch','firewallMetadata')){throw};$value=$null;$state='UNKNOWN';$reason='INVALID_VALUE'}
+            catch {if($d.Kind -cin @('firewallBatch','firewallMetadata','rdpInventory')){throw};$value=$null;$state='UNKNOWN';$reason='INVALID_VALUE'}
         }
         if($d.StatePath) {
             $sourceState=(Get-WinSecTechnicalField $evidence $d.StatePath).Value

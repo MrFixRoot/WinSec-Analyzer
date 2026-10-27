@@ -24,7 +24,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
     $rules=ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8)
     Assert-WinSecConfigurationFields $rules @('schemaVersion','catalogVersion','interpretation','rules','sources')
-    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0') -or
+    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0') -or
         $rules.interpretation -cne 'REVIEW_WARNINGS_NOT_COMPLIANCE' -or $rules.rules -isnot [array] -or $rules.rules.Count -gt 200){throw 'Invalid warning catalog.'}
     $seen=@{}
     foreach($rule in $rules.rules) {
@@ -34,7 +34,10 @@ function Get-WinSecFrameworkAnalysisCatalog {
         }
         if($seen.ContainsKey($rule.id) -or $rule.id -cnotmatch '\A[A-Z0-9-]{1,64}\z' -or
             $rule.checkId -cnotin @(Get-WinSecTechnicalControls|ForEach-Object CheckId) -or
-            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED')){throw 'Invalid warning predicate.'}
+            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED','RDP_NLA_OFF','RDP_NATIVE','RDP_LOW_ENCRYPTION','ONE','ZERO')){throw 'Invalid warning predicate.'}
+        if($rule.condition -clike 'RDP_*' -and ($rule.checkId -cne 'WSA-NET-003' -or
+            ($rule.condition -ceq 'RDP_NATIVE' -and $rule.setting -cne 'Registry.Policy_SecurityLayer.Value') -or
+            ($rule.condition -cne 'RDP_NATIVE' -and $rule.setting -cne 'Inventory.General'))){throw 'Invalid contextual RDP predicate.'}
         if($rule.setting -cne 'AttackSurfaceReduction.Rules.*.Mode') {
             $null=Get-WinSecTechnicalRowDefinition $rule.setting @(Get-WinSecTechnicalDefinitions $rule.checkId)
         }
@@ -55,6 +58,8 @@ function Get-WinSecFrameworkAnalysisCatalog {
 function Test-WinSecFrameworkWarning {
     param($Value,[string]$Condition)
     switch($Condition) {
+        ZERO {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 0)}
+        ONE {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 1)}
         ENABLED {return ($Value -is [string] -and $Value -ceq 'ENABLED')}
         TRUE {return ($Value -is [bool] -and $Value)}
         ALLOW {return ($Value -ceq 'ALLOW')}
@@ -146,6 +151,33 @@ function New-WinSecFrameworkAnalysis {
             }
         }
         foreach($rule in @($catalog.Rules.rules|Where-Object {$_.checkId -ceq $entry.CheckId -and $reading.SettingId -clike $_.setting})) {
+            if($entry.CheckId -ceq 'WSA-NET-003' -and $rule.condition -clike 'RDP_*'){
+                # Listener warnings need effective host permission from this exact saved scan.
+                $hostRows=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'HostEnabled'})
+                $supportRows=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'HostSupport'})
+                if($reading.State -ceq 'OBSERVED' -and $hostRows.Count -eq 1 -and $hostRows[0].Reading.State -ceq 'OBSERVED' -and $hostRows[0].Reading.Value -ceq $true -and
+                    $supportRows.Count -eq 1 -and $supportRows[0].Reading.Value -ceq 'SUPPORTED'){
+                    # The WMI getter documentation and setter use different numeric labels.
+                    # Never reinterpret that raw enum as a registry value. A configured
+                    # native-only machine policy is independent, explicit evidence.
+                    if($rule.condition -ceq 'RDP_NATIVE'){
+                        if($reading.Value -eq 0){$null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title 'Machine SecurityLayer policy=0 (native RDP)' $rule.recommendation}
+                        continue
+                    }
+                    $nativePolicy=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'Registry.Policy_SecurityLayer.Value'})
+                    if($rule.condition -ceq 'RDP_LOW_ENCRYPTION' -and ($nativePolicy.Count -ne 1 -or $nativePolicy[0].Reading.State -cne 'OBSERVED' -or $nativePolicy[0].Reading.Value -ne 0)){continue}
+                    $batch=ConvertTo-WinSecRdpInventory $reading.Value
+                    foreach($item in $batch.Items){
+                        if(& $cancel){return $null}
+                        $field=switch($rule.condition){RDP_NLA_OFF {'UserAuthenticationRequired'};RDP_LOW_ENCRYPTION {'MinEncryptionLevel'}}
+                        $v=$item.Values.$field
+                        $warn=($null -ne $v -and $(if($rule.condition -ceq 'RDP_LOW_ENCRYPTION'){$v -in @(1,2)}else{$v -eq 0}))
+                        if($warn){$null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title `
+                            ('Listener '+$item.Id+'; '+$field+'='+$v) $rule.recommendation}
+                    }
+                }
+                continue
+            }
             if($reading.State -ceq 'OBSERVED' -and (Test-WinSecFrameworkWarning $reading.Value $rule.condition)) {
                 $null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title `
                     (ConvertTo-Json -InputObject $reading.Value -Compress) $rule.recommendation

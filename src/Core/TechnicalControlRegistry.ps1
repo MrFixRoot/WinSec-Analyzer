@@ -6,6 +6,7 @@ function Get-WinSecTechnicalControls {
         [pscustomobject]@{CheckId='WSA-SYS-003';SectionKey='SystemSecurity';Name='Windows Update'}
         [pscustomobject]@{CheckId='WSA-NET-001';SectionKey='NetworkSecurity';Name='Windows Firewall'}
         [pscustomobject]@{CheckId='WSA-NET-002';SectionKey='NetworkSecurity';Name='SMBv1'}
+        [pscustomobject]@{CheckId='WSA-NET-003';SectionKey='NetworkSecurity';Name='Remote Desktop'}
     )
 }
 function Get-WinSecTechnicalControl {
