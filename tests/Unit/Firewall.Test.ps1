@@ -50,6 +50,18 @@ Test-FirewallCase 'Port/protocol token validation rejects invalid ranges and uns
     Reject-Firewall {ConvertTo-WinSecFirewallBatch ($batch.Replace('"Protocol":"TCP"','"Protocol":"999"'))}
     Reject-Firewall {ConvertTo-WinSecFirewallBatch ($batch.Replace('"LocalPort":"ANY"','"LocalPort":"90-10"'))}
 }
+Test-FirewallCase 'Numeric ports, lists and ranges normalize without an ambiguous Split overload' {
+    foreach($port in @('0','135','443','65535','135-139','80,443','0-65535')) {
+        Assert-Firewall ((ConvertTo-WinSecFirewallToken $port ports) -ceq $port)
+    }
+    foreach($port in @('65536','444-80','80,99999')){Assert-Firewall ((ConvertTo-WinSecFirewallToken $port ports) -ceq 'UNKNOWN')}
+    $script:FirewallLocalPort='135-139,443'
+    $s=New-WinSecFirewallFixtureSession
+    $r=New-WinSecTechnicalReport $s WSA-NET-001 SYNTHETIC SYNTHETIC
+    $batch=@($r.Rows|Where-Object SettingId -CEQ Inventory.ACTIVE.0001)[0]
+    $items=ConvertTo-WinSecFirewallBatch $batch.Value
+    Assert-Firewall ($s.ControlResults[0].Evidence.CollectionComplete -and $items.Count -eq 2 -and $items[0].LocalPort -ceq '135-139,443')
+}
 Test-FirewallCase 'Collection profile choices share the installed Windows matrix without enabling scoring' {
     $options=@(Get-WinSecAssessmentProfileOptions $root @('WSA-NET-001'))
     Assert-Firewall ($options.Count -ge 20 -and @($options.Policies|Where-Object CatalogId -CNE WSA-FIREWALL-COLLECTION).Count -eq 0)

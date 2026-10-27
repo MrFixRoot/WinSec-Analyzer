@@ -83,3 +83,20 @@ function Get-WinSecFirewallNativeElevation {
     finally {$identity.Dispose()}
 }
 
+# Export closed diagnostic identifiers only, never provider/exception messages.
+function Get-WinSecFirewallNativeDiagnostics {
+    param([Parameter(Mandatory)][object]$Control)
+    $evidence=(Get-WinSecTechnicalField $Control Evidence).Value
+    if($null -eq $evidence) {
+        if((Get-WinSecTechnicalField $Control ObservedStatus).Value -cne 'ERROR'){throw 'Invalid missing Firewall evidence.'}
+        return 'COLLECTOR_EVIDENCE_UNAVAILABLE'
+    }
+    $issues=(Get-WinSecTechnicalField $evidence CollectionIssues).Value
+    if($issues -isnot [array]){throw 'Invalid Firewall diagnostic collection.'}
+    $allowed=@(Get-WinSecFirewallIssueCodes)
+    foreach($issue in $issues) {
+        if($issue -isnot [string] -or $issue -cnotin $allowed){throw 'Unsafe native diagnostic.'}
+        $issue
+    }
+}
+

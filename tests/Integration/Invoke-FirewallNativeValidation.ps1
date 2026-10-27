@@ -64,6 +64,7 @@ try {
     $control=@($session.ControlResults|Where-Object CheckId -CEQ WSA-NET-001)[0]
     if(@($session.ControlResults|Where-Object {$_.Status -cne 'NOT_SELECTED' -and $_.CheckId -cne 'WSA-NET-001'}).Count){throw 'Unexpected executed control.'}
     $e=$control.Evidence
+    $issues=@(Get-WinSecFirewallNativeDiagnostics $control)
     $technical=New-WinSecTechnicalReport $session WSA-NET-001 $target.Hostname $target.Hostname
     $body=ConvertTo-WinSecTechnicalMarkdown $technical
     $meta=[ordered]@{SchemaVersion='3.0.0';DeviceId=$technical.DeviceId;ScanId=$technical.ScanId;CheckId=$technical.CheckId;
@@ -71,9 +72,9 @@ try {
     $artifact="<!-- WinSec technical report`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
     $null=ConvertFrom-WinSecTechnicalMarkdownArtifact $artifact $target.DeviceId
     $views=Test-WinSecNativeFrameworkViews $root $session WSA-NET-001 $target.Hostname
-    $issues=@(foreach($issue in @($e.CollectionIssues)){if($issue -isnot [string] -or $issue -cnotmatch '\A[A-Za-z_]{1,80}\z'){throw 'Unsafe native diagnostic.'};$issue})
     [pscustomobject]@{OperationId=$OperationId;Runtime=$PSVersionTable.PSVersion.ToString();ExecutionStatus=$session.ExecutionStatus;
-        CollectionSuccessful=$e.CollectionSuccessful;CollectionComplete=$e.CollectionComplete;CollectionIssues=$issues;
+        CollectionValidated=($null -ne $e -and $e.CollectionSuccessful -ceq $true);
+        CollectionSuccessful=($e.CollectionSuccessful -ceq $true);CollectionComplete=($e.CollectionComplete -ceq $true);CollectionIssues=$issues;
         ObservedStatus=$control.ObservedStatus;ActualBuild=$e.Platform.BuildNumber;HyperVState=$e.HyperVState;
         TechnicalMarkdownValidated=$true;PublicHistoryRoundtripValidated=$views.PublicHistoryRoundtripValidated;InMemoryFrameworkReports=$views.InMemoryReports;
         ProgressEvents=$script:firewallNativeEvents.Count;PublicHistoryPersisted=$false;RawEvidencePersisted=$false;ReportsPersisted=$false;

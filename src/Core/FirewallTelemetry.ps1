@@ -44,7 +44,7 @@ function ConvertTo-WinSecFirewallToken {
         if(@($names|Where-Object {$_ -cnotin @('DOMAIN','PRIVATE','PUBLIC')}).Count -eq 0){return (($names|Sort-Object -Unique) -join ',')}
     }
     if($Kind -ceq 'ports' -and $text -cmatch '\A(?:[0-9]{1,5}(?:-[0-9]{1,5})?)(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*\z'){
-        foreach($part in $text.Split(',','-')){if([int]$part -gt 65535){return 'UNKNOWN'}}
+        foreach($part in $text.Split([char[]]@(',','-'))){if([int]$part -gt 65535){return 'UNKNOWN'}}
         foreach($range in $text.Split(',')){if($range.Contains('-')){$ends=$range.Split('-');if([int]$ends[0] -gt [int]$ends[1]){return 'UNKNOWN'}}}
         return $text
     }

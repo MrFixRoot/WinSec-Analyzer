@@ -4,6 +4,7 @@ function Initialize-WinSecFirewallFixture {
     $script:FirewallCalls=New-Object 'Collections.Generic.List[string]'
     $script:FirewallEvents=New-Object 'Collections.Generic.List[object]'
     $script:FirewallRuleCount=2
+    $script:FirewallLocalPort='Any'
 }
 function Get-WinSecFirewallFixtureCim {
     param($ClassName,$Filter,$Property,$OperationTimeoutSec,$ErrorAction,$Namespace)
@@ -36,7 +37,7 @@ function Invoke-WinSecFirewallFixtureQuery {
         }
         {$_ -clike 'Get-NetFirewall*Filter'} {
             $items=@(for($i=0;$i -lt $script:FirewallRuleCount;$i++){[pscustomobject]@{InstanceID=('PRIVATE-RULE-'+$i);Protocol='TCP';
-                LocalPort='Any';RemotePort='Any';LocalAddress='Any';RemoteAddress='Any';Program='C:\Users\PRIVATE-PERSON\app.exe';
+                LocalPort=$script:FirewallLocalPort;RemotePort='Any';LocalAddress='Any';RemoteAddress='Any';Program='C:\Users\PRIVATE-PERSON\app.exe';
                 Package='PRIVATE-PACKAGE';Service='Any';InterfaceAlias='Any';InterfaceType='Any';Authentication='NotRequired';Encryption='NotRequired';
                 OverrideBlockRules=$false;LocalUser='Any';RemoteUser='Any';RemoteMachine='Any'}})
         }

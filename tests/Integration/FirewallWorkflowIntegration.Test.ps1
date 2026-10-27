@@ -49,14 +49,18 @@ try {
         $script:allowScan=$true
     }
     Test-FWIntegration 'Confirmed control scan runs only Firewall and saves technical Markdown and public history' {
+        $script:FirewallLocalPort='135-139,443'
         $script:public=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId 'firewall-control' -ScopeType CONTROL -ScopeKey WSA-NET-001 `
             -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation -ProgressCallback {param($e);$script:FirewallEvents.Add($e)}
         Assert-FWIntegration ($null -ne $public -and $c.Sessions.Count -eq 1 -and $c.LastTechnicalReports.Status -ceq 'SAVED' -and $c.LastTechnicalReports.Files.Count -eq 1)
         Assert-FWIntegration (@($public.ControlResults|Where-Object {$_.Status -cne 'NOT_SELECTED' -and $_.CheckId -cne 'WSA-NET-001'}).Count -eq 0 -and $null -eq $public.ConfigurationAssessment)
         $script:report=Read-WinSecTechnicalReport $sandbox $target.DeviceId 'firewall-control' WSA-NET-001
         Assert-FWIntegration ($report.CheckId -ceq 'WSA-NET-001' -and $report.SectionKey -ceq 'NetworkSecurity' -and $report.ObservedOSRelease -ceq 'Windows 11 10.0.22631')
+        $ports=ConvertTo-WinSecFirewallBatch @($report.Rows|Where-Object SettingId -CEQ Inventory.ACTIVE.0001)[0].Value
+        Assert-FWIntegration ($ports[0].LocalPort -ceq '135-139,443')
         $raw=Get-Content -LiteralPath $c.LastTechnicalReports.Files[0].Path -Raw -Encoding UTF8
         Assert-FWIntegration ($raw -notmatch 'PRIVATE-|NOT_SCORED|/100' -and @($FirewallEvents|Where-Object SchemaVersion -CEQ '2.0.0').Count -ge 28)
+        $script:FirewallLocalPort='Any'
     }
     Test-FWIntegration 'Cancellation during collection preserves the completed control and files' {
         $before=@(Get-ChildItem -LiteralPath (Join-Path $sandbox 'reports/exports') -Recurse -File).Count
