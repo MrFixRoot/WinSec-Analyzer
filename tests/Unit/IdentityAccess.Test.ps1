@@ -12,9 +12,9 @@ $passed=0;$failed=0
 function Assert-Identity {param([bool]$Value);if(-not $Value){throw 'Identity assertion failed.'}}
 function Reject-Identity {param([scriptblock]$Action);$caught=$false;try{$null=& $Action}catch{$caught=$true};Assert-Identity $caught}
 function Test-Identity {param($Name,[scriptblock]$Action);Initialize-WinSecIdentityFixture;try{$null=& $Action;$script:passed++;Write-Host ('[PASS] '+$Name)}catch{$script:failed++;Write-Host ('[FAIL] '+$Name+': '+$_.Exception.Message);Write-Host $_.ScriptStackTrace}}
-Test-Identity 'Three reviewed adapters are implemented but remain disabled' {
+Test-Identity 'Three IAM adapters are enabled only after individual native validation' {
     $c=Get-Content (Join-Path $root 'config/checks.json') -Raw|ConvertFrom-Json
-    Assert-Identity (@($c.checks|Where-Object {$_.checkId -clike 'WSA-IAM-*' -and $_.execution.enabled}).Count -eq 0)
+    Assert-Identity (@($c.checks|Where-Object {$_.checkId -clike 'WSA-IAM-*' -and $_.execution.enabled -and $_.implementationStatus -ceq 'VALIDATED'}).Count -eq 3)
     Assert-Identity (@(Get-WinSecTechnicalControls|Where-Object SectionKey -CEQ IdentityAccess).Count -eq 3)
 }
 foreach($id in @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')){Test-Identity ('Typed Markdown and privacy: '+$id) {

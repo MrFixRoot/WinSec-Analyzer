@@ -1,4 +1,4 @@
-# Production stays disabled. Only this disposable installation uses a synthetic registry/provider.
+# Real production execution permissions, synthetic providers and disposable internal storage only.
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
@@ -17,21 +17,20 @@ try {
     Set-Alias Invoke-WinSecIdentityAccessQuery Invoke-WinSecIdentityFixtureQuery -Scope Script
     Initialize-WinSecIdentityFixture
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-IdentityIntegration 'Production keeps eight validated controls and all IAM checks disabled' {
-        Assert-IdentityIntegration (@($production.Checks|Where-Object ExecutionEnabled).Count -eq 8 -and @($production.Checks|Where-Object {$_.CheckId -clike 'WSA-IAM-*' -and $_.ExecutionEnabled}).Count -eq 0)
-    }
-    $reader=(Get-Command Get-WinSecCheckRegistry -CommandType Function).ScriptBlock
-    function Get-WinSecCheckRegistry {
-        param($ProjectRoot)
-        $registry=& $reader $ProjectRoot
-        foreach($check in $registry.Checks){
-            $check.ExecutionEnabled=($check.CheckId -cin @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003'));$check.ExecutionReady=$check.ExecutionEnabled
-            if($check.ExecutionEnabled){$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'}
-        };return $registry
+    Test-IdentityIntegration 'Production enables exactly eleven validated checks including all three IAM controls' {
+        $ready=@($production.Checks|Where-Object ExecutionReady)
+        Assert-IdentityIntegration (($ready.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($ready|Where-Object {$_.ImplementationStatus -cne 'VALIDATED' -or -not $_.ExecutionEnabled}).Count -eq 0 -and @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3)
     }
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
     $c=New-WinSecScanCoordinator $sandbox;$c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
+    Test-IdentityIntegration 'Cancelled DEVICE confirmation includes eleven checks without querying any provider' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($preview);Assert-IdentityIntegration ($preview.ReadOnly -and ($preview.Checks.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003');$false
+        }
+        Assert-IdentityIntegration ($null -eq $r -and $IdentityCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
+    }
     Test-IdentityIntegration 'Cancelled section confirmation performs no queries and publishes no session' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-confirmation -ScopeType SECTION -ScopeKey IdentityAccess -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction {
             param($preview);Assert-IdentityIntegration ($preview.ReadOnly -and ($preview.Checks.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003' -and $preview.EvaluationProfile.Policies.Count -eq 3);$false
@@ -60,18 +59,22 @@ try {
         Assert-IdentityIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 3 -and ($c.LastTechnicalReports.Files.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003')
         foreach($id in @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')){$report=Read-WinSecTechnicalReport $sandbox $target.DeviceId identity-section $id;Assert-IdentityIntegration ($report.ScopeKey -ceq 'IdentityAccess' -and $report.ScanId -ceq 'identity-section')}
     }
-    Test-IdentityIntegration 'Restored F selects a framework and P exports the identical frozen view without new queries' {
+    foreach($review in @(@{Index=0;Id='WSA-IAM-001';Framework='nist-csf';Rows=1},@{Index=1;Id='WSA-IAM-002';Framework='cis-controls';Rows=1},@{Index=2;Id='WSA-IAM-003';Framework='mitre-attack';Rows=2})){
+    Test-IdentityIntegration ('Restored F/P preserves its selected control, framework and saved readings: '+$review.Id) {
         $restored=New-WinSecScanCoordinator $sandbox;$restored.Registry=$c.Registry
         $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$target.DeviceId
         $sections=@(Get-WinSecMainMenuSections);for($i=0;$i -lt $sections.Count;$i++){if($sections[$i].Key -ceq 'IdentityAccess'){$state.SectionIndex=$i}}
+        $state.ControlIndex=$review.Index
         $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-IDENTITY';DisplayName='SYNTHETIC-IDENTITY'});
             PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
         $null=Restore-WinSecPublicHistory $ctx;$before=$IdentityCalls.Count
-        function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+        function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId=$review.Framework}}
         Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
         $analysis=$ctx.FrameworkFindings.AnalysisId;$state.Screen='Findings';$state.FindingsScope='Control';$artifact=Export-WinSecCLIFrameworkFindings $state $ctx
-        Assert-IdentityIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.Rows.Count -eq 1 -and $ctx.FrameworkFindings.AnalysisId -ceq $analysis -and
+        Assert-IdentityIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.Rows.Count -eq $review.Rows -and $ctx.FrameworkFindings.AnalysisId -ceq $analysis -and
+            $ctx.FrameworkFindings.FrameworkId -ceq $review.Framework -and $ctx.FrameworkFindings.Sources[0].CheckId -ceq $review.Id -and
             $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and $IdentityCalls.Count -eq $before)
+    }
     }
     Test-IdentityIntegration 'Confirmed Delete Device recognizes IAM technical Markdown and Findings artifacts' {
         $devices=@((Import-WinSecDeviceInventory $sandbox).targets);$directory=Join-Path $sandbox ('reports/exports/'+(Get-WinSecEvidenceHash $target.DeviceId))

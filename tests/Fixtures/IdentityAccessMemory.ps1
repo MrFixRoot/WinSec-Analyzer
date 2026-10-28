@@ -3,6 +3,7 @@ function Initialize-WinSecIdentityFixture {
     $script:IdentityCalls=New-Object 'Collections.Generic.List[string]';$script:IdentityEvents=New-Object 'Collections.Generic.List[object]'
     $script:IdentityFailure='';$script:IdentityMissing='';$script:IdentityMemberCount=2;$script:IdentityDuplicate=$false
     $script:IdentityGuestDisabled=$false;$script:IdentityGuestSid='S-1-5-21-11-22-33-501'
+    $script:IdentityBuild=22631
     $script:IdentityMinimumLength=0;$script:IdentityLockoutThreshold=0
 }
 function Invoke-WinSecIdentityFixtureQuery {
@@ -11,7 +12,7 @@ function Invoke-WinSecIdentityFixtureQuery {
     if($CancellationAction -and (& $CancellationAction)){throw [OperationCanceledException]::new('Synthetic cancellation.')}
     if($Heartbeat){$null=& $Heartbeat};if($Role -ceq $script:IdentityFailure){throw 'PRIVATE-PROVIDER-TEXT'}
     switch -CaseSensitive ($Role){
-        Platform {return [pscustomobject]@{Caption='Microsoft Windows 11 Pro';Version='10.0.22631';BuildNumber='22631';OperatingSystemSKU=[uint32]48;ProductType=[uint32]1}}
+        Platform {return [pscustomobject]@{Caption='Microsoft Windows 11 Pro';Version=('10.0.'+$script:IdentityBuild);BuildNumber=[string]$script:IdentityBuild;OperatingSystemSKU=[uint32]48;ProductType=[uint32]1}}
         Administrators {
             for($i=0;$i -lt $script:IdentityMemberCount;$i++){[pscustomobject]@{SID=('S-1-5-21-11-22-33-'+$(if($script:IdentityDuplicate){1000}else{1000+$i}));Name='PRIVATE-ACCOUNT';Domain='PRIVATE-DOMAIN'}}
             return

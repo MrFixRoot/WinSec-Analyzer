@@ -32,8 +32,8 @@ try {
     Test-NetworkIntegration 'Production enables Network Configuration after individual native validation' {
         $check=Get-WinSecRegisteredCheck $production WSA-NET-005
         Assert-NetworkIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6)
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3)
     }
     Initialize-WinSecOpenPortsFixture;Initialize-WinSecNetworkConfigurationFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
@@ -44,11 +44,11 @@ try {
         Assert-NetworkIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
     }
-    Test-NetworkIntegration 'Device confirmation lists exactly eight validated controls and cancels without provider calls' {
+    Test-NetworkIntegration 'Device confirmation lists exactly eleven validated controls and cancels without provider calls' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($preview)
             Assert-NetworkIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
         Assert-NetworkIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $NetworkCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0)
