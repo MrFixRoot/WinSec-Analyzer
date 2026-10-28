@@ -14,12 +14,12 @@ function Show-WinSecScanConfirmation {
     if($null -ne $Request.TechnicalReports) {
         $t=$Request.TechnicalReports
         Assert-WinSecConfigurationFields $t @('SchemaVersion','CatalogVersion','Mode','Count','Directory','PolicySha256')
-        if($t.SchemaVersion -cnotin @('1.0.0','2.0.0') -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
+        if($t.SchemaVersion -cnotin @('1.0.0','2.0.0','3.0.0') -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
             ($t.Count -isnot [int] -and $t.Count -isnot [long]) -or $t.Count -lt 0 -or
             $t.Count -ne @($Request.Checks).Count -or $t.Directory -isnot [string] -or
             $t.Directory -cne ('reports/exports/'+(Get-WinSecEvidenceHash $Request.DeviceId)) -or
             $t.PolicySha256 -isnot [string] -or $t.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid technical report confirmation.'}
-        $format=if($t.SchemaVersion -ceq '2.0.0'){'Markdown'}else{'TXT (legacy)'}
+        $format=if($t.SchemaVersion -cin @('2.0.0','3.0.0')){'Markdown'}else{'TXT (legacy)'}
         $technicalLines=@(('Automatic technical '+$format+': '+$t.Count+' (one per executed control)'),('Output: '+$t.Directory),('Technical catalog: '+$t.CatalogVersion+' | hash: '+$t.PolicySha256))
     }
 
@@ -113,12 +113,14 @@ function Show-WinSecScanConfirmation {
     if ($profileCount -gt 1) { throw 'Ambiguous assessment profile confirmation.' }
     if ($profileCount -eq 1) {
         $profile = Assert-WinSecAssessmentProfilePreview $profileValue
-        $profileLines += 'Evaluation profile: ' + $profile.Profile
+        $profileLabel=if(@($profile.Policies|Where-Object {$_.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION','WSA-NETWORK-COLLECTION')}).Count){'Windows context / profile: '}else{'Evaluation profile: '}
+        $profileLines += $profileLabel + $profile.Profile
         foreach ($policy in $profile.Policies) {
             if (@($Request.Checks|Where-Object {$_.CheckId -ceq $policy.CheckId}).Count -ne 1) {
                 throw 'Profile policy lies outside the confirmed control selection.'
             }
-            $profileLines += 'Criteria: {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion
+            $label=if($policy.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION','WSA-NETWORK-COLLECTION')){'Collection schema'}else{'Criteria'}
+            $profileLines += ($label+': {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion)
             $profileLines += 'Criteria SHA256: ' + $policy.CatalogSha256
             $profileLines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition
         }

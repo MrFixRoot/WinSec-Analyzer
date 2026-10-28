@@ -80,6 +80,9 @@ function Test-WinSecBitLockerIntegrationCase {
     $script:terminal=[pscustomobject]@{Width=120;ContentWidth=119;Height=55}
     $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragment=New-Object Text.StringBuilder
     $script:coordinator=New-WinSecScanCoordinator -ProjectRoot $root
+    # Explicit legacy mode exercises immutable scored history. Production's
+    # replacement workflow is checked separately below without numeric output.
+    $script:coordinator.FrameworkWorkflowEnabled=$false
     $script:target=New-WinSecLocalTarget
     $script:coordinator.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($script:target)}
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
@@ -96,7 +99,7 @@ Test-WinSecBitLockerIntegrationCase 'Production BitLocker is individually valida
     $check=@($script:production.Checks|Where-Object CheckId -CEQ 'WSA-SYS-002')[0]
     Assert-WinSecBitLockerIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED')
 }
-foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
+foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
     @{T='SECTION';K='SystemSecurity';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-003'},
     @{T='CONTROL';K='WSA-SYS-002';Ids='WSA-SYS-002'})) {
     Test-WinSecBitLockerIntegrationCase ('Production catalog selects exact approved controls before cancellation: '+$scope.T) {
@@ -113,7 +116,7 @@ foreach($scope in @(@{T='DEVICE';K='ALL';Ids='WSA-SYS-001|WSA-SYS-002|WSA-SYS-00
             $script:queries -eq 0 -and $script:methodCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 0 -and $null -eq $script:saved)
     }
 }
-Test-WinSecBitLockerIntegrationCase 'Production BitLocker permission reaches approved evaluation without fixture enablement' {
+Test-WinSecBitLockerIntegrationCase 'Legacy evaluation uses validated BitLocker permission without fixture enablement' {
     $script:useProductionRegistry=$true;$script:coordinator.AssessmentEnabled=$true;$script:conversion=1;$script:protection=1
     $result=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType CONTROL -ScopeKey WSA-SYS-002 `
         -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction $confirm
@@ -122,6 +125,16 @@ Test-WinSecBitLockerIntegrationCase 'Production BitLocker permission reaches app
         $result.ConfigurationAssessment.Controls[0].Value -eq 100 -and $result.ReviewItems.Count -eq 3 -and
         @($result.ControlResults | Where-Object {$_.Status -cne 'NOT_SELECTED'}).Count -eq 1 -and
         $null -eq $result.OverallScore -and $null -eq $script:saved)
+}
+Test-WinSecBitLockerIntegrationCase 'Current production workflow collects BitLocker without a configuration score' {
+    $script:useProductionRegistry=$true;$script:coordinator.FrameworkWorkflowEnabled=$true
+    $script:coordinator.AssessmentEnabled=$true
+    $result=Invoke-WinSecCoordinatedScan -Coordinator $script:coordinator -ScopeType CONTROL -ScopeKey WSA-SYS-002 `
+        -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction $confirm
+    Assert-WinSecBitLockerIntegration ($script:confirmations -eq 1 -and $script:methodCalls -eq 4 -and
+        $result.ExecutionStatus -ceq 'COMPLETED' -and $null -eq $result.ConfigurationAssessment -and
+        $null -eq $result.OverallScore -and -not $result.ScoringEligible -and $result.ReviewItems.Count -eq 3 -and
+        @($result.ControlResults|Where-Object Status -CNE NOT_SELECTED).Count -eq 1)
 }
 Test-WinSecBitLockerIntegrationCase 'Initialization does not collect OS volume telemetry' {
     Assert-WinSecBitLockerIntegration ($script:queries -eq 0 -and $script:methodCalls -eq 0 -and $script:coordinator.Sessions.Count -eq 0)

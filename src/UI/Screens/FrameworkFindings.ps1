@@ -50,9 +50,10 @@ function Show-WinSecFrameworkFindings {
     $coverageColor=if($a.UnknownReadingCount -gt 0){'Yellow'}else{'Gray'}
     Write-WinSecText -Text ('Readings reviewed: '+$a.ReadingCount+' | Unknown/unavailable: '+$a.UnknownReadingCount+' | Warnings: '+$a.Rows.Count) -Color $coverageColor
     if($a.MissingTechnicalCheckIds.Count){Write-WinSecText -Text ('Detailed records unavailable: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only verified historical findings are available.') -Color Yellow}
-    $expected=if($a.ScopeType -ceq 'SECTION'){@('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')}else{@($a.ScopeKey)}
+    $expected=@(Get-WinSecTechnicalScopeChecks $a.ScopeType $a.ScopeKey)
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){Write-WinSecText -Text ('Controls without a saved scan: '+($unscanned -join ', ')) -Color Yellow}
+    if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){Write-WinSecText -Text 'Coverage: saved Firewall / SMBv1 / RDP readings only. Open Ports and Network Configuration remain pending.' -Color Yellow}
     Write-WinSecText -Text 'Review context; not a compliance verdict or evidence of an attack.' -Color DarkGray
     $rows=@($a.Rows|ForEach-Object {[pscustomobject]@{Id=$_.Id;Control=$_.CheckId+' / '+$_.CriterionId;Title=$_.Title;State=$_.State}})
     $index=if($rows.Count){[Math]::Max(0,[Math]::Min([int]$State.FindingsOffset,$rows.Count-1))}else{-1}

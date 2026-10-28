@@ -24,7 +24,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
     $rules=ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8)
     Assert-WinSecConfigurationFields $rules @('schemaVersion','catalogVersion','interpretation','rules','sources')
-    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cne '1.0.0' -or
+    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0','1.4.0','1.5.0','1.6.0') -or
         $rules.interpretation -cne 'REVIEW_WARNINGS_NOT_COMPLIANCE' -or $rules.rules -isnot [array] -or $rules.rules.Count -gt 200){throw 'Invalid warning catalog.'}
     $seen=@{}
     foreach($rule in $rules.rules) {
@@ -33,9 +33,14 @@ function Get-WinSecFrameworkAnalysisCatalog {
             if(-not (Test-WinSecAnalysisText $rule.$field)){throw 'Unsafe warning rule.'}
         }
         if($seen.ContainsKey($rule.id) -or $rule.id -cnotmatch '\A[A-Z0-9-]{1,64}\z' -or
-            $rule.checkId -cnotin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003') -or
-            $rule.condition -cnotin @('TRUE','FALSE','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL')){throw 'Invalid warning predicate.'}
-        if($rule.setting -cne 'AttackSurfaceReduction.Rules.*.Mode') {
+            $rule.checkId -cnotin @(Get-WinSecTechnicalControls|ForEach-Object CheckId) -or
+            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED','RDP_NLA_OFF','RDP_NATIVE','RDP_LOW_ENCRYPTION','ONE','ZERO','PORTS_REVIEW','NETWORK_REVIEW')){throw 'Invalid warning predicate.'}
+        if($rule.condition -ceq 'NETWORK_REVIEW' -and ($rule.checkId -cne 'WSA-NET-005' -or $rule.setting -cnotin @('Inventory.Legacy.*','Inventory.Profile.*'))){throw 'Invalid network review predicate.'}
+        if($rule.condition -ceq 'PORTS_REVIEW' -and ($rule.checkId -cne 'WSA-NET-004' -or $rule.setting -cnotin @('Inventory.TCP.*','Inventory.UDP.*'))){throw 'Invalid endpoint review predicate.'}
+        if($rule.condition -clike 'RDP_*' -and ($rule.checkId -cne 'WSA-NET-003' -or
+            ($rule.condition -ceq 'RDP_NATIVE' -and $rule.setting -cne 'Registry.Policy_SecurityLayer.Value') -or
+            ($rule.condition -cne 'RDP_NATIVE' -and $rule.setting -cne 'Inventory.General'))){throw 'Invalid contextual RDP predicate.'}
+        if($rule.setting -cne 'AttackSurfaceReduction.Rules.*.Mode' -and $rule.condition -cnotin @('PORTS_REVIEW','NETWORK_REVIEW')) {
             $null=Get-WinSecTechnicalRowDefinition $rule.setting @(Get-WinSecTechnicalDefinitions $rule.checkId)
         }
         $seen[$rule.id]=$true
@@ -55,7 +60,12 @@ function Get-WinSecFrameworkAnalysisCatalog {
 function Test-WinSecFrameworkWarning {
     param($Value,[string]$Condition)
     switch($Condition) {
+        ZERO {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 0)}
+        ONE {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 1)}
+        ENABLED {return ($Value -is [string] -and $Value -ceq 'ENABLED')}
         TRUE {return ($Value -is [bool] -and $Value)}
+        ALLOW {return ($Value -ceq 'ALLOW')}
+        STOPPED {return ($Value -ceq 'STOPPED')}
         FALSE {return ($Value -is [bool] -and -not $Value)}
         NOT_BLOCK {return ($Value -in @('DISABLED','AUDIT','AUDITMODE','WARN','NOT_CONFIGURED','NOTCONFIGURED') -or
             ($Value -is [ValueType] -and $Value -in @(0,2,3,4,5,6)))}
@@ -94,8 +104,8 @@ function New-WinSecFrameworkAnalysis {
             $public.ScopeType -cne $source.ScopeType -or $public.ScopeKey -cne $source.ScopeKey -or
             $public.CompletedAtUTC -cne $source.CompletedAtUTC -or $source.CheckId -cnotin $source.ExpectedCheckIds -or
             ($ScopeType -ceq 'CONTROL' -and $source.CheckId -cne $ScopeKey) -or
-            @($public.ControlResults|Where-Object {$_.CheckId -ceq $source.CheckId -and $_.SectionKey -ceq 'SystemSecurity'}).Count -ne 1 -or
-            ($ScopeType -ceq 'SECTION' -and $ScopeKey -cne 'SystemSecurity')){throw 'Foreign analysis source.'}
+            @($public.ControlResults|Where-Object {$_.CheckId -ceq $source.CheckId -and $_.SectionKey -ceq (Get-WinSecTechnicalControl $source.CheckId).SectionKey}).Count -ne 1 -or
+            ($ScopeType -ceq 'SECTION' -and $ScopeKey -cne (Get-WinSecTechnicalControl $source.CheckId).SectionKey)){throw 'Foreign analysis source.'}
         $manifest+=,[pscustomobject]@{CheckId=$source.CheckId;ScanId=$source.ScanId;ScopeType=$source.ScopeType;ScopeKey=$source.ScopeKey;
             CompletedAtUTC=$source.CompletedAtUTC;Origin=$source.Origin}
         $matches=@($reportsCopy|Where-Object {$_.CheckId -ceq $source.CheckId -and $_.ScanId -ceq $source.ScanId})
@@ -124,7 +134,78 @@ function New-WinSecFrameworkAnalysis {
     foreach($entry in $readings) {
         if(& $cancel){return $null}
         $reading=$entry.Reading
+        if($entry.CheckId -ceq 'WSA-NET-001' -and $reading.SettingId -clike 'Inventory.*') {
+            $definition=Get-WinSecTechnicalRowDefinition $reading.SettingId @(Get-WinSecTechnicalDefinitions $entry.CheckId)
+            # Inspect every normalized record without calling a Windows provider.
+            if($definition.Kind -ceq 'firewallBatch') {
+                $rules=ConvertTo-WinSecFirewallBatch $reading.Value;$broad=0
+                foreach($rule in $rules) {
+                    if(& $cancel){return $null}
+                    if($rule.Store -ceq 'ACTIVE' -and $rule.Enabled -ceq $true -and $rule.Direction -ceq 'INBOUND' -and
+                        $rule.Action -ceq 'ALLOW' -and $rule.Profile -cmatch 'PUBLIC|ANY' -and
+                        $rule.RemoteAddress -ceq 'ANY' -and $rule.LocalPort -ceq 'ANY'){$broad++}
+                }
+                if($broad) {
+                    $null=& $add $entry.CheckId $entry.ScanId $reading.SettingId 'WSA-FW-REVIEW-004' 'CONFIGURATION_REVIEW' `
+                        'Broad inbound public exceptions require review' ($broad.ToString()+' enabled rules in '+$reading.SettingId+'; inspect their complete records in the technical Markdown.') `
+                        'Review every rule in this batch, blocking-rule precedence, interfaces, application restrictions and approved business exceptions. An allow rule alone does not prove that traffic can reach a service.'
+                }
+            }
+        }
         foreach($rule in @($catalog.Rules.rules|Where-Object {$_.checkId -ceq $entry.CheckId -and $reading.SettingId -clike $_.setting})) {
+            if($rule.condition -ceq 'NETWORK_REVIEW'){
+                if($reading.State -ceq 'OBSERVED'){
+                    $batch=ConvertTo-WinSecNetworkConfigurationBatch $reading.Value;$review=@()
+                    foreach($item in $batch.Items){
+                        if(& $cancel){return $null}
+                        if(($batch.Role -ceq 'Legacy' -and $item.Values.IPEnabled -ceq $true -and $null -ne $item.Values.TcpipNetbiosOptions -and $item.Values.TcpipNetbiosOptions -eq 1) -or
+                            ($batch.Role -ceq 'Profile' -and $null -ne $item.Values.NetworkCategory -and $item.Values.NetworkCategory -eq 1)){$review+=,($item.Id+' / interface '+$item.Values.InterfaceIndex)}
+                    }
+                    if($review.Count){$null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title ($review -join '; ') $rule.recommendation}
+                };continue
+            }
+            if($rule.condition -ceq 'PORTS_REVIEW'){
+                if($reading.State -ceq 'OBSERVED'){
+                    $review=@()
+                    foreach($endpoint in (ConvertTo-WinSecOpenPortsBatch $reading.Value)){
+                        if(& $cancel){return $null}
+                        if($endpoint.BindingScope -cne 'LOOPBACK'){$review+=,$endpoint}
+                    }
+                    if($review.Count){
+                        $ports=(@($review.Port|Sort-Object -Unique) -join ', ')
+                        $null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title `
+                            ($review.Count.ToString()+' non-loopback bindings; ports '+$ports+'. See '+$reading.SettingId+' in the technical Markdown for every endpoint.') $rule.recommendation
+                    }
+                }
+                continue
+            }
+            if($entry.CheckId -ceq 'WSA-NET-003' -and $rule.condition -clike 'RDP_*'){
+                # Listener warnings need effective host permission from this exact saved scan.
+                $hostRows=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'HostEnabled'})
+                $supportRows=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'HostSupport'})
+                if($reading.State -ceq 'OBSERVED' -and $hostRows.Count -eq 1 -and $hostRows[0].Reading.State -ceq 'OBSERVED' -and $hostRows[0].Reading.Value -ceq $true -and
+                    $supportRows.Count -eq 1 -and $supportRows[0].Reading.Value -ceq 'SUPPORTED'){
+                    # The WMI getter documentation and setter use different numeric labels.
+                    # Never reinterpret that raw enum as a registry value. A configured
+                    # native-only machine policy is independent, explicit evidence.
+                    if($rule.condition -ceq 'RDP_NATIVE'){
+                        if($reading.Value -eq 0){$null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title 'Machine SecurityLayer policy=0 (native RDP)' $rule.recommendation}
+                        continue
+                    }
+                    $nativePolicy=@($readings|Where-Object {$_.CheckId -ceq $entry.CheckId -and $_.ScanId -ceq $entry.ScanId -and $_.Reading.SettingId -ceq 'Registry.Policy_SecurityLayer.Value'})
+                    if($rule.condition -ceq 'RDP_LOW_ENCRYPTION' -and ($nativePolicy.Count -ne 1 -or $nativePolicy[0].Reading.State -cne 'OBSERVED' -or $nativePolicy[0].Reading.Value -ne 0)){continue}
+                    $batch=ConvertTo-WinSecRdpInventory $reading.Value
+                    foreach($item in $batch.Items){
+                        if(& $cancel){return $null}
+                        $field=switch($rule.condition){RDP_NLA_OFF {'UserAuthenticationRequired'};RDP_LOW_ENCRYPTION {'MinEncryptionLevel'}}
+                        $v=$item.Values.$field
+                        $warn=($null -ne $v -and $(if($rule.condition -ceq 'RDP_LOW_ENCRYPTION'){$v -in @(1,2)}else{$v -eq 0}))
+                        if($warn){$null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title `
+                            ('Listener '+$item.Id+'; '+$field+'='+$v) $rule.recommendation}
+                    }
+                }
+                continue
+            }
             if($reading.State -ceq 'OBSERVED' -and (Test-WinSecFrameworkWarning $reading.Value $rule.condition)) {
                 $null=& $add $entry.CheckId $entry.ScanId $reading.SettingId $rule.criterion 'CONFIGURATION_REVIEW' $rule.title `
                     (ConvertTo-Json -InputObject $reading.Value -Compress) $rule.recommendation
@@ -143,6 +224,26 @@ function New-WinSecFrameworkAnalysis {
         $done++;$null=& $emit
     }
     $unknown=@($readings|Where-Object {$_.Reading.State -cin @('UNKNOWN','ERROR','NOT_COLLECTED')}).Count
+    # Inventories are typed containers: an observed container can still hold
+    # unresolved informational readings. Count such containers as limited too.
+    foreach($entry in @($readings|Where-Object {$_.CheckId -ceq 'WSA-NET-003' -and $_.Reading.SettingId -clike 'Inventory.*' -and $_.Reading.State -ceq 'OBSERVED'})){
+        if(& $cancel){return $null}
+        $batch=ConvertTo-WinSecRdpInventory $entry.Reading.Value
+        $excluded=if($null -ne $batch.PSObject.Properties['NotApplicableFields']){@($batch.NotApplicableFields)}else{@()}
+        $limited=$false
+        foreach($item in $batch.Items){foreach($field in $item.Values.PSObject.Properties){if($null -eq $field.Value -and $field.Name -cnotin $excluded){$limited=$true}}}
+        if($limited){$unknown++}
+    }
+    foreach($entry in @($readings|Where-Object {$_.CheckId -ceq 'WSA-NET-004' -and $_.Reading.SettingId -clike 'Inventory.*' -and $_.Reading.State -ceq 'OBSERVED'})){
+        if(& $cancel){return $null}
+        $endpoints=ConvertTo-WinSecOpenPortsBatch $entry.Reading.Value
+        if((Get-WinSecOpenPortsCounts $endpoints).UnknownFields -gt 0){$unknown++}
+    }
+    foreach($entry in @($readings|Where-Object {$_.CheckId -ceq 'WSA-NET-005' -and $_.Reading.SettingId -clike 'Inventory.*' -and $_.Reading.State -ceq 'OBSERVED'})){
+        if(& $cancel){return $null}
+        $batch=ConvertTo-WinSecNetworkConfigurationBatch $entry.Reading.Value
+        if((Get-WinSecNetworkConfigurationUnknownCount $batch.Items) -gt 0){$unknown++}
+    }
     $result=[pscustomobject]@{SchemaVersion='1.0.0';AnalysisId=$id;DeviceId=$DeviceId;DeviceName=$DeviceName;
         ScopeType=$ScopeType;ScopeKey=$ScopeKey;FrameworkId=$FrameworkId;FrameworkVersion=$catalog.Framework.frameworkVersion;
         FrameworkSha256=$catalog.FrameworkHash;RuleCatalogVersion=$catalog.Rules.catalogVersion;RuleCatalogSha256=$catalog.RuleHash;
@@ -174,11 +275,11 @@ function Assert-WinSecFrameworkAnalysis {
         $null=ConvertTo-WinSecResultUtc $source.CompletedAtUTC CompletedAtUTC
         Assert-WinSecResultScope $source.ScopeType $source.ScopeKey
         if($source.CheckId -isnot [string] -or $sourceIds.ContainsKey($source.CheckId) -or $source.Origin -cnotin @('LIVE','RECORDS') -or -not (Test-WinSecTargetIdentifier $source.ScanId) -or
-            $source.CheckId -cnotin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003') -or
+            $source.CheckId -cnotin @(Get-WinSecTechnicalControls|ForEach-Object CheckId) -or
             ($ScopeType -ceq 'CONTROL' -and $source.CheckId -cne $ScopeKey) -or
-            ($ScopeType -ceq 'SECTION' -and $ScopeKey -cne 'SystemSecurity') -or
+            ($ScopeType -ceq 'SECTION' -and $ScopeKey -cne (Get-WinSecTechnicalControl $source.CheckId).SectionKey) -or
             ($source.ScopeType -ceq 'CONTROL' -and $source.ScopeKey -cne $source.CheckId) -or
-            ($source.ScopeType -ceq 'SECTION' -and $source.ScopeKey -cne 'SystemSecurity')){throw 'Invalid framework source manifest.'}
+            ($source.ScopeType -ceq 'SECTION' -and $source.ScopeKey -cne (Get-WinSecTechnicalControl $source.CheckId).SectionKey)){throw 'Invalid framework source manifest.'}
         $sourceIds[$source.CheckId]=$true
     }
     if($a.SchemaVersion -cne '1.0.0' -or $a.AnalysisId -isnot [string] -or $a.AnalysisId -cnotmatch '\A[a-f0-9]{32}\z' -or $a.DeviceId -isnot [string] -or

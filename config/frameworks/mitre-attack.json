@@ -78,6 +78,7 @@
         }
     ],
     "techniques": [
+        {"id":"T1021","name":"Remote Services"},
         {
             "id": "T1685",
             "name": "Disable or Modify Tools"
@@ -87,8 +88,10 @@
             "name": "Exploitation for Privilege Escalation"
         }
     ],
-    "subtechniques": [],
+    "subtechniques": [{"id":"T1021.001","name":"Remote Desktop Protocol","parentTechniqueId":"T1021"}],
     "mitigations": [
+        {"id":"M1037","name":"Filter Network Traffic"},
+        {"id":"M1042","name":"Disable or Remove Feature or Program"},
         {
             "id": "M1051",
             "name": "Update Software"
@@ -99,6 +102,31 @@
         }
     ],
     "mappings": [
+        {"checkId":"WSA-NET-005","references":[{"criterionIds":["WSA-NCF-REVIEW-001","WSA-NCF-REVIEW-002","WSA-NCF-REVIEW-003"],"description":"Saved network configuration supports contextual baseline and legacy-protocol review. These references do not establish effective policy, exposure, compromise or framework compliance.","recommendation":"Review the observed adapter, profile and explicit DNS policy settings against the approved network baseline and documented exceptions. Validate applicability and effective behavior separately; only authorized administrators may apply changes.","id":"M1042","mitigationId":"M1042","type":"Mitigation","title":"Disable or Remove Feature or Program","url":"https://attack.mitre.org/mitigations/M1042/"}]},
+        {"checkId":"WSA-NET-004","references":[{"id":"M1037","mitigationId":"M1037","type":"Mitigation","title":"Filter Network Traffic","url":"https://attack.mitre.org/mitigations/M1037/","criterionIds":["WSA-PRT-REVIEW-001","WSA-PRT-REVIEW-002"],"description":"Local TCP and UDP binding inventory provides context for reviewing traffic filtering. A bound port alone proves neither adversary activity nor an effective network path.","recommendation":"Review authorized traffic, service need, intended interfaces and endpoint filtering. Restrict unnecessary paths through authorized administration and document approved exceptions. No port probe, traffic test or remediation is performed by this control."}]},
+        {
+            "checkId": "WSA-NET-003",
+            "references": [
+                {
+                    "id": "T1021.001",
+                    "techniqueId": "T1021",
+                    "subtechniqueId": "T1021.001",
+                    "type": "Subtechnique",
+                    "title": "Remote Desktop Protocol",
+                    "url": "https://attack.mitre.org/techniques/T1021/001/",
+                    "criterionIds": [
+                        "WSA-RDP-REVIEW-001",
+                        "WSA-RDP-REVIEW-002",
+                        "WSA-RDP-REVIEW-003",
+                        "WSA-RDP-REVIEW-004",
+                        "WSA-RDP-REVIEW-005",
+                        "WSA-RDP-REVIEW-006"
+                    ],
+                    "description": "Remote Desktop configuration contributes context to secure remote access and configuration management. Enabling a needed host is not automatically a vulnerability. NLA is not MFA; these local observations prove neither network exposure, an attack nor compliance.",
+                    "recommendation": "Review the approved need for RDP, authentication, TLS, native encryption, credential handling and trusted connection files. Have an authorized administrator apply the reviewed policy. Validate access restrictions and MFA separately; reassess only through a confirmed read-only scan."
+                }
+            ]
+        },
         {
             "checkId": "WSA-SYS-002",
             "references": [
@@ -179,6 +207,37 @@
                     "criterionIds": ["WSA-WUP-BASE-003"],
                     "description": "A release without reviewed vendor security support requires maintenance planning. This lifecycle observation neither detects an attack nor proves complete protection.",
                     "recommendation": "Plan migration to a supported Windows release with the administrator, including compatibility and recovery checks. Review remaining software maintenance separately; the original lifecycle result remains unchanged."
+                }
+            ]
+        },
+        {
+            "checkId": "WSA-NET-002",
+            "references": [
+                {"id":"M1042","mitigationId":"M1042","type":"Mitigation",
+                 "title":"Disable or Remove Feature or Program",
+                 "url":"https://attack.mitre.org/mitigations/M1042/",
+                 "criterionIds":["WSA-SMB-REVIEW-001","WSA-SMB-REVIEW-002","WSA-SMB-REVIEW-003"],
+                 "description":"MITRE names SMBv1 as an example of an unnecessary legacy feature to remove. This contextual mitigation mapping does not detect an ATT&CK technique, adversary activity, network exposure or successful mitigation.",
+                 "recommendation":"Review the legacy feature and driver dependency with the administrator. Migrate business dependencies and disable or remove unneeded SMBv1 through authorized administration; reassess with an explicitly confirmed scan."}
+            ]
+        },
+        {
+            "checkId": "WSA-NET-001",
+            "references": [
+                {
+                    "id": "M1037",
+                    "mitigationId": "M1037",
+                    "type": "Mitigation",
+                    "title": "Filter Network Traffic",
+                    "url": "https://attack.mitre.org/mitigations/M1037/",
+                    "criterionIds": [
+                        "WSA-FW-REVIEW-001",
+                        "WSA-FW-REVIEW-002",
+                        "WSA-FW-REVIEW-003",
+                        "WSA-FW-REVIEW-004"
+                    ],
+                    "description": "Host Firewall configuration contributes context to network filtering. Disabled profiles, permissive defaults and broad exceptions require review. Logging is complementary monitoring context. These observations do not prove compliance, reachability, exploitation or complete mitigation.",
+                    "recommendation": "Review the effective policy for Domain, Private and Public profiles, approved application and service exceptions, block precedence, and monitoring requirements. Have an authorized administrator apply the approved filtering policy; reassess through a confirmed read-only scan."
                 }
             ]
         }

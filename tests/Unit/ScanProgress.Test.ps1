@@ -141,5 +141,17 @@ foreach ($mutation in @(
         Assert-WinSecProgress ($caught -and ($script:lines -join '|') -ceq $before)
     }
 }
+Test-WinSecProgress 'Firewall stages advance within the control and repeated heartbeats do not redraw' {
+    $event=New-WinSecProgressEvent;$event.SchemaVersion='2.0.0';$event.CheckId='WSA-NET-001';$event.TotalChecks=1
+    $event|Add-Member Stage 'RULESACTIVE';$event|Add-Member CompletedSteps 7;$event|Add-Member TotalSteps 28
+    Show-WinSecScanProgress $script:display $event
+    Assert-WinSecProgress (($script:lines -join '|') -match '25%' -and ($script:lines -join '|') -match 'RULESACTIVE' -and ($script:lines -join '|') -match 'Esc: cancel Firewall')
+    $before=$script:lines -join '|';$script:lines.Add('REDRAW-GUARD')
+    Show-WinSecScanProgress $script:display $event
+    Assert-WinSecProgress ($script:lines[-1] -ceq 'REDRAW-GUARD')
+    $script:terminal=[pscustomobject]@{Width=16;ContentWidth=15;Height=5}
+    Show-WinSecScanProgress $script:display $event
+    Assert-WinSecProgress (@($script:lines|Where-Object {$_.Length -gt 15}).Count -eq 0 -and $script:display.LastProgress.CompletedSteps -eq 7)
+}
 Write-Host ('Scan progress: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if ($script:failed) { throw 'Scan progress unit tests failed.' }

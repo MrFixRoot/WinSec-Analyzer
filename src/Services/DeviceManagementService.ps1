@@ -136,7 +136,7 @@ function Get-WinSecDeviceRemovalPlan {
                 else {
                     if ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($storageRoot)) -ceq 'exports') {
                         $extension=[IO.Path]::GetExtension($item.FullName)
-                        if ($extension -cnotin @('.md','.txt') -or $item.Length -gt 1048576) { throw 'Unrecognized device export.' }
+                        if ($extension -cnotin @('.md','.txt') -or $item.Length -gt 16777216) { throw 'Unrecognized device export.' }
                         $content=Get-Content -LiteralPath $item.FullName -Raw -Encoding UTF8 -ErrorAction Stop
                         if($extension -ceq '.txt'){$null=ConvertFrom-WinSecTextArtifact -Text $content -DeviceId $DeviceId}
                         else{$null=ConvertFrom-WinSecMarkdownArtifact -Text $content -DeviceId $DeviceId}
@@ -243,7 +243,7 @@ function Remove-WinSecManagedDevice {
                 foreach ($key in $plan.SessionKeys) {
                     $Coordinator.Sessions.Remove($key)
                     if($snapshots -is [hashtable]) {
-                        foreach($check in @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')){$snapshots.Remove($key+'|'+$check)}
+                        foreach($check in @(Get-WinSecTechnicalControls|ForEach-Object CheckId)){$snapshots.Remove($key+'|'+$check)}
                     }
                 }
                 $receipt=Get-WinSecTargetField $Coordinator LastTechnicalReports
