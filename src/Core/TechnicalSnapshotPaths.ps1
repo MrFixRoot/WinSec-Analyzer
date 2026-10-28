@@ -11,7 +11,7 @@ function Get-WinSecSnapshotDeviceKey {
 
 function Assert-WinSecSnapshotStoragePath {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$RelativePath)
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$RelativePath,[switch]$AllowExistingArtifact)
     # Deliberately Windows-local; UNC, provider paths, drive-relative names and ADS are excluded.
     if($ProjectRoot -notmatch '\A[A-Za-z]:[\\/]' -or $ProjectRoot -match '[\p{C}]' -or
         $ProjectRoot.Substring(2) -match ':' -or $ProjectRoot -match '(?:\A|[\\/])\.{1,2}(?:[\\/]|\z)') {throw 'Invalid project root.'}
@@ -36,8 +36,9 @@ function Assert-WinSecSnapshotStoragePath {
         catch {if($_.CategoryInfo.Category -ne [Management.Automation.ErrorCategory]::ObjectNotFound){throw 'Cannot inspect storage path.'}}
         if($null -ne $item){
             if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse point in storage path.'}
-            if($cursor -ceq $path){throw 'Artifact path already exists.'}
-            if(-not $item.PSIsContainer){throw 'File occupies artifact parent.'}
+            if($cursor -ceq $path){
+                if(-not $AllowExistingArtifact -or $item.PSIsContainer){throw 'Artifact path already exists.'}
+            }elseif(-not $item.PSIsContainer){throw 'File occupies artifact parent.'}
         }
         $parent=[IO.Path]::GetDirectoryName($cursor)
         if($parent -ceq $cursor){break};$cursor=$parent
