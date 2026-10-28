@@ -30,6 +30,7 @@ function New-WinSecFrameworkMarkdown {
     if($a.RuleCatalogVersion -ceq '1.2.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002')}
     if($a.RuleCatalogVersion -cin @('1.3.0','1.4.0') -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002','WSA-NET-003')}
     if($a.RuleCatalogVersion -ceq '1.5.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')}
+    if($a.RuleCatalogVersion -cne '1.7.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'IdentityAccess'){$expected=@()}
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){$lines.Add('Controls without a saved scan: '+($unscanned -join ', ')+'. Run a separately confirmed scan to collect them.')}
     if($a.MissingTechnicalCheckIds.Count){$lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only recorded, verified deviations could be reviewed for these controls.')}

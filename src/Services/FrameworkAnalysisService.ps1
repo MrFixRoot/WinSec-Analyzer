@@ -24,7 +24,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
     $rules=ConvertFrom-WinSecStoredJson (Get-Content -LiteralPath $path -Raw -Encoding UTF8)
     Assert-WinSecConfigurationFields $rules @('schemaVersion','catalogVersion','interpretation','rules','sources')
-    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0','1.4.0','1.5.0','1.6.0') -or
+    if($rules.schemaVersion -cne '1.0.0' -or $rules.catalogVersion -cnotin @('1.1.0','1.2.0','1.3.0','1.4.0','1.5.0','1.6.0','1.7.0') -or
         $rules.interpretation -cne 'REVIEW_WARNINGS_NOT_COMPLIANCE' -or $rules.rules -isnot [array] -or $rules.rules.Count -gt 200){throw 'Invalid warning catalog.'}
     $seen=@{}
     foreach($rule in $rules.rules) {
@@ -34,7 +34,8 @@ function Get-WinSecFrameworkAnalysisCatalog {
         }
         if($seen.ContainsKey($rule.id) -or $rule.id -cnotmatch '\A[A-Z0-9-]{1,64}\z' -or
             $rule.checkId -cnotin @(Get-WinSecTechnicalControls|ForEach-Object CheckId) -or
-            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED','RDP_NLA_OFF','RDP_NATIVE','RDP_LOW_ENCRYPTION','ONE','ZERO','PORTS_REVIEW','NETWORK_REVIEW')){throw 'Invalid warning predicate.'}
+            $rule.condition -cnotin @('TRUE','FALSE','ALLOW','STOPPED','NOT_BLOCK','DISABLED','OFF','NOT_ENCRYPTED','NOT_NORMAL','ENABLED','RDP_NLA_OFF','RDP_NATIVE','RDP_LOW_ENCRYPTION','ONE','ZERO','POSITIVE','PORTS_REVIEW','NETWORK_REVIEW')){throw 'Invalid warning predicate.'}
+        if($rule.condition -ceq 'POSITIVE' -and ($rule.checkId -cne 'WSA-IAM-001' -or $rule.setting -cne 'Administrators.MemberCount')){throw 'Invalid identity review predicate.'}
         if($rule.condition -ceq 'NETWORK_REVIEW' -and ($rule.checkId -cne 'WSA-NET-005' -or $rule.setting -cnotin @('Inventory.Legacy.*','Inventory.Profile.*'))){throw 'Invalid network review predicate.'}
         if($rule.condition -ceq 'PORTS_REVIEW' -and ($rule.checkId -cne 'WSA-NET-004' -or $rule.setting -cnotin @('Inventory.TCP.*','Inventory.UDP.*'))){throw 'Invalid endpoint review predicate.'}
         if($rule.condition -clike 'RDP_*' -and ($rule.checkId -cne 'WSA-NET-003' -or
@@ -60,6 +61,7 @@ function Get-WinSecFrameworkAnalysisCatalog {
 function Test-WinSecFrameworkWarning {
     param($Value,[string]$Condition)
     switch($Condition) {
+        POSITIVE {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -gt 0)}
         ZERO {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 0)}
         ONE {return ($Value -is [ValueType] -and $Value -isnot [bool] -and $Value -eq 1)}
         ENABLED {return ($Value -is [string] -and $Value -ceq 'ENABLED')}

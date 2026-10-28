@@ -23,6 +23,13 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        {$_ -cin @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')} {
+            $lines.Add('- Local Windows SAM configuration only. No domain/Entra policy, effective group expansion, sign-in attempts, passwords, hashes of passwords, recovery material or user names are collected. PrincipalId is a SHA256 token of an account SID, never a password hash.')
+            $lines.Add('- Administrators is located by S-1-5-32-544. Only direct member SIDs are enumerated (up to 256); nested/domain membership and whether each assignment is authorized require a separately approved baseline. No name or domain resolution is performed.')
+            $lines.Add('- Guest is located by its local account RID 501, independently of its translated or renamed account name. PasswordRequired=false is an account flag, not proof of a blank password. A missing or ambiguous Guest record remains UNKNOWN.')
+            $lines.Add('- NetUserModalsGet levels 0 and 3 report local password and lockout parameters. Age, observation and duration values are seconds; 4294967295 is TIMEQ_FOREVER for age/force-logoff fields. These readings do not describe Windows Hello, MFA, domain or cloud password policy. Complexity and reversible storage are NOT_COLLECTED by these APIs; coverage remains LIMITED.')
+            $lines.Add('- The reviewed Windows 11 schema is common across editions/builds; selected context does not override observed Windows. Execution COMPLETE describes successful queries, not account security or full IAM coverage. Failed/invalid required readings remain PARTIAL; unknown optional account flags remain visible.')
+        }
         'WSA-NET-005' {
             if($r.CatalogVersion -ceq '1.1.0'){
                 $lines.Add('- Legacy configuration Index is the Win32 configuration key; it is never substituted for InterfaceIndex. Every record is retained. A null InterfaceIndex is accepted only with an observed IPEnabled=false and remains UNKNOWN with limited coverage. IP-enabled configurations still require a valid InterfaceIndex. Malformed indices and duplicate configuration keys reject the inventory.')
@@ -122,6 +129,12 @@ function ConvertTo-WinSecTechnicalMarkdown {
                 $lines.Add('')
             }
             continue
+        }
+        if($d.Kind -ceq 'identityMembers' -and $row.State -ceq 'OBSERVED') {
+            $group='';$lines.Add('');$lines.Add('## Direct Administrators members');$lines.Add('')
+            $lines.Add('| Record | Principal SID token |');$lines.Add('| --- | --- |')
+            foreach($item in (ConvertTo-WinSecIdentityMembers $row.Value)){$lines.Add('| '+$item.Id+' | '+$item.PrincipalId+' |')}
+            $lines.Add('');continue
         }
         if($d.Kind -cin @('firewallBatch','firewallMetadata')) {
             $group='';$lines.Add('');$lines.Add('## '+$row.SettingId);$lines.Add('')
