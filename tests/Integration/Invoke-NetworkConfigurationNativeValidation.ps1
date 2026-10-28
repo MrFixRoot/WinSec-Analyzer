@@ -75,6 +75,7 @@ try {
     [pscustomobject]@{OperationId=$OperationId;Runtime=$PSVersionTable.PSVersion.ToString();ExecutionStatus=$session.ExecutionStatus;
         CollectionValidated=($null -ne $e -and $e.CollectionSuccessful -ceq $true);
         CollectionSuccessful=$e.CollectionSuccessful;CollectionComplete=$e.CollectionComplete;CollectionIssues=$issues;
+        ProviderDiagnostics=@(Get-WinSecNetworkConfigurationNativeProviderDiagnostics $control);
         ObservedStatus=$control.ObservedStatus;ActualBuild=$e.Platform.BuildNumber;CoverageComplete=$e.CoverageComplete;
         UnknownFieldCount=$e.UnknownFieldCount;InventoryCounts=$e.Counts;
         TechnicalMarkdownValidated=$true;PublicHistoryRoundtripValidated=$views.PublicHistoryRoundtripValidated;InMemoryFrameworkReports=$views.InMemoryReports;

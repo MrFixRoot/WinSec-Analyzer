@@ -28,7 +28,7 @@ function New-WinSecNetworkConfigurationQueryJob {
 }
 Set-Alias Start-Job New-WinSecNetworkConfigurationQueryJob -Scope Script
 function Assert-NetworkQuery {param([bool]$Value);if(-not $Value){throw 'Network query assertion failed.'}}
-function Reject-NetworkQuery {param([scriptblock]$Action);$caught=$false;try{$null=& $Action}catch{$caught=$true;Assert-NetworkQuery ($_.Exception.Message -notmatch 'PRIVATE-')};Assert-NetworkQuery $caught}
+function Reject-NetworkQuery {param([scriptblock]$Action,[string]$Expected='');$caught=$false;try{$null=& $Action}catch{$caught=$true;Assert-NetworkQuery ($_.Exception.Message -notmatch 'PRIVATE-');if($Expected){Assert-NetworkQuery ($_.Exception.Message -ceq $Expected)}};Assert-NetworkQuery $caught}
 $unrelated=& $nativeStart -ScriptBlock {'Synthetic unrelated job'}
 try {
     foreach($role in @('Platform')+@(Get-WinSecNetworkConfigurationProviders|ForEach-Object Role)){
@@ -38,12 +38,12 @@ try {
     Write-Host '[PASS] All ten local CIM roles use exact closed projections and clean their owned jobs'
     $script:absent='IPv4Connectivity';$r=@(Invoke-WinSecNetworkConfigurationQuery Profile);Assert-NetworkQuery ($null -eq $r[0].PSObject.Properties['IPv4Connectivity'])
     Write-Host '[PASS] Optional schema absence never broadens the query'
-    $script:absent='InterfaceIndex';Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Adapter};$script:absent=''
-    $script:foreign=$true;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery IPAddress};$script:foreign=$false
+    $script:absent='InterfaceIndex';Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Adapter} 'NETWORK_SCHEMA_INVALID';$script:absent=''
+    $script:foreign=$true;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery IPAddress} 'NETWORK_SCHEMA_INVALID';$script:foreign=$false
     Write-Host '[PASS] Missing required metadata and foreign classes are rejected'
-    $script:fail=$true;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery DNSServer};$script:fail=$false
+    $script:fail=$true;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery DNSServer} 'NETWORK_QUERY_FAILED';$script:fail=$false
     Write-Host '[PASS] Provider error text cannot escape'
-    $script:queryCount=65;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Route};$script:queryCount=0
+    $script:queryCount=65;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Route} 'NETWORK_RECORD_LIMIT';$script:queryCount=0
     Assert-NetworkQuery (@(Invoke-WinSecNetworkConfigurationQuery Route).Count -eq 0)
     Write-Host '[PASS] Overflow rejects the full inventory and empty inventory is preserved'
     $cancelled=$false;try{$null=Invoke-WinSecNetworkConfigurationQuery Adapter -CancellationAction {$true}}catch [OperationCanceledException]{$cancelled=$true}

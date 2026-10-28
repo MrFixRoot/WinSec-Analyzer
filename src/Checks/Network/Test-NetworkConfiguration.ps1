@@ -60,12 +60,14 @@ function Invoke-WinSecNetworkConfigurationQuery {
             if($Heartbeat){$null=& $Heartbeat}
             if($job.HasMoreData){Receive-Job $job -ErrorAction Stop|ForEach-Object {$items.Add($_);if($items.Count -gt 1){throw 'Invalid network query envelope.'}}}
             if($job.State -cin @('Completed','Failed','Stopped','Disconnected','Blocked')){break}
-            if($timer.Elapsed.TotalSeconds -ge 30){throw 'Network configuration query timeout.'};Start-Sleep -Milliseconds 60
+            if($timer.Elapsed.TotalSeconds -ge 30){throw 'NETWORK_TIMEOUT'};Start-Sleep -Milliseconds 60
         }
-        if($job.State -cne 'Completed'){throw 'Network configuration query failed.'}
+        if($job.State -cne 'Completed'){throw 'NETWORK_QUERY_FAILED'}
         if($job.HasMoreData){Receive-Job $job -ErrorAction Stop|ForEach-Object {$items.Add($_)}}
-        if($items.Count -ne 1 -or $items[0].Role -cne $Role -or $items[0].Status -cne 'AVAILABLE' -or
-            $items[0].Records -isnot [Collections.IList] -or $items[0].Records.Count -gt $limit){throw 'Network configuration query unavailable or exceeded limit.'}
+        if($items.Count -ne 1 -or $items[0].Role -cne $Role -or
+            $items[0].Status -cnotin @('AVAILABLE','SCHEMA_INVALID','RECORD_LIMIT','QUERY_FAILED') -or
+            $items[0].Records -isnot [Collections.IList] -or $items[0].Records.Count -gt $limit){throw 'NETWORK_INVALID_ENVELOPE'}
+        if($items[0].Status -cne 'AVAILABLE'){throw ('NETWORK_'+$items[0].Status)}
         return $items[0].Records
     }finally{
         if($job -is [Management.Automation.Job]){
@@ -79,8 +81,9 @@ function Test-WinSecNetworkConfiguration {
         [scriptblock]$ProgressCallback,[scriptblock]$CancellationAction)
     if($CheckId -cne 'WSA-NET-005' -or -not (Test-WinSecTargetIdentifier $DeviceId) -or -not (Test-WinSecTargetIdentifier $ScanId)){throw 'Invalid Network Configuration identity.'}
     $providers=@(Get-WinSecNetworkConfigurationProviders);$issues=New-Object 'Collections.Generic.List[string]';$batches=New-Object 'Collections.Generic.List[object]'
+    $diagnostics=New-Object 'Collections.Generic.List[string]';$diagnosticCodes=@(Get-WinSecNetworkConfigurationDiagnosticCodes)
     $e=[pscustomobject]@{DeviceId=$DeviceId;ScanId=$ScanId;CheckId=$CheckId;CollectedAtUTC='';CollectionSuccessful=$false;CollectionComplete=$false;
-        CoverageComplete=$false;UnknownFieldCount=0;CollectionIssues=@();Platform=[pscustomobject]@{BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null};
+        CoverageComplete=$false;UnknownFieldCount=0;CollectionIssues=@();ProviderDiagnostics=@();Platform=[pscustomobject]@{BuildNumber=$null;OperatingSystemSKU=$null;ProductType=$null};
         Availability=[pscustomobject]@{};Counts=[pscustomobject]@{};RegistryReadState='UNKNOWN';Registry=[pscustomobject]@{};Batches=@()}
     foreach($p in $providers){$e.Availability|Add-Member $p.Role UNKNOWN;$e.Counts|Add-Member $p.Role $null}
     foreach($p in Get-WinSecNetworkConfigurationRegistryDefinitions){$e.Registry|Add-Member $p.Name ([pscustomobject]@{State='UNKNOWN';Value=$null})}
@@ -97,12 +100,14 @@ function Test-WinSecNetworkConfiguration {
     }catch [OperationCanceledException]{throw}catch{$issues.Add('PLATFORM_UNAVAILABLE')};$completed++
     foreach($provider in $providers){
         $role=$provider.Role;$phase=$role.ToUpperInvariant();$null=& $cancel;$null=& $emit
+        $diagnosticStage='QUERY'
         try {
             $raw=@(Invoke-WinSecNetworkConfigurationQuery $role -CancellationAction $CancellationAction -Heartbeat $emit)
+            $diagnosticStage='NORMALIZATION'
             if($raw.Count -gt $provider.Limit -or ($provider.Limit -eq 1 -and $raw.Count -ne 1)){throw 'Network provider inventory exceeds its reviewed cardinality.'}
             $records=@();$index=0
             foreach($record in $raw){$null=& $cancel;$index++;$records+=,(ConvertTo-WinSecNetworkConfigurationRecord $record $role $index)}
-            $pending=@()
+            $pending=@();$diagnosticStage='BATCH'
             for($offset=0;$offset -lt $records.Count;$offset+=16){
                 $last=[math]::Min($records.Count-1,$offset+15)
                 $json=ConvertTo-Json -InputObject ([ordered]@{SchemaVersion='1.0.0';Role=$role;Items=@($records[$offset..$last])}) -Compress -Depth 6
@@ -110,7 +115,12 @@ function Test-WinSecNetworkConfiguration {
             }
             foreach($batch in $pending){$batches.Add($batch)}
             $e.Counts.$role=$records.Count;$e.Availability.$role='OBSERVED';$e.UnknownFieldCount+=Get-WinSecNetworkConfigurationUnknownCount $records;$successful++
-        }catch [OperationCanceledException]{throw}catch{$issues.Add($role.ToUpperInvariant()+'_UNAVAILABLE')};$completed++
+        }catch [OperationCanceledException]{throw}catch{
+            $issues.Add($role.ToUpperInvariant()+'_UNAVAILABLE')
+            $candidate=$role+':'+$diagnosticStage+':'+$_.Exception.Message
+            if($candidate -cnotin $diagnosticCodes){$candidate=$role+':'+$diagnosticStage+':UNAVAILABLE'}
+            $diagnostics.Add($candidate)
+        };$completed++
     }
     $phase='DNSPOLICIES';$null=& $cancel;$null=& $emit
     try {
@@ -127,7 +137,7 @@ function Test-WinSecNetworkConfiguration {
         $e.Registry=[pscustomobject]$pending;$e.RegistryReadState='READ'
     }catch [OperationCanceledException]{throw}catch{$issues.Add('REGISTRY_UNAVAILABLE')};$completed++
     $phase='NORMALIZING';$null=& $cancel;$null=& $emit
-    $e.Batches=@($batches.ToArray());$e.CollectionIssues=@($issues.ToArray());$e.CollectedAtUTC=[datetime]::UtcNow.ToString('o')
+    $e.Batches=@($batches.ToArray());$e.CollectionIssues=@($issues.ToArray());$e.ProviderDiagnostics=@($diagnostics.ToArray());$e.CollectedAtUTC=[datetime]::UtcNow.ToString('o')
     $e.CollectionSuccessful=($successful -gt 0);$e.CollectionComplete=($issues.Count -eq 0);$e.CoverageComplete=($e.CollectionComplete -and $e.UnknownFieldCount -eq 0)
     $completed++;$null=& $emit
     [pscustomobject]@{DeviceId=$DeviceId;ScanId=$ScanId;CheckId=$CheckId;SectionKey='NetworkSecurity';Status=if($e.CollectionComplete){'INFORMATIONAL'}else{'UNKNOWN'};Evidence=$e}

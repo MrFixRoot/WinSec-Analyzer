@@ -98,3 +98,19 @@ function Get-WinSecNetworkConfigurationNativeDiagnostics {
         $issue
     }
 }
+
+# Temporary closed diagnostics only; never return provider messages or record values.
+function Get-WinSecNetworkConfigurationNativeProviderDiagnostics {
+    param([Parameter(Mandatory)][object]$Control)
+    $e=(Get-WinSecTechnicalField $Control Evidence).Value
+    $codes=(Get-WinSecTechnicalField $e ProviderDiagnostics).Value
+    if($codes -isnot [array] -or $codes.Count -gt 9){throw 'Invalid native provider diagnostics.'}
+    $allowed=@(Get-WinSecNetworkConfigurationDiagnosticCodes);$seen=@{}
+    foreach($code in $codes){
+        if($code -isnot [string] -or $code -cnotin $allowed){throw 'Unsafe native provider diagnostic.'}
+        $role=$code.Split(':')[0]
+        if($seen.ContainsKey($role) -or (Get-WinSecTechnicalField $e ('Availability.'+$role)).Value -cne 'UNKNOWN' -or
+            ($role.ToUpperInvariant()+'_UNAVAILABLE') -cnotin $e.CollectionIssues){throw 'Native diagnostic contradicts provider availability.'}
+        $seen[$role]=$true;$code
+    }
+}

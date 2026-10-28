@@ -28,6 +28,14 @@ function Get-WinSecNetworkConfigurationIssueCodes {
     'PLATFORM_UNAVAILABLE';'REGISTRY_UNAVAILABLE'
     foreach($p in Get-WinSecNetworkConfigurationProviders){$p.Role.ToUpperInvariant()+'_UNAVAILABLE'}
 }
+function Get-WinSecNetworkConfigurationDiagnosticCodes {
+    foreach($provider in Get-WinSecNetworkConfigurationProviders){
+        $role=$provider.Role
+        foreach($stage in @('QUERY','NORMALIZATION','BATCH')){$role+':'+$stage+':UNAVAILABLE'}
+        foreach($reason in @('SCHEMA_INVALID','RECORD_LIMIT','QUERY_FAILED','TIMEOUT','INVALID_ENVELOPE')){$role+':QUERY:NETWORK_'+$reason}
+        foreach($field in $provider.Required){$role+':NORMALIZATION:NETWORK_REQUIRED_FIELD_'+$field}
+    }
+}
 function Get-WinSecNetworkConfigurationTechnicalDefinitions {
     $spec=@('CollectionSuccessful|Collection|bool|','CollectionComplete|Collection|bool|','CoverageComplete|Collection coverage|bool|',
         'UnknownFieldCount|Collection coverage|number|','CollectionIssueCount|Collection|number|','CollectionIssueCodes|Collection|networkIssues|',
@@ -89,7 +97,7 @@ function ConvertTo-WinSecNetworkConfigurationRecord {
                 }
             }
         }
-        if($null -eq $value -and $field.Name -cin $p.Required){throw 'Required network configuration field unavailable.'}
+        if($null -eq $value -and $field.Name -cin $p.Required){throw ('NETWORK_REQUIRED_FIELD_'+$field.Name)}
         $values[$field.Name]=$value
     }
     if($Role -ceq 'IPAddress' -and $null -ne $values.PrefixLength -and $values.PrefixLength -gt $(if($values.AddressFamily -eq 2){32}else{128})){throw 'Invalid IP prefix length.'}

@@ -27,5 +27,21 @@ try {
     $caught=$false;try{Get-WinSecNetworkConfigurationNativeDiagnostics ([pscustomobject]@{Evidence=[pscustomobject]@{CollectionIssues=@('PRIVATE-ERROR')}})}catch{$caught=$true}
     Assert-NetworkRequest $caught
     Write-Host '[PASS] Only closed diagnostic identifiers can leave the validator'
+    Assert-NetworkRequest ($r.ProviderDiagnostics -is [array] -and $r.ProviderDiagnostics.Count -eq 0)
+    Write-Host '[PASS] A complete native workflow has no fabricated provider diagnostics'
+    $script:NetworkInvalid='IPEnabled';$script:NetworkCalls.Clear()
+    $plan=(& $validator -PlanOnly -OperationId ('b'*32)) -join "`n"|ConvertFrom-Json
+    $partial=(. $validator -OperationId ('b'*32) -ApprovedRequestHash $plan.RequestHash) -join "`n"|ConvertFrom-Json
+    Assert-NetworkRequest ($partial.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS' -and -not $partial.CollectionComplete -and
+        $partial.ProviderDiagnostics.Count -eq 1 -and $partial.ProviderDiagnostics[0] -ceq 'Legacy:NORMALIZATION:NETWORK_REQUIRED_FIELD_IPEnabled' -and
+        $null -eq $partial.InventoryCounts.Legacy -and $partial.InMemoryFrameworkReports -eq 3 -and -not $partial.ReportsPersisted)
+    Write-Host '[PASS] Partial Legacy collection stays partial and emits only its reviewed field code'
+    foreach($codes in @(@('Legacy:QUERY:PRIVATE-ERROR'),@('Legacy:NORMALIZATION:NETWORK_REQUIRED_FIELD_Password'),@('Legacy:QUERY:UNAVAILABLE','Legacy:QUERY:UNAVAILABLE'),@('Adapter:QUERY:UNAVAILABLE'))){
+        $caught=$false
+        try{$null=Get-WinSecNetworkConfigurationNativeProviderDiagnostics ([pscustomobject]@{Evidence=[pscustomobject]@{
+            ProviderDiagnostics=$codes;Availability=[pscustomobject]@{Legacy='UNKNOWN';Adapter='OBSERVED'};CollectionIssues=@('LEGACY_UNAVAILABLE')}})}catch{$caught=$true}
+        Assert-NetworkRequest $caught
+    }
+    Write-Host '[PASS] Private text, unreviewed fields, duplicate roles and contradictory diagnostics are rejected'
 }finally{$env:COMPUTERNAME=$saved}
-Write-Host 'Network Configuration native request: 4 passed; 0 failed.'
+Write-Host 'Network Configuration native request: 7 passed; 0 failed.'

@@ -50,6 +50,18 @@ Test-Network 'No invented warning for unconfigured policy, Public profiles or di
     $script:NetworkWarn=$false;$script:NetworkRegistryMissing=$true;$a=New-WinSecNetworkConfigurationFixtureAnalysis $root
     Assert-Network ($a.Rows.Count -eq 0 -and $a.ReadingCount -gt 0)
 }
+Test-Network 'A Legacy required-field rejection reports only a closed diagnostic and remains partial' {
+    $script:NetworkInvalid='IPEnabled';$s=New-WinSecNetworkConfigurationFixtureSession;$e=$s.ControlResults[0].Evidence
+    $r=New-WinSecTechnicalReport $s WSA-NET-005 SYNTHETIC SYNTHETIC
+    Assert-Network ($s.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS' -and $e.ProviderDiagnostics.Count -eq 1 -and
+        $e.ProviderDiagnostics[0] -ceq 'Legacy:NORMALIZATION:NETWORK_REQUIRED_FIELD_IPEnabled' -and $null -eq $e.Counts.Legacy -and
+        (ConvertTo-WinSecTechnicalMarkdown $r) -notmatch 'ProviderDiagnostics|PRIVATE-BAD-VALUE|NETWORK_REQUIRED_FIELD_IPEnabled')
+}
+Test-Network 'A raw provider error is replaced with a closed query-stage diagnostic' {
+    $script:NetworkFailure='Legacy';$s=New-WinSecNetworkConfigurationFixtureSession;$e=$s.ControlResults[0].Evidence
+    Assert-Network ($e.ProviderDiagnostics.Count -eq 1 -and $e.ProviderDiagnostics[0] -ceq 'Legacy:QUERY:UNAVAILABLE' -and
+        (ConvertTo-Json $e -Depth 8 -Compress) -notmatch 'PRIVATE-PROVIDER-TEXT')
+}
 Test-Network 'Counts, diagnostics, scope, record identity and address tokens are strictly validated' {
     $r=New-WinSecTechnicalReport (New-WinSecNetworkConfigurationFixtureSession) WSA-NET-005 SYNTHETIC SYNTHETIC
     $copy=Copy-WinSecResultData $r;@($copy.Rows|Where-Object SettingId -CEQ Counts.Adapter)[0].Value=0;Reject-Network {ConvertTo-WinSecTechnicalReport $copy}
