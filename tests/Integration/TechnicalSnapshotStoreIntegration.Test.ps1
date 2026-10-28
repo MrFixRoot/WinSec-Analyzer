@@ -91,7 +91,7 @@ try {
     }
     Test-WinSecStore 'Holding the publication lock prevents a concurrent writer' {
         $layout=Get-WinSecSnapshotPairLayout $sandbox $f.Identity $f.Snapshot.CollectedAtUTC
-        $held=Open-WinSecSnapshotDirectories $sandbox $layout -Create;$lock=[WinSec.SnapshotIO2]::Lock($layout.Lock)
+        $held=Open-WinSecSnapshotDirectories $sandbox $layout -Create;$lock=[WinSec.SnapshotIO3]::Lock($layout.Lock)
         try {
             Reject-WinSecStore {Save-WinSecStore}
             $engine=Join-Path $PSHOME $(if($PSVersionTable.PSEdition -ceq 'Desktop'){'powershell.exe'}else{'pwsh.exe'})
@@ -128,7 +128,7 @@ try {
         $originalWrite=${function:Write-WinSecSnapshotBytes}
         function Write-WinSecSnapshotBytes {param($Path,$Bytes,$CancellationAction)
             if([IO.Path]::GetFileName($Path).StartsWith('.j')){
-                $stream=[WinSec.SnapshotIO2]::Create($Path);try{$stream.WriteByte(123);$stream.Flush($true)}finally{$stream.Dispose()};throw 'SYNTHETIC DISK FAILURE'
+                $stream=[WinSec.SnapshotIO3]::Create($Path);try{$stream.WriteByte(123);$stream.Flush($true)}finally{$stream.Dispose()};throw 'SYNTHETIC DISK FAILURE'
             }
             & $originalWrite $Path $Bytes $CancellationAction
         }
@@ -181,10 +181,8 @@ try {
             Assert-WinSecStore ($state.Snapshot.Identity.ScanId -ceq 'synthetic-scan' -and $state.Snapshot.Identity.ScopeType -ceq $scope)
         }
     }
-    Test-WinSecStore 'Stage two remains absent from productive imports and preserves eleven enabled controls' {
-        foreach($path in @('Start-WinSec.ps1','src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/Services/DeviceManagementService.ps1')){
-            Assert-WinSecStore ((Get-Content -Raw -LiteralPath (Join-Path $root $path)) -notmatch 'TechnicalSnapshotStore\.ps1')
-        }
+    Test-WinSecStore 'Storage remains explicitly selected and preserves eleven enabled controls' {
+        Assert-WinSecStore ((Get-Content -Raw -LiteralPath (Join-Path $root 'src/Core/ScanCoordinator.ps1')) -match 'NewTechnicalStorageEnabled\s*=\s*\$false')
         $checks=Get-Content -Raw -LiteralPath (Join-Path $root 'config/checks.json')|ConvertFrom-Json
         Assert-WinSecStore (@($checks.checks|Where-Object {$_.execution.enabled}).Count -eq 11)
     }

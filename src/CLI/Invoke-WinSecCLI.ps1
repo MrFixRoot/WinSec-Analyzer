@@ -1787,7 +1787,8 @@ function Invoke-WinSecCLILocalRescan {
     $technical=Get-WinSecCLIValue $coordinator LastTechnicalReports
     if($null -ne $technical -and $technical.DeviceId -ceq $deviceId -and $technical.ScanId -ceq $scanId) {
         if($technical.Status -ceq 'SAVED') {
-            $Context.LastScanMessage += ' Technical Markdown files saved: '+@($technical.Files).Count+' (reports/exports).'
+            if((Get-WinSecCLIValue $coordinator NewTechnicalStorageEnabled) -ceq $true){$Context.LastScanMessage += ' Technical JSON/Markdown pairs saved: '+@($technical.Files).Count+' (scans and reports, by device/section).'}
+            else{$Context.LastScanMessage += ' Technical Markdown files saved: '+@($technical.Files).Count+' (reports/exports).'}
         } else {$Context.LastScanMessage += ' WARNING: technical Markdown export '+$technical.Status+'; saved '+@($technical.Files).Count+', failed '+@($technical.FailedCheckIds).Count+'.'}
     }
     # Return only an owned copy of the validated public projection.
@@ -2078,6 +2079,7 @@ function Invoke-WinSecCLI {
     $scanCoordinator.AssessmentEnabled = $true
     $scanCoordinator.FrameworkWorkflowEnabled = $true
     $scanCoordinator.TechnicalReportsEnabled = $true
+    $scanCoordinator.NewTechnicalStorageEnabled = $true
 
     # Production security invariants.
 

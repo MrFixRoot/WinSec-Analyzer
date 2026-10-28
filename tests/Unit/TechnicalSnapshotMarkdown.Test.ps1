@@ -37,6 +37,6 @@ Test-WinSecSnapshotUnit 'Pair manifest is strict, owned, bounded and independent
     $m | Add-Member -NotePropertyName JsonPath -NotePropertyValue '../foreign';Reject-WinSecSnapshotUnit {Assert-WinSecSnapshotPairManifest $m $f.Identity $f.Snapshot.CollectedAtUTC $f.Hash PREPARED}
 }
 Test-WinSecSnapshotUnit 'Importing storage declares functions without compiling filesystem interop' {
-    Assert-WinSecSnapshotUnit ($null -eq ('WinSec.SnapshotIO2' -as [type]))
+    Assert-WinSecSnapshotUnit ($null -eq ('WinSec.SnapshotIO3' -as [type]))
 }
 Write-Host ("Snapshot Markdown: $passed passed; $failed failed.");if($failed){exit 1}

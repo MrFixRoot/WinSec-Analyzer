@@ -14,12 +14,15 @@ function Show-WinSecScanConfirmation {
     if($null -ne $Request.TechnicalReports) {
         $t=$Request.TechnicalReports
         Assert-WinSecConfigurationFields $t @('SchemaVersion','CatalogVersion','Mode','Count','Directory','PolicySha256')
-        if($t.SchemaVersion -cnotin @('1.0.0','2.0.0','3.0.0') -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne 'PER_EXECUTED_CONTROL' -or
+        $paired=$t.SchemaVersion -ceq '2.1.0'
+        $mode=if($paired){'PAIRED_SNAPSHOTS'}else{'PER_EXECUTED_CONTROL'}
+        $directory=if($paired){'scans/'+(Get-WinSecEvidenceHash $Request.DeviceId)+'/<section>; reports/'+(Get-WinSecEvidenceHash $Request.DeviceId)+'/<section>'}else{'reports/exports/'+(Get-WinSecEvidenceHash $Request.DeviceId)}
+        if($t.SchemaVersion -cnotin @('1.0.0','2.0.0','2.1.0','3.0.0') -or $t.CatalogVersion -cne '1.0.0' -or $t.Mode -cne $mode -or
             ($t.Count -isnot [int] -and $t.Count -isnot [long]) -or $t.Count -lt 0 -or
             $t.Count -ne @($Request.Checks).Count -or $t.Directory -isnot [string] -or
-            $t.Directory -cne ('reports/exports/'+(Get-WinSecEvidenceHash $Request.DeviceId)) -or
+            $t.Directory -cne $directory -or
             $t.PolicySha256 -isnot [string] -or $t.PolicySha256 -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid technical report confirmation.'}
-        $format=if($t.SchemaVersion -cin @('2.0.0','3.0.0')){'Markdown'}else{'TXT (legacy)'}
+        $format=if($paired){'JSON + Markdown pairs'}elseif($t.SchemaVersion -cin @('2.0.0','3.0.0')){'Markdown'}else{'TXT (legacy)'}
         $technicalLines=@(('Automatic technical '+$format+': '+$t.Count+' (one per executed control)'),('Output: '+$t.Directory),('Technical catalog: '+$t.CatalogVersion+' | hash: '+$t.PolicySha256))
     }
 

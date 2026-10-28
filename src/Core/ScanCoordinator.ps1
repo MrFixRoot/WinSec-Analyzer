@@ -164,7 +164,7 @@ function Assert-WinSecScanCoordinator {
     if ($null -ne $inventoryRequirement -and $inventoryRequirement -isnot [bool]) {
         throw 'Invalid inventory authorization requirement.'
     }
-    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed','AssessmentEnabled','TechnicalReportsEnabled','FrameworkWorkflowEnabled')){
+    foreach($field in @('PublicHistoryEnabled','HistoryLoadFailed','AssessmentEnabled','TechnicalReportsEnabled','FrameworkWorkflowEnabled','NewTechnicalStorageEnabled')){
         $value=Get-WinSecTargetField $Coordinator $field
         if($null -ne $value -and $value -isnot [bool]){throw 'Invalid public history coordination flag.'}
     }
@@ -224,6 +224,8 @@ function New-WinSecScanCoordinator {
         FrameworkWorkflowEnabled = $true
         TechnicalReportsEnabled = $false
         TechnicalSnapshots = @{}
+        NewTechnicalStorageEnabled = $false
+        TechnicalLocations = @{}
         LastTechnicalReports = $null
         HistoryLoadFailed = $false
 
@@ -737,7 +739,7 @@ function Get-WinSecScanConfirmationPlan {
     }
     if((Get-WinSecTargetField $Coordinator TechnicalReportsEnabled) -ceq $true) {
         if(-not $hasScope){throw 'Technical reports require an explicit scan scope.'}
-        $request|Add-Member TechnicalReports (Get-WinSecTechnicalReportPolicy $Coordinator.ProjectRoot $target.DeviceId @($checks|ForEach-Object CheckId))
+        $request|Add-Member TechnicalReports (Get-WinSecTechnicalReportPolicy $Coordinator.ProjectRoot $target.DeviceId @($checks|ForEach-Object CheckId) -NewStorage:((Get-WinSecTargetField $Coordinator NewTechnicalStorageEnabled) -ceq $true))
     }
     $profilePlan = $null
     if ($PSBoundParameters.ContainsKey('AssessmentProfile')) {
@@ -810,6 +812,9 @@ function Invoke-WinSecCoordinatedScan {
     $publicHistoryEnabled=(Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true
     $assessmentEnabled=(Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true
     $technicalReportsEnabled=(Get-WinSecTargetField $Coordinator TechnicalReportsEnabled) -ceq $true
+    $newStorageEnabled=(Get-WinSecTargetField $Coordinator NewTechnicalStorageEnabled) -ceq $true
+    if($newStorageEnabled -and (-not $technicalReportsEnabled -or -not $publicHistoryEnabled)){throw 'New storage requires technical and public persistence together.'}
+    if($newStorageEnabled -and (Get-WinSecTargetField $Coordinator FrameworkWorkflowEnabled) -cne $true){throw 'New storage requires the qualitative framework workflow.'}
     $assessmentInputs = Copy-WinSecResultData ([pscustomobject]@{TargetContext=$TargetContext;DependencyEvidence=$DependencyEvidence})
     $hasProfile = $PSBoundParameters.ContainsKey('AssessmentProfile')
     if ($hasProfile) {
@@ -967,6 +972,7 @@ function Invoke-WinSecCoordinatedScan {
     if ((Get-WinSecTargetField $Coordinator 'HistoryLoadFailed') -ceq $true) { throw 'Public history became unavailable before collection.' }
     Assert-WinSecScanCoordinator -Coordinator $Coordinator
     if(((Get-WinSecTargetField $Coordinator 'PublicHistoryEnabled') -ceq $true) -cne $publicHistoryEnabled){throw 'Public history mode changed during confirmation.'}
+    if(((Get-WinSecTargetField $Coordinator NewTechnicalStorageEnabled) -ceq $true) -cne $newStorageEnabled){throw 'Technical storage mode changed during confirmation.'}
     if(((Get-WinSecTargetField $Coordinator 'AssessmentEnabled') -ceq $true) -cne $assessmentEnabled){throw 'Assessment mode changed during confirmation.'}
     $executionCallbacks = @{}
     if ($null -ne $ProgressCallback) { $executionCallbacks.ProgressCallback = $ProgressCallback }
@@ -1097,15 +1103,21 @@ function Invoke-WinSecCoordinatedScan {
     if(((Get-WinSecTargetField $Coordinator TechnicalReportsEnabled) -ceq $true) -cne $technicalReportsEnabled){throw 'Technical report mode changed during collection.'}
     if($technicalReportsEnabled) {
         $confirmed=ConvertFrom-Json $approvedPlan.RequestJson
-        $currentPolicy=Get-WinSecTechnicalReportPolicy $Coordinator.ProjectRoot $target.DeviceId $approvedPlan.CheckIds
+        if(((Get-WinSecTargetField $Coordinator NewTechnicalStorageEnabled) -ceq $true) -cne $newStorageEnabled){throw 'Technical storage mode changed.'}
+        $currentPolicy=Get-WinSecTechnicalReportPolicy $Coordinator.ProjectRoot $target.DeviceId $approvedPlan.CheckIds -NewStorage:$newStorageEnabled
         if((Get-WinSecPublicHistoryJson $confirmed.TechnicalReports) -cne (Get-WinSecPublicHistoryJson $currentPolicy)){throw 'Technical report policy changed during collection.'}
     }
-    if ($publicHistoryEnabled -and
+    if($newStorageEnabled -and $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')){
+        $receipt=Save-WinSecTechnicalReports -Coordinator $Coordinator -Session $session -Target $target -Context $assessmentInputs.TargetContext
+        $Coordinator.LastTechnicalReports=$receipt
+        Write-WinSecTransitionSession $Coordinator $session $receipt
+    }
+    if (-not $newStorageEnabled -and $publicHistoryEnabled -and
         $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')) {
         $null=Save-WinSecPublicHistory -ProjectRoot $Coordinator.ProjectRoot -Session $session
     }
     $Coordinator.Sessions[$key] = $entry
-    if($technicalReportsEnabled -and $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')) {
+    if(-not $newStorageEnabled -and $technicalReportsEnabled -and $session.ExecutionStatus -cin @('COMPLETED','COMPLETED_WITH_ERRORS')) {
         $receipt=Save-WinSecTechnicalReports -Coordinator $Coordinator -Session $session -Target $target -Context $assessmentInputs.TargetContext
         $Coordinator|Add-Member -NotePropertyName LastTechnicalReports -NotePropertyValue $receipt -Force
     }

@@ -1,5 +1,6 @@
 # Stage 2, intentionally not connected to ScanCoordinator, startup, F/P or device removal.
 . (Join-Path $PSScriptRoot '../Core/TechnicalSnapshotPaths.ps1')
+. (Join-Path $PSScriptRoot '../Core/TechnicalProjectionSnapshot.ps1')
 . (Join-Path $PSScriptRoot '../Core/TechnicalSnapshotFileIO.ps1')
 . (Join-Path $PSScriptRoot 'TechnicalSnapshotMarkdown.ps1')
 
@@ -88,14 +89,14 @@ function Write-WinSecTechnicalSnapshotPair {
         $drive=New-Object IO.DriveInfo([IO.Path]::GetPathRoot($layout.Json))
         if($drive.AvailableFreeSpace -lt ($jb.Length+$mb.Length+67108864)){throw 'Insufficient snapshot storage space.'}
         $held=Open-WinSecSnapshotDirectories $ProjectRoot $layout -Create
-        $lock=[WinSec.SnapshotIO2]::Lock($layout.Lock)
+        $lock=[WinSec.SnapshotIO3]::Lock($layout.Lock)
         foreach($name in @('Json','Markdown','Intent','Commit','JsonTemp','MarkdownTemp','IntentTemp','CommitTemp')){
             if([IO.File]::Exists($layout.$name)){throw 'Snapshot publication collision.'}
         }
         $manifest=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshotPair';SchemaVersion='1.0.0';State='PREPARED';Identity=$source.Identity
             CollectedAtUTC=$source.CollectedAtUTC;CatalogSha256=$CatalogSha256;JsonSha256=Get-WinSecSnapshotByteHash $jb;MarkdownSha256=Get-WinSecSnapshotByteHash $mb;JsonBytes=$jb.Length;MarkdownBytes=$mb.Length}
         Write-WinSecSnapshotBytes $layout.IntentTemp ($utf8.GetBytes((ConvertTo-Json -InputObject $manifest -Depth 8 -Compress))) $CancellationAction
-        [WinSec.SnapshotIO2]::MoveExclusive($layout.IntentTemp,$layout.Intent)
+        [WinSec.SnapshotIO3]::MoveExclusive($layout.IntentTemp,$layout.Intent)
         Send-WinSecSnapshotStoreProgress 'PREPARED' $ProgressCallback $CancellationAction
         Write-WinSecSnapshotBytes $layout.JsonTemp $jb $CancellationAction
         Send-WinSecSnapshotStoreProgress 'JSON_STAGED' $ProgressCallback $CancellationAction
@@ -136,7 +137,7 @@ function Complete-WinSecSnapshotPublication {
     if($null -eq $source){throw 'Incomplete snapshot publication.'}
     foreach($kind in @('Json','Markdown')){
         Send-WinSecSnapshotStoreProgress ('PUBLISHING_'+$kind.ToUpperInvariant()) $ProgressCallback $CancellationAction
-        if(-not [IO.File]::Exists($Layout.$kind)){[WinSec.SnapshotIO2]::MoveExclusive($Layout.($kind+'Temp'),$Layout.$kind)}
+        if(-not [IO.File]::Exists($Layout.$kind)){[WinSec.SnapshotIO3]::MoveExclusive($Layout.($kind+'Temp'),$Layout.$kind)}
         Send-WinSecSnapshotStoreProgress ($kind.ToUpperInvariant()+'_PUBLISHED') $ProgressCallback $CancellationAction
     }
     $null=Get-WinSecSnapshotPublicationData $Layout $Manifest $Catalog $CatalogSha256 $Identity -CancellationAction $CancellationAction
@@ -148,7 +149,7 @@ function Complete-WinSecSnapshotPublication {
         if((Get-WinSecSnapshotByteHash $old) -cne (Get-WinSecSnapshotByteHash $bytes)){throw 'Incomplete commit marker.'}
     }else{Write-WinSecSnapshotBytes $Layout.CommitTemp $bytes $CancellationAction}
     Send-WinSecSnapshotStoreProgress 'COMMIT_STAGED' $ProgressCallback $CancellationAction
-    [WinSec.SnapshotIO2]::MoveExclusive($Layout.CommitTemp,$Layout.Commit)
+    [WinSec.SnapshotIO3]::MoveExclusive($Layout.CommitTemp,$Layout.Commit)
     # Commit is the linearization point. Cancellation after this point cannot undo publication.
 }
 
@@ -187,7 +188,7 @@ function Repair-WinSecTechnicalSnapshotPair {
     $held=$null;$lock=$null
     try {
         $layout=Get-WinSecSnapshotPairLayout $ProjectRoot $ExpectedIdentity $CollectedAtUTC
-        $held=Open-WinSecSnapshotDirectories $ProjectRoot $layout;$lock=[WinSec.SnapshotIO2]::Lock($layout.Lock)
+        $held=Open-WinSecSnapshotDirectories $ProjectRoot $layout;$lock=[WinSec.SnapshotIO3]::Lock($layout.Lock)
         if([IO.File]::Exists($layout.Commit)){return Read-WinSecTechnicalSnapshotPair $ProjectRoot $ExpectedIdentity $CollectedAtUTC $Catalog $CatalogSha256 -CancellationAction $CancellationAction}
         $intent=Read-WinSecSnapshotPairManifest $layout.Intent $ExpectedIdentity $CollectedAtUTC $CatalogSha256 PREPARED
         Complete-WinSecSnapshotPublication $ProjectRoot $layout $intent $Catalog $CatalogSha256 $ExpectedIdentity $CancellationAction $ProgressCallback

@@ -242,6 +242,22 @@ function Test-WinSecTechnicalCoordinator {
     }
 }
 try {
+    Test-WinSecUpdateCoordinator 'paired confirmation binds storage and supports 40 80 120 columns without collection' {
+        $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.FrameworkWorkflowEnabled=$true
+        $ctx.ScanCoordinator.TechnicalReportsEnabled=$true;$ctx.ScanCoordinator.NewTechnicalStorageEnabled=$true
+        $plan=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -DeviceId $ctx.Devices[0].DeviceId -ScopeType DEVICE -ScopeKey ALL
+        $request=ConvertFrom-Json $plan.RequestJson
+        Assert-WinSecUpdateCoordinator ($request.TechnicalReports.SchemaVersion -ceq '2.1.0' -and $request.TechnicalReports.Mode -ceq 'PAIRED_SNAPSHOTS' -and $request.TechnicalReports.Count -eq 11)
+        foreach($width in @(40,80,120)){
+            $script:terminal=[pscustomobject]@{Width=$width;ContentWidth=($width-1);Height=55};$script:lines.Clear()
+            $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=27;Character='';KeyDown=$true;ControlKeyState=0})
+            Assert-WinSecUpdateCoordinator (-not (Show-WinSecScanConfirmation $request))
+            Assert-WinSecUpdateCoordinator (@($script:lines|Where-Object {$_.Length -gt ($width-1)}).Count -eq 0)
+        }
+        $request.TechnicalReports.Directory='reports/exports/foreign'
+        Assert-WinSecUpdateCoordinatorRejected {Show-WinSecScanConfirmation $request}
+        Assert-WinSecUpdateCoordinator ($script:store.Count -eq 0 -and $script:osReads -eq 0)
+    }
     Test-WinSecTechnicalCoordinator 'section and rescan write three separate files with original identities; control writes one' {
         $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
         $first=Invoke-WinSecUpdateCoordinatorFixture $ctx -ScopeType SECTION -ScopeKey SystemSecurity -Id technical-section -ConfirmAction {

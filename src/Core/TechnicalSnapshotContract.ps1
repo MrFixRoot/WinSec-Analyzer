@@ -94,10 +94,15 @@ function Assert-WinSecSnapshotCatalog {
     Assert-WinSecSnapshotFields $Catalog @('ArtifactType','SchemaVersion','CatalogId','CatalogVersion','CheckId','Sources','Inventories','Fields')
     foreach($name in @('ArtifactType','SchemaVersion','CheckId')){if($Catalog.$name -isnot [string]){throw 'Invalid catalog scalar.'}}
     $null=Get-WinSecSnapshotControl $Catalog.CheckId
-    if($Catalog.ArtifactType -cne 'WinSec.TechnicalFieldCatalog' -or $Catalog.SchemaVersion -cne '1.0.0' -or
+    if($Catalog.ArtifactType -cne 'WinSec.TechnicalFieldCatalog' -or $Catalog.SchemaVersion -cnotin @('1.0.0','1.1.0') -or
         -not (Test-WinSecSnapshotToken $Catalog.CatalogId) -or $Catalog.CatalogVersion -isnot [string] -or
         $Catalog.CatalogVersion -cnotmatch '\A[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\z'){throw 'Invalid field catalog identity.'}
     $sources=@{};$inventories=@{};$fields=@{};$spec=Get-WinSecSnapshotSpecification
+    if($Catalog.SchemaVersion -ceq '1.1.0'){
+        $expected=Get-WinSecProjectionCatalog $Catalog.CheckId
+        if((ConvertTo-Json -InputObject $Catalog -Depth 16 -Compress) -cne (ConvertTo-Json -InputObject $expected -Depth 16 -Compress)){throw 'Unreviewed transitional catalog.'}
+        $spec.Types+=@('ReviewedHeader','ReviewedRow')
+    }
     foreach($name in @('Sources','Inventories','Fields')){
         $limit=if($name -ceq 'Fields'){1024}else{64}
         if($Catalog.$name -isnot [array] -or $Catalog.$name.Count -lt 1 -or $Catalog.$name.Count -gt $limit){throw 'Invalid catalog metadata budget.'}
@@ -145,6 +150,8 @@ function Assert-WinSecSnapshotValue {
             if($Value -isnot [array]){throw 'Invalid list reading.'}
             foreach($item in $Value){if($item -isnot [string] -or $item.Length -gt $spec.MaxTextChars -or $item -match '[\p{C}\p{Zl}\p{Zp}]'){throw 'Invalid list item.'}}
         }
+        ReviewedHeader {Assert-WinSecSnapshotFields $Value @('SchemaVersion','CatalogVersion','DeviceId','ScanId','SectionKey','CheckId','ScopeType','ScopeKey','DeviceName','Hostname','Profile','ObservedOSRelease','ObservedEdition','StartedAtUTC','CompletedAtUTC','CollectedAtUTC','GeneratedAtUTC','CollectorStatus')}
+        ReviewedRow {Assert-WinSecSnapshotFields $Value @('SettingId','Value','State','Reason')}
         default {throw 'Unknown value type.'}
     }
     if($Definition.Unit -cne 'none' -and $Value -lt 0){throw 'Negative quantity is not a measured value.'}
@@ -164,7 +171,8 @@ function Assert-WinSecTechnicalSnapshot {
     foreach($name in @('ArtifactType','SchemaVersion','CatalogId','CatalogVersion')){if($Snapshot.$name -isnot [string]){throw 'Invalid snapshot scalar.'}}
     if((Get-WinSecSnapshotCatalogHash $Catalog) -cne $CatalogSha256){throw 'Catalog fingerprint mismatch.'}
     foreach($p in $ExpectedIdentity.PSObject.Properties){if($Snapshot.Identity.($p.Name) -cne $p.Value){throw 'Foreign snapshot identity.'}}
-    if($Snapshot.ArtifactType -cne 'WinSec.TechnicalSnapshot' -or $Snapshot.SchemaVersion -cne '2.0.0' -or
+    $schema=if($Catalog.SchemaVersion -ceq '1.1.0'){'2.1.0'}else{'2.0.0'}
+    if($Snapshot.ArtifactType -cne 'WinSec.TechnicalSnapshot' -or $Snapshot.SchemaVersion -cne $schema -or
         $Snapshot.Identity.CheckId -cne $Catalog.CheckId -or $Snapshot.CatalogId -cne $Catalog.CatalogId -or
         $Snapshot.CatalogVersion -cne $Catalog.CatalogVersion -or $CatalogSha256 -cnotmatch '\A[A-F0-9]{64}\z' -or
         $Snapshot.CatalogSha256 -isnot [string] -or $Snapshot.CatalogSha256 -cne $CatalogSha256 -or
@@ -246,6 +254,20 @@ function Assert-WinSecTechnicalSnapshot {
     }
     foreach($id in $seenInventories.Keys){if($seenInventories[$id].RetainedRecords -ne $inventoryCounts[$id]){throw 'Inventory record count mismatch.'}}
     foreach($name in $counts.Keys){if(-not (Test-WinSecSnapshotUInt $Snapshot.Collection.$name) -or $Snapshot.Collection.$name -ne $counts[$name]){throw 'Snapshot coverage counts disagree.'}}
+    if($Snapshot.SchemaVersion -ceq '2.1.0'){
+        $projection=ConvertFrom-WinSecProjectionSnapshot $Snapshot
+        $complete=Get-WinSecProjectionCompletion $projection
+        $rowSummary=@($Snapshot.Inventories|Where-Object Id -CEQ Rows)[0]
+        if($rowSummary.Complete -cne $complete){throw 'Projection collection summary contradicts its source.'}
+        $coverage=($null -ne $Snapshot.Platform.BuildNumber -and $null -ne $Snapshot.Platform.OperatingSystemSKU -and $Snapshot.Platform.ProductType -eq 1 -and
+            @($projection.Rows|Where-Object State -CIN @('UNKNOWN','ERROR','NOT_COLLECTED')).Count -eq 0)
+        foreach($name in @('BuildNumber','OperatingSystemSKU','ProductType','Version')){
+            $native=@($projection.Rows|Where-Object SettingId -CEQ ('Platform.'+$name))
+            $observed=if($native.Count -eq 1 -and $native[0].State -ceq 'OBSERVED'){$native[0].Value}else{$null}
+            if($Snapshot.Platform.$name -cne $observed){throw 'Transitional platform differs from recorded observation.'}
+        }
+        if($null -ne $Snapshot.Platform.OSRelease -or $null -ne $Snapshot.Platform.Edition -or $null -ne $Snapshot.Platform.UBR){throw 'Unrecorded platform metadata.'}
+    }
     $coverage=($coverage -and $complete)
     if($Snapshot.Collection.Status -cne $(if($complete){'COMPLETE'}else{'PARTIAL'}) -or
         $Snapshot.Collection.Coverage -cne $(if($coverage){'COMPLETE'}else{'LIMITED'})){throw 'False collection or coverage status.'}

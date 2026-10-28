@@ -88,7 +88,9 @@ function Invoke-WinSecCLIFrameworkFindings {
     foreach($source in $sources) {
         $key=(Get-WinSecScanSessionKey $State.SelectedDeviceId $source.ScanId)+'|'+$source.CheckId
         $cache=Get-WinSecCLIValue $Context.ScanCoordinator TechnicalSnapshots
-        $r=if($null -ne $cache -and $cache.ContainsKey($key)){$cache[$key]}else{
+        $r=if((Get-WinSecCLIValue $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){
+            Read-WinSecTransitionReport $Context.ScanCoordinator $State.SelectedDeviceId $source.ScanId $source.CheckId
+        }elseif($null -ne $cache -and $cache.ContainsKey($key)){$cache[$key]}else{
             Read-WinSecTechnicalReport $Context.ProjectRoot $State.SelectedDeviceId $source.ScanId $source.CheckId
         }
         if($null -ne $r){$reports+=,$r}

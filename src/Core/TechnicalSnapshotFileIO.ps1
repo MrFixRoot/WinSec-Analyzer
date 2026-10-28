@@ -1,6 +1,6 @@
 # Windows filesystem primitives only, compiled lazily. No collector or production import.
 function Initialize-WinSecSnapshotFileIO {
-    if('WinSec.SnapshotIO2' -as [type]){return}
+    if('WinSec.SnapshotIO3' -as [type]){return}
     Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 namespace WinSec {
- public static class SnapshotIO2 {
+ public static class SnapshotIO3 {
   [StructLayout(LayoutKind.Sequential)] struct Info {
    public uint Attributes; public System.Runtime.InteropServices.ComTypes.FILETIME Created, Accessed, Written;
    public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
@@ -57,6 +57,10 @@ namespace WinSec {
   }
   public static FileStream Read(string path) {return new FileStream(Verify(Relative(path,0x80000000,1,1,0x40,IntPtr.Zero),false),FileAccess.Read,65536,false);}
   public static FileStream Create(string path) {return new FileStream(Verify(Relative(path,0xC0000000,0,2,0x42,IntPtr.Zero),false),FileAccess.ReadWrite,65536,false);}
+  public static FileStream OpenRemoval(string path) {return new FileStream(Verify(Relative(path,0x80010000,0,1,0x40,IntPtr.Zero),false),FileAccess.Read,65536,false);}
+  public static void MarkRemoval(FileStream stream) {
+   IntPtr p=Marshal.AllocHGlobal(1);try {Marshal.WriteByte(p,0,1);StatusBlock status;if(NtSetInformationFile(stream.SafeFileHandle,out status,p,1,13)<0)throw new IOException("Snapshot deletion rejected.");}finally{Marshal.FreeHGlobal(p);}
+  }
   public static SafeFileHandle Lock(string path) {return Verify(Relative(path,0xC0010000,0,2,0x1040,IntPtr.Zero),false);}
   public static void CreatePrivateDirectory(string path, string sddl) {
    IntPtr p;uint size;
@@ -69,7 +73,7 @@ namespace WinSec {
     byte[] name=System.Text.Encoding.Unicode.GetBytes(Path.GetFileName(to));
     // FILE_RENAME_INFO: BOOLEAN/union, pointer-aligned HANDLE, DWORD length, WCHAR name.
     int rootOffset=IntPtr.Size==8?8:4, lengthOffset=rootOffset+IntPtr.Size, nameOffset=lengthOffset+4;
-    IntPtr p=Marshal.AllocHGlobal(nameOffset+name.Length+2);SafeFileHandle target=Parent(to);bool retained=false;
+    SafeFileHandle target=Parent(to);bool retained=false;IntPtr p=Marshal.AllocHGlobal(nameOffset+name.Length+2);
     try {target.DangerousAddRef(ref retained);for(int n=0;n<nameOffset+name.Length+2;n++) Marshal.WriteByte(p,n,0);
      Marshal.WriteIntPtr(p,rootOffset,target.DangerousGetHandle());Marshal.WriteInt32(p,lengthOffset,name.Length);Marshal.Copy(name,0,IntPtr.Add(p,nameOffset),name.Length);
      StatusBlock status;int result=NtSetInformationFile(h,out status,p,(uint)(nameOffset+name.Length+2),10);
@@ -106,13 +110,13 @@ function Open-WinSecSnapshotDirectories {
     try {
         $ancestors=New-Object 'Collections.Generic.List[string]';$cursor=$root
         while($cursor){$ancestors.Insert(0,$cursor);$cursor=[IO.Path]::GetDirectoryName($cursor)}
-        foreach($dir in $ancestors){$handles.Add([WinSec.SnapshotIO2]::HoldDirectory($dir))}
+        foreach($dir in $ancestors){$handles.Add([WinSec.SnapshotIO3]::HoldDirectory($dir))}
         foreach($base in @('scans','reports')){
             $dir=$root
             foreach($segment in @($base,$Layout.DeviceKey,$Layout.SectionKey)){
                 $dir=Join-Path $dir $segment
-                if($Create){[WinSec.SnapshotIO2]::CreatePrivateDirectory($dir,$sddl)}
-                $handles.Add([WinSec.SnapshotIO2]::HoldDirectory($dir))
+                if($Create){[WinSec.SnapshotIO3]::CreatePrivateDirectory($dir,$sddl)}
+                $handles.Add([WinSec.SnapshotIO3]::HoldDirectory($dir))
                 if($segment -cne $base){Assert-WinSecSnapshotPrivateAcl $dir -Directory}
             }
         }
@@ -124,7 +128,7 @@ function Read-WinSecSnapshotBytes {
     param([string]$Path,[int]$MaxBytes,[scriptblock]$CancellationAction)
     $stream=$null
     try {
-        $stream=[WinSec.SnapshotIO2]::Read($Path);Assert-WinSecSnapshotPrivateAcl $Path
+        $stream=[WinSec.SnapshotIO3]::Read($Path);Assert-WinSecSnapshotPrivateAcl $Path
         if($stream.Length -gt $MaxBytes){throw 'Snapshot file budget exceeded.'}
         $bytes=New-Object byte[] ([int]$stream.Length);$offset=0;$clock=[Diagnostics.Stopwatch]::StartNew()
         while($offset -lt $bytes.Length){Assert-WinSecSnapshotValidationBudget $clock $CancellationAction;$read=$stream.Read($bytes,$offset,[Math]::Min(65536,$bytes.Length-$offset));if($read -eq 0){throw 'Truncated snapshot file.'};$offset+=$read}
@@ -136,7 +140,7 @@ function Write-WinSecSnapshotBytes {
     param([string]$Path,[byte[]]$Bytes,[scriptblock]$CancellationAction)
     $stream=$null
     try {
-        $stream=[WinSec.SnapshotIO2]::Create($Path);Assert-WinSecSnapshotPrivateAcl $Path
+        $stream=[WinSec.SnapshotIO3]::Create($Path);Assert-WinSecSnapshotPrivateAcl $Path
         $clock=[Diagnostics.Stopwatch]::StartNew()
         for($offset=0;$offset -lt $Bytes.Length;$offset+=65536){Assert-WinSecSnapshotValidationBudget $clock $CancellationAction;$stream.Write($Bytes,$offset,[Math]::Min(65536,$Bytes.Length-$offset))}
         $stream.Flush($true)

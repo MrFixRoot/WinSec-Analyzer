@@ -77,10 +77,8 @@ try {
         Assert-PathContract ($code -eq 0 -and $ignored.Count -eq 1)
         $null=& git -C $root check-ignore --no-index scans/.gitkeep;Assert-PathContract ($LASTEXITCODE -eq 1)
     }
-    Check-PathContract 'Production entry points do not import the isolated stage-one modules' {
-        foreach($entry in @('Start-WinSec.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/Core/ScanCoordinator.ps1')){
-            Assert-PathContract ((Get-Content -Raw -LiteralPath (Join-Path $root $entry)) -notmatch 'TechnicalSnapshot(?:Contract|Paths)\.ps1')
-        }
+    Check-PathContract 'The backend default is opt-in and preserves the validated catalogue' {
+        Assert-PathContract ((Get-Content -Raw -LiteralPath (Join-Path $root 'src/Core/ScanCoordinator.ps1')) -match 'NewTechnicalStorageEnabled\s*=\s*\$false')
         $checks=Get-Content -Raw -LiteralPath (Join-Path $root 'config/checks.json') | ConvertFrom-Json
         Assert-PathContract (@($checks.checks | Where-Object {$_.execution.enabled}).Count -eq 11)
     }

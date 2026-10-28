@@ -11,6 +11,12 @@ function ConvertTo-WinSecSnapshotMarkdown {
     [CmdletBinding()]
     param([object]$Snapshot,[object]$Catalog,[string]$CatalogSha256,[object]$ExpectedIdentity,[scriptblock]$CancellationAction)
     Assert-WinSecTechnicalSnapshot $Snapshot $Catalog $CatalogSha256 $ExpectedIdentity -CancellationAction $CancellationAction
+    if($Snapshot.SchemaVersion -ceq '2.1.0'){
+        $report=ConvertFrom-WinSecProjectionSnapshot $Snapshot
+        return '# WinSec Analyzer - Reviewed technical projection'+"`n`n"+'Format: WinSec.TechnicalMarkdown/1.1.0'+"`n`n"+
+            'Selected Windows context in the recorded header is not proof of observed platform. Collection and coverage are separate.'+"`n`n"+
+            ('SnapshotId: '+$Snapshot.Identity.SnapshotId+'; catalog: '+$Snapshot.CatalogId+'; digest: '+$Snapshot.CatalogSha256)+"`n`n"+(ConvertTo-WinSecTechnicalMarkdown $report)
+    }
     $lines=New-Object Text.StringBuilder
     $null=$lines.AppendLine('# WinSec Analyzer - Technical snapshot').AppendLine()
     $null=$lines.AppendLine('Format: WinSec.TechnicalMarkdown/1.0.0').AppendLine()
