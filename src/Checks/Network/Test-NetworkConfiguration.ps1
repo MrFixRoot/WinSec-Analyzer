@@ -107,10 +107,11 @@ function Test-WinSecNetworkConfiguration {
             if($raw.Count -gt $provider.Limit -or ($provider.Limit -eq 1 -and $raw.Count -ne 1)){throw 'Network provider inventory exceeds its reviewed cardinality.'}
             $records=@();$index=0
             foreach($record in $raw){$null=& $cancel;$index++;$records+=,(ConvertTo-WinSecNetworkConfigurationRecord $record $role $index)}
+            if($role -ceq 'Legacy' -and @($records|ForEach-Object {$_.Values.Index}|Select-Object -Unique).Count -ne $records.Count){throw 'Duplicate Legacy configuration key.'}
             $pending=@();$diagnosticStage='BATCH'
             for($offset=0;$offset -lt $records.Count;$offset+=16){
                 $last=[math]::Min($records.Count-1,$offset+15)
-                $json=ConvertTo-Json -InputObject ([ordered]@{SchemaVersion='1.0.0';Role=$role;Items=@($records[$offset..$last])}) -Compress -Depth 6
+                $json=ConvertTo-Json -InputObject ([ordered]@{SchemaVersion='1.1.0';Role=$role;Items=@($records[$offset..$last])}) -Compress -Depth 6
                 $null=ConvertTo-WinSecNetworkConfigurationBatch $json;$pending+=,[pscustomobject]@{Role=$role;Json=$json}
             }
             foreach($batch in $pending){$batches.Add($batch)}

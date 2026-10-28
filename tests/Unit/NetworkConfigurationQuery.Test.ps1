@@ -38,6 +38,10 @@ try {
     Write-Host '[PASS] All ten local CIM roles use exact closed projections and clean their owned jobs'
     $script:absent='IPv4Connectivity';$r=@(Invoke-WinSecNetworkConfigurationQuery Profile);Assert-NetworkQuery ($null -eq $r[0].PSObject.Properties['IPv4Connectivity'])
     Write-Host '[PASS] Optional schema absence never broadens the query'
+    $script:absent='InterfaceIndex';$r=@(Invoke-WinSecNetworkConfigurationQuery Legacy)
+    Assert-NetworkQuery ($r.Count -eq 1 -and $null -eq $r[0].PSObject.Properties['InterfaceIndex'] -and $null -ne $r[0].PSObject.Properties['Index'])
+    $script:absent='Index';Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Legacy} 'NETWORK_SCHEMA_INVALID';$script:absent=''
+    Write-Host '[PASS] Legacy uses its configuration key while missing interface linkage is validated by the normalizer'
     $script:absent='InterfaceIndex';Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery Adapter} 'NETWORK_SCHEMA_INVALID';$script:absent=''
     $script:foreign=$true;Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery IPAddress} 'NETWORK_SCHEMA_INVALID';$script:foreign=$false
     Write-Host '[PASS] Missing required metadata and foreign classes are rejected'
@@ -53,4 +57,4 @@ try {
     Reject-NetworkQuery {Invoke-WinSecNetworkConfigurationQuery 'Adapter -CimSession other'}
     Write-Host '[PASS] Invalid cancellation and unreviewed roles are rejected'
 }finally{foreach($job in @($owned,$unrelated)){if($job -and $null -ne (Get-Job -Id $job.Id -ErrorAction SilentlyContinue)){Stop-Job $job -ErrorAction SilentlyContinue;Remove-Job $job -Force -ErrorAction SilentlyContinue}}}
-Write-Host 'Network Configuration query: 7 passed; 0 failed.'
+Write-Host 'Network Configuration query: 8 passed; 0 failed.'

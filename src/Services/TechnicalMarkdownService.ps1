@@ -24,6 +24,9 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
         'WSA-NET-005' {
+            if($r.CatalogVersion -ceq '1.1.0'){
+                $lines.Add('- Legacy configuration Index is the Win32 configuration key; it is never substituted for InterfaceIndex. Every record is retained. A null InterfaceIndex is accepted only with an observed IPEnabled=false and remains UNKNOWN with limited coverage. IP-enabled configurations still require a valid InterfaceIndex. Malformed indices and duplicate configuration keys reject the inventory.')
+            }
             $lines.Add('- Local adapter, IP interface, address, route, DNS, connection profile and legacy adapter settings are independent snapshots. No connectivity, name resolution, traffic capture or remote exposure test is performed.')
             $lines.Add('- Only reviewed fields are requested. InterfaceIndex relates records within this snapshot; record IDs are scan-local. Addresses, DNS servers and route prefixes are SHA256 tokens. Adapter names, SSIDs, domain suffixes, MAC addresses, users, credentials and arbitrary provider text are excluded.')
             $lines.Add('- AddressFamily: 2 IPv4, 23 IPv6. NetworkCategory: 0 Public, 1 Private, 2 DomainAuthenticated. TcpipNetbiosOptions: 0 DHCP-controlled, 1 enabled, 2 disabled. DHCP control alone does not establish effective NetBIOS state.')

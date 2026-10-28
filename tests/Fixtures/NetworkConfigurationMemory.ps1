@@ -3,6 +3,7 @@ function Initialize-WinSecNetworkConfigurationFixture {
     $script:NetworkCalls=New-Object 'Collections.Generic.List[string]';$script:NetworkEvents=New-Object 'Collections.Generic.List[object]'
     $script:NetworkFailure='';$script:NetworkCount=2;$script:NetworkOptionalMissing=$false;$script:NetworkInvalid=''
     $script:NetworkBuild=22631;$script:NetworkSku=48;$script:NetworkWarn=$true;$script:NetworkRegistryMissing=$false
+    $script:NetworkLegacyNoInterface=$false;$script:NetworkLegacyIPEnabled=$false;$script:NetworkLegacyDuplicateIndex=$false
 }
 function Invoke-WinSecNetworkConfigurationFixtureQuery {
     param($Role,$CancellationAction,$Heartbeat)
@@ -19,10 +20,15 @@ function Invoke-WinSecNetworkConfigurationFixtureQuery {
     for($i=0;$i -lt $count;$i++){
         $r=[ordered]@{}
         foreach($f in $p.Fields){$v=switch($f.Kind){b {$true};ip {'192.0.2.10'};prefix {'192.0.2.0/24'};ips {,@('192.0.2.53','192.0.2.54')};f {[uint16]2};default {[uint32]1}}
-            if($f.Name -ceq 'InterfaceIndex'){$v=[uint32]($i+1)}
+            if($f.Name -cin @('Index','InterfaceIndex')){$v=[uint32]($i+1)}
+            if($Role -ceq 'Legacy' -and $script:NetworkLegacyNoInterface){
+                if($f.Name -ceq 'InterfaceIndex'){$v=$null}
+                if($f.Name -ceq 'IPEnabled'){$v=$script:NetworkLegacyIPEnabled}
+            }
+            if($Role -ceq 'Legacy' -and $script:NetworkLegacyDuplicateIndex -and $f.Name -ceq 'Index'){$v=[uint32]1}
             if($f.Name -ceq 'TcpipNetbiosOptions' -and -not $script:NetworkWarn){$v=[uint32]2}
             if($f.Name -ceq 'NetworkCategory' -and -not $script:NetworkWarn){$v=[uint32]0}
-            if($script:NetworkOptionalMissing -and $f.Name -cnotin $p.Required){$v=$null}
+            if($script:NetworkOptionalMissing -and $f.Name -cnotin $p.Required -and -not ($Role -ceq 'Legacy' -and $f.Name -ceq 'InterfaceIndex')){$v=$null}
             if($f.Name -ceq $script:NetworkInvalid){$v='PRIVATE-BAD-VALUE'}
             $r[$f.Name]=$v
         }

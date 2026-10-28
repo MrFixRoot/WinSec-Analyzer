@@ -1,5 +1,6 @@
 # Reviewed network configuration projection. Importing this file never queries Windows.
 function Get-WinSecNetworkConfigurationProviders {
+    param([ValidateSet('1.0.0','1.1.0')][string]$CatalogVersion='1.1.0')
     $spec=@(
         'Adapter|MSFT_NetAdapter|InterfaceIndex|InterfaceIndex:u,InterfaceType:u,State:u,InterfaceOperationalStatus:u,InterfaceAdminStatus:u,MediaConnectState:u,MediaDuplexState:u,MtuSize:u,VlanID:u,TransmitLinkSpeed:l,ReceiveLinkSpeed:l,Virtual:b,Hidden:b,HardwareInterface:b,ConnectorPresent:b,FullDuplex:b,PromiscuousMode:b,AutoSense:b'
         'IPInterface|MSFT_NetIPInterface|InterfaceIndex,AddressFamily|InterfaceIndex:u,AddressFamily:f,Forwarding:e,Advertising:e,NlMtu:u,InterfaceMetric:u,NeighborUnreachabilityDetection:e,BaseReachableTime:u,RetransmitTime:u,DadTransmits:u,RouterDiscovery:e,ManagedAddressConfiguration:e,OtherStatefulConfiguration:e,WeakHostSend:e,WeakHostReceive:e,IgnoreDefaultRoutes:e,CurrentHopLimit:u,Dhcp:e,AutomaticMetric:e,ConnectionState:e'
@@ -8,17 +9,19 @@ function Get-WinSecNetworkConfigurationProviders {
         'DNSServer|MSFT_DNSClientServerAddress|InterfaceIndex,AddressFamily|InterfaceIndex:u,AddressFamily:f,ServerAddresses:ips'
         'DNSClient|MSFT_DNSClient|InterfaceIndex|InterfaceIndex:u,RegisterThisConnectionsAddress:b,UseSuffixWhenRegistering:b'
         'Profile|MSFT_NetConnectionProfile|InterfaceIndex,NetworkCategory|InterfaceIndex:u,NetworkCategory:c,IPv4Connectivity:e,IPv6Connectivity:e'
-        'Legacy|Win32_NetworkAdapterConfiguration|InterfaceIndex,IPEnabled|InterfaceIndex:u,IPEnabled:b,DHCPEnabled:b,TcpipNetbiosOptions:n,IPFilterSecurityEnabled:b,IPPortSecurityEnabled:b,WINSEnableLMHostsLookup:b,DNSEnabledForWINSResolution:b,FullDNSRegistrationEnabled:b,DomainDNSRegistrationEnabled:b'
+        'Legacy|Win32_NetworkAdapterConfiguration|Index,IPEnabled|Index:u,InterfaceIndex:u,IPEnabled:b,DHCPEnabled:b,TcpipNetbiosOptions:n,IPFilterSecurityEnabled:b,IPPortSecurityEnabled:b,WINSEnableLMHostsLookup:b,DNSEnabledForWINSResolution:b,FullDNSRegistrationEnabled:b,DomainDNSRegistrationEnabled:b'
         'DNSGlobal|MSFT_DNSClientGlobalSetting||UseDevolution:b,DevolutionLevel:u'
     )
-    foreach($line in $spec){$parts=$line.Split('|');[pscustomobject]@{Role=$parts[0];Class=$parts[1];
+    foreach($line in $spec){$parts=$line.Split('|')
+        if($parts[0] -ceq 'Legacy' -and $CatalogVersion -ceq '1.0.0'){$parts[2]='InterfaceIndex,IPEnabled';$parts[3]=$parts[3].Substring('Index:u,'.Length)}
+        [pscustomobject]@{Role=$parts[0];Class=$parts[1];
         Namespace=$(if($parts[0] -ceq 'Legacy'){'root/cimv2'}else{'root/StandardCimv2'});
         Required=@($parts[2].Split(',')|Where-Object {$_});Fields=@(foreach($pair in $parts[3].Split(',')){$p=$pair.Split(':');[pscustomobject]@{Name=$p[0];Kind=$p[1]}});
         Limit=$(if($parts[0] -ceq 'DNSGlobal'){1}else{64})}}
 }
 function Get-WinSecNetworkConfigurationProvider {
-    param([string]$Role)
-    $found=@(Get-WinSecNetworkConfigurationProviders|Where-Object Role -CEQ $Role)
+    param([string]$Role,[ValidateSet('1.0.0','1.1.0')][string]$CatalogVersion='1.1.0')
+    $found=@(Get-WinSecNetworkConfigurationProviders $CatalogVersion|Where-Object Role -CEQ $Role)
     if($found.Count -ne 1){throw 'Unreviewed network configuration provider.'};$found[0]
 }
 function Get-WinSecNetworkConfigurationRegistryDefinitions {
@@ -34,6 +37,7 @@ function Get-WinSecNetworkConfigurationDiagnosticCodes {
         foreach($stage in @('QUERY','NORMALIZATION','BATCH')){$role+':'+$stage+':UNAVAILABLE'}
         foreach($reason in @('SCHEMA_INVALID','RECORD_LIMIT','QUERY_FAILED','TIMEOUT','INVALID_ENVELOPE')){$role+':QUERY:NETWORK_'+$reason}
         foreach($field in $provider.Required){$role+':NORMALIZATION:NETWORK_REQUIRED_FIELD_'+$field}
+        if($role -ceq 'Legacy'){'Legacy:NORMALIZATION:NETWORK_REQUIRED_FIELD_InterfaceIndex'}
     }
 }
 function Get-WinSecNetworkConfigurationTechnicalDefinitions {
@@ -71,8 +75,8 @@ function ConvertTo-WinSecNetworkConfigurationAddress {
     [pscustomobject]@{Token=$token;Family=$family}
 }
 function ConvertTo-WinSecNetworkConfigurationRecord {
-    param([object]$Record,[string]$Role,[int]$Index)
-    $p=Get-WinSecNetworkConfigurationProvider $Role;$values=[ordered]@{}
+    param([object]$Record,[string]$Role,[int]$Index,[ValidateSet('1.0.0','1.1.0')][string]$CatalogVersion='1.1.0')
+    $p=Get-WinSecNetworkConfigurationProvider $Role $CatalogVersion;$values=[ordered]@{}
     if($Index -lt 1 -or $Index -gt $p.Limit){throw 'Invalid network record index.'}
     foreach($field in $p.Fields){
         $raw=$Record.PSObject.Properties[$field.Name].Value;$value=$null
@@ -100,6 +104,8 @@ function ConvertTo-WinSecNetworkConfigurationRecord {
         if($null -eq $value -and $field.Name -cin $p.Required){throw ('NETWORK_REQUIRED_FIELD_'+$field.Name)}
         $values[$field.Name]=$value
     }
+    if($Role -ceq 'Legacy' -and $CatalogVersion -ceq '1.1.0' -and $null -eq $values.InterfaceIndex -and
+        ($values.IPEnabled -ceq $true -or $null -ne $Record.PSObject.Properties['InterfaceIndex'].Value)){throw 'NETWORK_REQUIRED_FIELD_InterfaceIndex'}
     if($Role -ceq 'IPAddress' -and $null -ne $values.PrefixLength -and $values.PrefixLength -gt $(if($values.AddressFamily -eq 2){32}else{128})){throw 'Invalid IP prefix length.'}
     [pscustomobject]@{Id=($Role+'-'+('{0:D4}' -f $Index));Values=[pscustomobject]$values}
 }
@@ -108,9 +114,9 @@ function ConvertTo-WinSecNetworkConfigurationBatch {
     if($Json.Length -gt 65536){throw 'Network batch too large.'}
     $batch=ConvertFrom-WinSecStoredJson $Json
     Assert-WinSecConfigurationFields $batch @('SchemaVersion','Role','Items')
-    $p=Get-WinSecNetworkConfigurationProvider $batch.Role
-    if($batch.SchemaVersion -cne '1.0.0' -or $batch.Items -isnot [array] -or $batch.Items.Count -lt 1 -or $batch.Items.Count -gt 16){throw 'Invalid network batch.'}
-    $seen=@{}
+    if($batch.SchemaVersion -cnotin @('1.0.0','1.1.0') -or $batch.Items -isnot [array] -or $batch.Items.Count -lt 1 -or $batch.Items.Count -gt 16){throw 'Invalid network batch.'}
+    $p=Get-WinSecNetworkConfigurationProvider $batch.Role $batch.SchemaVersion
+    $seen=@{};$legacyIndices=@{}
     foreach($item in $batch.Items){
         Assert-WinSecConfigurationFields $item @('Id','Values');Assert-WinSecConfigurationFields $item.Values @($p.Fields.Name)
         if($item.Id -isnot [string] -or $item.Id -cnotmatch ('\A'+$p.Role+'-00(?:[0-5][0-9]|6[0-4])\z') -or $item.Id.EndsWith('-0000') -or $seen.ContainsKey($item.Id)){throw 'Invalid network record identity.'}
@@ -127,6 +133,10 @@ function ConvertTo-WinSecNetworkConfigurationBatch {
                 ips {if($v -isnot [array] -or $v.Count -gt 8){throw 'Invalid DNS tokens.'};foreach($t in $v){if($t -isnot [string] -or $t -cnotmatch '\Asha256:[a-f0-9]{64}\z'){throw 'Invalid DNS token.'}}}
             }
         }
+        if($p.Role -ceq 'Legacy' -and $batch.SchemaVersion -ceq '1.1.0'){
+            if($null -eq $item.Values.InterfaceIndex -and $item.Values.IPEnabled -ceq $true){throw 'IP-enabled Legacy configuration lacks an interface index.'}
+            $key=[string]$item.Values.Index;if($legacyIndices.ContainsKey($key)){throw 'Duplicate Legacy configuration key.'};$legacyIndices[$key]=$true
+        }
         if($p.Role -ceq 'IPAddress' -and $null -ne $item.Values.PrefixLength -and $item.Values.PrefixLength -gt $(if($item.Values.AddressFamily -eq 2){32}else{128})){throw 'Invalid stored IP prefix length.'}
         $seen[$item.Id]=$true
     }
@@ -140,13 +150,18 @@ function Assert-WinSecNetworkConfigurationReport {
     param([object]$Report)
     $rows=@{};foreach($row in $Report.Rows){$rows[$row.SettingId]=$row}
     $issues=@();$providers=0;$unknown=0
-    foreach($p in Get-WinSecNetworkConfigurationProviders){
-        $items=@();$number=0
+    foreach($p in (Get-WinSecNetworkConfigurationProviders $Report.CatalogVersion)){
+        $items=@();$number=0;$legacyIndices=@{}
         foreach($row in @($Report.Rows|Where-Object {$_.SettingId -clike ('Inventory.'+$p.Role+'.*')})){
             $number++;if($row.State -cne 'OBSERVED' -or $row.SettingId -cne ('Inventory.'+$p.Role+'.'+('{0:D4}' -f $number))){throw 'Missing network inventory batch.'}
             $batch=ConvertTo-WinSecNetworkConfigurationBatch $row.Value
-            if($batch.Role -cne $p.Role){throw 'Foreign network inventory role.'}
-            foreach($item in $batch.Items){if($item.Id -cne ($p.Role+'-'+('{0:D4}' -f ($items.Count+1)))){throw 'Missing or duplicate network record.'};$items+=,$item}
+            if($batch.Role -cne $p.Role -or $batch.SchemaVersion -cne $Report.CatalogVersion){throw 'Foreign network inventory role or catalog version.'}
+            foreach($item in $batch.Items){
+                if($item.Id -cne ($p.Role+'-'+('{0:D4}' -f ($items.Count+1)))){throw 'Missing or duplicate network record.'}
+                if($p.Role -ceq 'Legacy' -and $Report.CatalogVersion -ceq '1.1.0'){
+                    $key=[string]$item.Values.Index;if($legacyIndices.ContainsKey($key)){throw 'Duplicate Legacy key across batches.'};$legacyIndices[$key]=$true
+                };$items+=,$item
+            }
         }
         $a=$rows['Availability.'+$p.Role];$c=$rows['Counts.'+$p.Role]
         if($a.State -ceq 'OBSERVED' -and $a.Value -ceq 'OBSERVED'){

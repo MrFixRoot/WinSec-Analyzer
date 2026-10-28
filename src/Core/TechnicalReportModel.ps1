@@ -243,7 +243,7 @@ function ConvertTo-WinSecTechnicalReport {
     foreach($field in @('SchemaVersion','CatalogVersion','DeviceId','ScanId','SectionKey','CheckId','ScopeType','ScopeKey')) {
         if($r.$field -isnot [string]){throw 'Technical identities must be scalar text.'}
     }
-    if($r.SchemaVersion -cne '1.0.0' -or ($r.CatalogVersion -cne '1.0.0' -and -not ($r.CheckId -ceq 'WSA-NET-003' -and $r.CatalogVersion -ceq '1.1.0')) -or
+    if($r.SchemaVersion -cne '1.0.0' -or ($r.CatalogVersion -cne '1.0.0' -and -not ($r.CheckId -cin @('WSA-NET-003','WSA-NET-005') -and $r.CatalogVersion -ceq '1.1.0')) -or
         $r.DeviceId -cnotmatch '\Alocal:hw1-[a-f0-9]{64}\z' -or -not (Test-WinSecTargetIdentifier $r.ScanId) -or
         $r.CheckId -isnot [string] -or $r.SectionKey -cne (Get-WinSecTechnicalControl $r.CheckId).SectionKey) {
         throw 'Invalid technical report identity.'
@@ -448,7 +448,7 @@ function New-WinSecTechnicalReport {
         if($Context.DeviceId -cne $Session.DeviceId -or $Context.ScanId -cne $Session.ScanId){throw 'Foreign technical Windows context.'}
         $profile=$Context.Profile;$release=$Context.OSRelease;$edition=$Context.Edition
     }
-    ConvertTo-WinSecTechnicalReport ([pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion=$(if($CheckId -ceq 'WSA-NET-003'){'1.1.0'}else{'1.0.0'});DeviceId=$Session.DeviceId;
+    ConvertTo-WinSecTechnicalReport ([pscustomobject]@{SchemaVersion='1.0.0';CatalogVersion=$(if($CheckId -cin @('WSA-NET-003','WSA-NET-005')){'1.1.0'}else{'1.0.0'});DeviceId=$Session.DeviceId;
         ScanId=$Session.ScanId;SectionKey=(Get-WinSecTechnicalControl $CheckId).SectionKey;CheckId=$CheckId;ScopeType=$Session.ScopeType;ScopeKey=$Session.ScopeKey;
         DeviceName=$DeviceName;Hostname=$Hostname;Profile=$profile;ObservedOSRelease=$release;ObservedEdition=$edition;
         StartedAtUTC=$Session.StartedAtUTC;CompletedAtUTC=$Session.CompletedAtUTC;CollectedAtUTC=$collected;

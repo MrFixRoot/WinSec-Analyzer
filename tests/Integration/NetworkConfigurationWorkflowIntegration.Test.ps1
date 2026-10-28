@@ -111,6 +111,17 @@ try {
             @($technical.Rows|Where-Object SettingId -CEQ UnknownFieldCount)[0].Value -gt 0 -and (ConvertTo-WinSecTechnicalMarkdown $technical).Contains('UNKNOWN'))
         $script:NetworkOptionalMissing=$false
     }
+    Test-NetworkIntegration 'Unbound Legacy configurations keep their keys and UNKNOWN linkage through persistence and Findings' {
+        $script:NetworkLegacyNoInterface=$true
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId network-unbound -ScopeType CONTROL -ScopeKey WSA-NET-005 `
+            -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
+        $technical=Read-WinSecTechnicalReport $sandbox $target.DeviceId network-unbound WSA-NET-005
+        $batch=ConvertTo-WinSecNetworkConfigurationBatch @($technical.Rows|Where-Object SettingId -CEQ Inventory.Legacy.0001)[0].Value
+        Assert-NetworkIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $technical.CatalogVersion -ceq '1.1.0' -and $batch.Items.Count -eq 2 -and
+            $batch.Items[0].Values.Index -eq 1 -and $null -eq $batch.Items[0].Values.InterfaceIndex -and $batch.Items[0].Values.IPEnabled -ceq $false -and
+            @($technical.Rows|Where-Object SettingId -CEQ CoverageComplete)[0].Value -ceq $false)
+        $script:NetworkLegacyNoInterface=$false
+    }
     Test-NetworkIntegration 'Progress fits small and resized terminals without additional provider calls' {
         $script:lines=New-Object 'Collections.Generic.List[string]'
         function Write-Host {param([object[]]$Object,$ForegroundColor,$BackgroundColor,[switch]$NoNewline);$script:lines.Add(($Object -join ' '))}

@@ -62,6 +62,52 @@ Test-Network 'A raw provider error is replaced with a closed query-stage diagnos
     Assert-Network ($e.ProviderDiagnostics.Count -eq 1 -and $e.ProviderDiagnostics[0] -ceq 'Legacy:QUERY:UNAVAILABLE' -and
         (ConvertTo-Json $e -Depth 8 -Compress) -notmatch 'PRIVATE-PROVIDER-TEXT')
 }
+Test-Network 'A non-IP Legacy configuration retains its real key and UNKNOWN interface without being dropped' {
+    $script:NetworkLegacyNoInterface=$true;$s=New-WinSecNetworkConfigurationFixtureSession;$e=$s.ControlResults[0].Evidence
+    $r=New-WinSecTechnicalReport $s WSA-NET-005 SYNTHETIC SYNTHETIC
+    $batch=ConvertTo-WinSecNetworkConfigurationBatch @($r.Rows|Where-Object SettingId -CEQ Inventory.Legacy.0001)[0].Value
+    Assert-Network ($e.CollectionComplete -and -not $e.CoverageComplete -and $e.Counts.Legacy -eq 2 -and $e.UnknownFieldCount -eq 2 -and
+        $r.CatalogVersion -ceq '1.1.0' -and $batch.Items.Count -eq 2 -and $batch.Items[0].Values.Index -eq 1 -and
+        $null -eq $batch.Items[0].Values.InterfaceIndex -and $batch.Items[0].Values.IPEnabled -ceq $false -and
+        (ConvertTo-WinSecTechnicalMarkdown $r).Contains('UNKNOWN'))
+    $a=New-WinSecNetworkConfigurationFixtureAnalysis $root
+    Assert-Network ($a.UnknownReadingCount -eq 1 -and @($a.Rows|Where-Object CriterionId -CEQ WSA-NCF-REVIEW-001).Count -eq 0)
+}
+Test-Network 'An IP-enabled Legacy configuration still cannot omit InterfaceIndex' {
+    $script:NetworkLegacyNoInterface=$true;$script:NetworkLegacyIPEnabled=$true;$s=New-WinSecNetworkConfigurationFixtureSession;$e=$s.ControlResults[0].Evidence
+    Assert-Network (-not $e.CollectionComplete -and $null -eq $e.Counts.Legacy -and $e.ProviderDiagnostics[0] -ceq 'Legacy:NORMALIZATION:NETWORK_REQUIRED_FIELD_InterfaceIndex')
+}
+Test-Network 'Malformed interface values are rejected even when Legacy IPEnabled is false' {
+    $raw=[pscustomobject]@{Index=[uint32]1;InterfaceIndex='PRIVATE-BAD-INDEX';IPEnabled=$false}
+    Reject-Network {ConvertTo-WinSecNetworkConfigurationRecord $raw Legacy 1}
+    foreach($value in @($null,'PRIVATE-BAD-KEY',-1)){$raw=[pscustomobject]@{Index=$value;InterfaceIndex=$null;IPEnabled=$false};Reject-Network {ConvertTo-WinSecNetworkConfigurationRecord $raw Legacy 1}}
+}
+Test-Network 'Duplicate Legacy configuration keys reject the complete provider rather than hide records' {
+    $script:NetworkLegacyDuplicateIndex=$true;$s=New-WinSecNetworkConfigurationFixtureSession;$e=$s.ControlResults[0].Evidence
+    Assert-Network (-not $e.CollectionComplete -and $e.Availability.Legacy -ceq 'UNKNOWN' -and $null -eq $e.Counts.Legacy)
+}
+Test-Network 'The reader rejects an invented interface exclusion, duplicate keys and mixed catalog versions' {
+    $script:NetworkLegacyNoInterface=$true;$r=New-WinSecTechnicalReport (New-WinSecNetworkConfigurationFixtureSession) WSA-NET-005 SYNTHETIC SYNTHETIC
+    $row=@($r.Rows|Where-Object SettingId -CEQ Inventory.Legacy.0001)[0];$batch=ConvertTo-WinSecNetworkConfigurationBatch $row.Value
+    $batch.Items[0].Values.IPEnabled=$true;Reject-Network {ConvertTo-WinSecNetworkConfigurationBatch (ConvertTo-Json $batch -Compress -Depth 6)}
+    $batch=ConvertTo-WinSecNetworkConfigurationBatch $row.Value;$batch.Items[1].Values.Index=$batch.Items[0].Values.Index
+    Reject-Network {ConvertTo-WinSecNetworkConfigurationBatch (ConvertTo-Json $batch -Compress -Depth 6)}
+    $r.CatalogVersion='1.0.0';Reject-Network {ConvertTo-WinSecTechnicalReport $r}
+}
+Test-Network 'Historical 1.0 network batches remain strict and cannot acquire an invented Legacy key' {
+    $r=New-WinSecTechnicalReport (New-WinSecNetworkConfigurationFixtureSession) WSA-NET-005 SYNTHETIC SYNTHETIC
+    $r.CatalogVersion='1.0.0'
+    foreach($row in @($r.Rows|Where-Object SettingId -CLIKE Inventory.*)){
+        $b=ConvertTo-WinSecNetworkConfigurationBatch $row.Value;$b.SchemaVersion='1.0.0'
+        if($b.Role -ceq 'Legacy'){foreach($item in $b.Items){$item.Values.PSObject.Properties.Remove('Index')}}
+        $row.Value=ConvertTo-Json $b -Compress -Depth 6
+    }
+    $r=ConvertTo-WinSecTechnicalReport $r;$md=ConvertTo-WinSecTechnicalMarkdown $r
+    Assert-Network (-not $md.Contains('Legacy configuration Index is the Win32 configuration key'))
+    $row=@($r.Rows|Where-Object SettingId -CEQ Inventory.Legacy.0001)[0];$b=ConvertTo-WinSecNetworkConfigurationBatch $row.Value
+    $b.Items[0].Values.InterfaceIndex=$null;$b.Items[0].Values.IPEnabled=$false
+    Reject-Network {ConvertTo-WinSecNetworkConfigurationBatch (ConvertTo-Json $b -Compress -Depth 6)}
+}
 Test-Network 'Counts, diagnostics, scope, record identity and address tokens are strictly validated' {
     $r=New-WinSecTechnicalReport (New-WinSecNetworkConfigurationFixtureSession) WSA-NET-005 SYNTHETIC SYNTHETIC
     $copy=Copy-WinSecResultData $r;@($copy.Rows|Where-Object SettingId -CEQ Counts.Adapter)[0].Value=0;Reject-Network {ConvertTo-WinSecTechnicalReport $copy}

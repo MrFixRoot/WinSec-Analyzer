@@ -43,5 +43,12 @@ try {
         Assert-NetworkRequest $caught
     }
     Write-Host '[PASS] Private text, unreviewed fields, duplicate roles and contradictory diagnostics are rejected'
+    $script:NetworkInvalid='';$script:NetworkLegacyNoInterface=$true;$script:NetworkCalls.Clear()
+    $plan=(& $validator -PlanOnly -OperationId ('c'*32)) -join "`n"|ConvertFrom-Json
+    $unbound=(. $validator -OperationId ('c'*32) -ApprovedRequestHash $plan.RequestHash) -join "`n"|ConvertFrom-Json
+    Assert-NetworkRequest ($unbound.ExecutionStatus -ceq 'COMPLETED' -and $unbound.CollectionComplete -and -not $unbound.CoverageComplete -and
+        $unbound.UnknownFieldCount -eq 2 -and $unbound.InventoryCounts.Legacy -eq 2 -and $unbound.ProviderDiagnostics.Count -eq 0 -and
+        $unbound.TechnicalMarkdownValidated -and $unbound.PublicHistoryRoundtripValidated -and $unbound.InMemoryFrameworkReports -eq 3 -and -not $unbound.ReportsPersisted)
+    Write-Host '[PASS] Non-IP Legacy configurations roundtrip with keys and UNKNOWN interfaces without invented coverage'
 }finally{$env:COMPUTERNAME=$saved}
-Write-Host 'Network Configuration native request: 7 passed; 0 failed.'
+Write-Host 'Network Configuration native request: 8 passed; 0 failed.'
