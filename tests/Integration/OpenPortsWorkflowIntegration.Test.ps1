@@ -12,7 +12,7 @@ try {
     foreach($directory in @('src','config')){Copy-Item -LiteralPath (Join-Path $sourceRoot $directory) -Destination (Join-Path $sandbox $directory) -Recurse}
     foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/UI/Core/NavigationController.ps1',
         'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/CLI/FrameworkWorkflow.ps1','src/UI/Core/TerminalRenderer.ps1','src/UI/Screens/ScanProgress.ps1')){. (Join-Path $sandbox $file)}
-    foreach($fixture in @('OpenPorts','Rdp','Smb','Firewall')){. (Join-Path $sourceRoot ('tests/Fixtures/'+$fixture+'Memory.ps1'))}
+    foreach($fixture in @('NetworkConfiguration','OpenPorts','Rdp','Smb','Firewall')){. (Join-Path $sourceRoot ('tests/Fixtures/'+$fixture+'Memory.ps1'))}
     function Get-WinSecPortsIntegrationCim {
         [CmdletBinding()]param($Namespace,$ClassName,$Property,$Filter,$OperationTimeoutSec)
         if($Namespace -ceq 'root/cimv2' -and $OperationTimeoutSec -eq 5){return Get-WinSecSmbFixtureCim @PSBoundParameters}
@@ -27,27 +27,28 @@ try {
     Set-Alias Invoke-WinSecRdpQuery Invoke-WinSecRdpFixtureQuery -Scope Script
     Set-Alias Read-WinSecRdpRegistryValue Read-WinSecRdpFixtureRegistry -Scope Script
     Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
+    Set-Alias Invoke-WinSecNetworkConfigurationQuery Invoke-WinSecNetworkConfigurationFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-PortsIntegration 'Production enables Open Ports after native validation and leaves seven controls disabled' {
+    Test-PortsIntegration 'Production enables Open Ports after native validation and leaves six controls disabled' {
         $check=Get-WinSecRegisteredCheck $production WSA-NET-004
         Assert-PortsIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 7)
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6)
     }
-    Initialize-WinSecOpenPortsFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
+    Initialize-WinSecNetworkConfigurationFixture;Initialize-WinSecOpenPortsFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
     $c=New-WinSecScanCoordinator $sandbox;$c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
     $confirmation={param($preview)
-        $ids=if($preview.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004'}else{'WSA-NET-004'}
+        $ids=if($preview.ScopeType -ceq 'SECTION'){'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005'}else{'WSA-NET-004'}
         Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
     }
-    Test-PortsIntegration 'Device confirmation lists exactly seven validated controls and cancels without provider calls' {
+    Test-PortsIntegration 'Device confirmation lists exactly eight validated controls and cancels without provider calls' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($preview)
             Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
         Assert-PortsIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0)
@@ -73,11 +74,11 @@ try {
         Assert-PortsIntegration ($null -eq $r -and $c.Sessions.Count -eq 1 -and $PortsCalls.Count -eq 2 -and
             @(Get-ChildItem (Join-Path $sandbox 'reports/exports') -Recurse -File).Count -eq $before)
     }
-    Test-PortsIntegration 'Section scan saves four owner-bound technical snapshots for exactly the selected section' {
+    Test-PortsIntegration 'Section scan saves five owner-bound technical snapshots for exactly the selected section' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId ports-section -ScopeType SECTION -ScopeKey NetworkSecurity `
             -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction $confirmation
-        Assert-PortsIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 4 -and
-            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004' -and
+        Assert-PortsIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 5 -and $NetworkCalls.Count -eq 11 -and
+            (($c.LastTechnicalReports.Files.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005' -and
             (Get-WinSecScanAction $c $target.DeviceId SECTION NetworkSecurity) -ceq 'Rescan')
     }
     Test-PortsIntegration 'Restored F chooses a framework and P exports the frozen view without querying Windows again' {
@@ -87,12 +88,12 @@ try {
         $state.ControlIndex=3
         $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-PORTS';DisplayName='SYNTHETIC-PORTS'});
             PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
-        $null=Restore-WinSecPublicHistory $ctx;$calls=$PortsCalls.Count;$rdp=$RdpCalls.Count;$smb=$SmbCalls.Count;$fw=$FirewallCalls.Count
+        $null=Restore-WinSecPublicHistory $ctx;$calls=$PortsCalls.Count;$networkReads=$NetworkCalls.Count;$rdp=$RdpCalls.Count;$smb=$SmbCalls.Count;$fw=$FirewallCalls.Count
         function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
         Assert-PortsIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
         $state.Screen='Findings';$state.FindingsScope='Control';$artifact=Export-WinSecCLIFrameworkFindings $state $ctx
         Assert-PortsIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.Rows.Count -eq 2 -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and
-            $PortsCalls.Count -eq $calls -and $RdpCalls.Count -eq $rdp -and $SmbCalls.Count -eq $smb -and $FirewallCalls.Count -eq $fw)
+            $PortsCalls.Count -eq $calls -and $NetworkCalls.Count -eq $networkReads -and $RdpCalls.Count -eq $rdp -and $SmbCalls.Count -eq $smb -and $FirewallCalls.Count -eq $fw)
     }
     Test-PortsIntegration 'Optional endpoint metadata persists as unknown without converting complete execution into a security verdict' {
         $script:PortsOptionalMissing=$true

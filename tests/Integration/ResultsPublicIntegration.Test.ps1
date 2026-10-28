@@ -35,9 +35,9 @@ function Set-WinSecResultsTestTerminal {
 }
 $catalog=Get-Content -LiteralPath (Join-Path $root 'config/checks.json') -Raw|ConvertFrom-Json
 $enabled=@($catalog.checks|Where-Object {$_.execution.enabled -eq $true})
-if($enabled.Count -ne 7 -or (($enabled.checkId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+if($enabled.Count -ne 8 -or (($enabled.checkId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabled | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0){
-    throw 'Only validated System Security, Firewall, SMBv1, Remote Desktop and Open Ports controls may be enabled in production.'
+    throw 'Only validated System Security, Firewall, SMBv1, Remote Desktop, Open Ports and Network Configuration controls may be enabled in production.'
 }
 $deviceId='local:RESULTS-PUBLIC';$scanId='results-public-1'
 $collectors=@(foreach($check in $catalog.checks){

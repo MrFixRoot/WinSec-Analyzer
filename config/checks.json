@@ -255,9 +255,9 @@
       "description": "Collect reviewed local adapter, IPv4/IPv6, routing, DNS, profile, DHCP and NetBIOS configuration without network probes.",
       "order": 5,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Network/Test-NetworkConfiguration.ps1",
         "function": "Test-WinSecNetworkConfiguration"

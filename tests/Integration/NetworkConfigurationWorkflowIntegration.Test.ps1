@@ -1,4 +1,4 @@
-# Isolated in-memory permission for Network Configuration; production catalog remains disabled.
+# Real production permissions after individual native validation; providers remain synthetic.
 # All providers are synthetic. No production audit or permission changes.
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -29,18 +29,11 @@ try {
     Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
     Set-Alias Invoke-WinSecNetworkConfigurationQuery Invoke-WinSecNetworkConfigurationFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    $registryReader=(Get-Command Get-WinSecCheckRegistry -CommandType Function).ScriptBlock
-    function Get-WinSecCheckRegistry {
-        param($ProjectRoot)
-        $r=& $registryReader $ProjectRoot
-        foreach($check in $r.Checks){if($check.CheckId -ceq 'WSA-NET-005'){$check.ExecutionEnabled=$true;$check.ExecutionReady=$true;$check.ImplementationStatus='VALIDATED';$check.RegistryStatus='READY'}}
-        return $r
-    }
-    Test-NetworkIntegration 'Production keeps Network Configuration disabled pending native validation' {
+    Test-NetworkIntegration 'Production enables Network Configuration after individual native validation' {
         $check=Get-WinSecRegisteredCheck $production WSA-NET-005
-        Assert-NetworkIntegration (-not $check.ExecutionEnabled -and -not $check.ExecutionReady -and $check.ImplementationStatus -ceq 'PENDING_VALIDATION' -and
-            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 7)
+        Assert-NetworkIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6)
     }
     Initialize-WinSecOpenPortsFixture;Initialize-WinSecNetworkConfigurationFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
@@ -51,7 +44,7 @@ try {
         Assert-NetworkIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
     }
-    Test-NetworkIntegration 'Device confirmation lists eight isolated controls and cancels without provider calls' {
+    Test-NetworkIntegration 'Device confirmation lists exactly eight validated controls and cancels without provider calls' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($preview)
             Assert-NetworkIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq

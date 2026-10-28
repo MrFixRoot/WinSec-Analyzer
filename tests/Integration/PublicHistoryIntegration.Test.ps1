@@ -8,9 +8,9 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Screens/ScanConfirmation.ps1','src/UI/Screens/ScanProgress.ps1','src/UI/Screens/DeviceName.ps1')){. (Join-Path $root $file)}
 $script:catalog=Get-WinSecCheckRegistry -ProjectRoot $root
 $enabled=@($script:catalog.Checks|Where-Object ExecutionEnabled)
-if($enabled.Count -ne 7 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+if($enabled.Count -ne 8 -or (($enabled.CheckId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabled | Where-Object {-not $_.ExecutionReady -or $_.ImplementationStatus -cne 'VALIDATED'}).Count -ne 0){
-    throw 'Only validated System Security, Firewall, SMBv1, Remote Desktop and Open Ports controls may be enabled in production.'
+    throw 'Only validated System Security, Firewall, SMBv1, Remote Desktop, Open Ports and Network Configuration controls may be enabled in production.'
 }
 . (Join-Path $PSScriptRoot '../Fixtures/DeviceInventoryMemoryStore.ps1')
 # La fixture bloquea auditorías por defecto; esta integración usa el motor real

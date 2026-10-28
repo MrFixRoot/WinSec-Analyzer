@@ -116,10 +116,10 @@ Test-Network 'Counts, diagnostics, scope, record identity and address tokens are
     $b.Items[1].Id=$b.Items[0].Id;Reject-Network {ConvertTo-WinSecNetworkConfigurationBatch (ConvertTo-Json $b -Compress -Depth 6)}
     $b=ConvertTo-WinSecNetworkConfigurationBatch $row.Value;$b.Items[0].Values.IPAddress='192.0.2.10';Reject-Network {ConvertTo-WinSecNetworkConfigurationBatch (ConvertTo-Json $b -Compress -Depth 6)}
 }
-Test-Network 'Native preparation is still required; common Windows context grants no production execution' {
+Test-Network 'Common Windows context permits only the individually validated production control' {
     $plan=Get-WinSecAssessmentProfilePlan $root @('WSA-NET-005') WSA-W11-23H2-PRO-DEF-BASE
     $check=Get-WinSecRegisteredCheck (Get-WinSecCheckRegistry $root) WSA-NET-005
-    Assert-Network ($plan.Preview.Policies[0].CatalogId -ceq 'WSA-NETWORK-COLLECTION' -and -not $check.ExecutionEnabled -and $check.ImplementationStatus -ceq 'PENDING_VALIDATION')
+    Assert-Network ($plan.Preview.Policies[0].CatalogId -ceq 'WSA-NETWORK-COLLECTION' -and $check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED')
 }
 Test-Network 'IPv6 addresses and routes preserve family with tokens; mixed families and invalid prefixes are rejected' {
     $raw=[pscustomobject]@{InterfaceIndex=[uint32]1;AddressFamily=[uint16]23;IPAddress='2001:db8::1';PrefixLength=[byte]64;SkipAsSource=$false}
