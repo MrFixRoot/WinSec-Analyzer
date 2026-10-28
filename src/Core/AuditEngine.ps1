@@ -62,6 +62,7 @@ $script:WinSecAuditScorePath = Join-Path `
 . (Join-Path $PSScriptRoot 'SmbTelemetry.ps1')
 . (Join-Path $PSScriptRoot 'RdpTelemetry.ps1')
 . (Join-Path $PSScriptRoot 'OpenPortsTelemetry.ps1')
+. (Join-Path $PSScriptRoot 'NetworkConfigurationTelemetry.ps1')
 
 function Import-WinSecAuditDependencies {
     [CmdletBinding()]
@@ -622,7 +623,7 @@ function Invoke-WinSecAuditCheck {
 
                 # Standard function contract for all checks.
                 $arguments=@{DeviceId=$TargetDeviceId;ScanId=$CurrentScanId;CheckId=$CurrentCheckId}
-                if($CurrentCheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')) {
+                if($CurrentCheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004','WSA-NET-005')) {
                     $arguments.ProgressCallback=$CollectorProgress;$arguments.CancellationAction=$CancellationAction
                 }
                 & $command @arguments
@@ -922,14 +923,14 @@ function Invoke-WinSecAudit {
             try {$null=& $firewallProgressSink $event} catch { } # Display failures cannot alter collection.
         }.GetNewClosure()
         $checkArguments=@{Check=$check;DeviceId=$DeviceId;ScanId=$ScanId}
-        if($check.CheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')){$checkArguments.CollectorProgress=$collectorProgress;$checkArguments.CancellationAction=$CancellationAction}
+        if($check.CheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004','WSA-NET-005')){$checkArguments.CollectorProgress=$collectorProgress;$checkArguments.CancellationAction=$CancellationAction}
         $record = Invoke-WinSecAuditCheck @checkArguments
 
         $results.Add($record)
 
         $executedCount++
 
-        if ($record.ObservedStatus -eq 'ERROR' -or ($check.CheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004') -and $record.ObservedStatus -ceq 'UNKNOWN')) {
+        if ($record.ObservedStatus -eq 'ERROR' -or ($check.CheckId -cin @('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004','WSA-NET-005') -and $record.ObservedStatus -ceq 'UNKNOWN')) {
             $executionErrorCount++
         }
         Send-WinSecScanProgress -ProgressCallback $ProgressCallback -DeviceId $DeviceId -ScanId $ScanId `

@@ -1,8 +1,12 @@
 {
   "schemaVersion": "1.0.0",
-  "catalogVersion": "1.5.0",
+  "catalogVersion": "1.6.0",
   "interpretation": "REVIEW_WARNINGS_NOT_COMPLIANCE",
   "rules": [
+    {"id":"NET-CONFIG-NETBIOS","checkId":"WSA-NET-005","setting":"Inventory.Legacy.*","condition":"NETWORK_REVIEW","criterion":"WSA-NCF-REVIEW-001","title":"An IP-enabled adapter explicitly enables NetBIOS over TCP/IP","recommendation":"Review legacy name-resolution dependencies and approved exceptions. An authorized administrator can disable unnecessary NetBIOS after compatibility review. DHCP-controlled mode does not establish whether NetBIOS is enabled; no traffic or remote attack was observed."},
+    {"id":"NET-CONFIG-PRIVATE","checkId":"WSA-NET-005","setting":"Inventory.Profile.*","condition":"NETWORK_REVIEW","criterion":"WSA-NCF-REVIEW-002","title":"A Private network profile requires trust and filtering review","recommendation":"Verify that the network is trusted and that the Private Firewall profile matches the approved baseline. Private is legitimate on trusted networks and is not itself a vulnerability. Use Public for untrusted networks through authorized administration; do not change domain classification blindly."},
+    {"id":"NET-CONFIG-LLMNR","checkId":"WSA-NET-005","setting":"Registry.EnableMulticast.Value","condition":"ONE","criterion":"WSA-NCF-REVIEW-003","title":"Machine policy explicitly requests multicast name resolution","recommendation":"Review whether LLMNR is necessary and whether effective policy supports and applies this setting on the observed edition. Prefer managed name resolution and review authorized disabling of unnecessary legacy resolution. A registry value does not prove active traffic, effective policy or a poisoning attack."},
+
     {"id":"PORTS-TCP-BINDINGS","checkId":"WSA-NET-004","setting":"Inventory.TCP.*","condition":"PORTS_REVIEW","criterion":"WSA-PRT-REVIEW-001","title":"Non-loopback TCP listeners require need and filtering review","recommendation":"Review every listed binding against the approved service inventory, business need and effective Firewall policy. Restrict unnecessary listeners through authorized administration. A local port number does not identify a protocol, prove remote access or establish a vulnerability; no connection or probe was performed."},
     {"id":"PORTS-UDP-BINDINGS","checkId":"WSA-NET-004","setting":"Inventory.UDP.*","condition":"PORTS_REVIEW","criterion":"WSA-PRT-REVIEW-002","title":"Non-loopback UDP bindings require need and filtering review","recommendation":"Review every listed UDP binding, approved application and intended interface against the effective filtering policy. UDP bindings do not imply a listening handshake or external reachability. Do not infer a service solely from its port number. Any configuration change requires authorized administration."},
     {"id":"RDP-HOST-REVIEW","checkId":"WSA-NET-003","setting":"HostEnabled","condition":"TRUE","criterion":"WSA-RDP-REVIEW-001","title":"Remote Desktop host is enabled: review necessity and access","recommendation":"Confirm the approved business need, allowed users and network restrictions with the administrator. Disable an unnecessary host through authorized administration; if needed, restrict access through a managed gateway or VPN and appropriate MFA. NLA does not prove MFA, and this reading does not prove external exposure."},
@@ -49,6 +53,11 @@
     {"id":"FW-BFE","checkId":"WSA-NET-001","setting":"Services.BFE.State","condition":"STOPPED","criterion":"WSA-FW-REVIEW-001","title":"BFE service is stopped","recommendation":"Review the service state, effective Firewall policy and approved endpoint protection design with the administrator. No service is started or changed by WinSec."}
   ],
   "sources": [
+    "https://learn.microsoft.com/en-us/windows/win32/fwp/wmi/nettcpipprov/msft-netipinterface",
+    "https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-networkadapterconfiguration",
+    "https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-admx-dnsclient",
+    "https://learn.microsoft.com/en-us/previous-versions/managed-desktop/references/windows-11-policy-settings",
+
     "https://learn.microsoft.com/en-us/windows/win32/fwp/wmi/nettcpipprov/msft-nettcpconnection",
     "https://learn.microsoft.com/en-us/windows/win32/fwp/wmi/nettcpipprov/msft-netudpendpoint",
     "https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netudpendpoint",

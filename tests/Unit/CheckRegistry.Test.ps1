@@ -374,11 +374,11 @@ try {
 
             Assert-WinSecEqual `
                 -Actual $summary.Planned `
-                -Expected 2
+                -Expected 1
 
             Assert-WinSecEqual `
                 -Actual $summary.PendingValidation `
-                -Expected 5
+                -Expected 6
 
             Assert-WinSecEqual `
                 -Actual $summary.Enabled `

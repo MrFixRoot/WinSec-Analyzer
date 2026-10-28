@@ -252,10 +252,10 @@
       "controlKey": "NetworkConfiguration",
       "sectionKey": "NetworkSecurity",
       "name": "Network Configuration",
-      "description": "Collect network configuration details for assessment against defined criteria.",
+      "description": "Collect reviewed local adapter, IPv4/IPv6, routing, DNS, profile, DHCP and NetBIOS configuration without network probes.",
       "order": 5,
       "visible": true,
-      "implementationStatus": "PLANNED",
+      "implementationStatus": "PENDING_VALIDATION",
       "execution": {
         "enabled": false,
         "type": "PowerShell",

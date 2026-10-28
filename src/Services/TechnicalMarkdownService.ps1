@@ -23,6 +23,14 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $lines.Add('');$lines.Add('Values false and 0 are observations. Unknown, unavailable and not applicable remain distinct. Secrets, personal paths and free provider messages are excluded.')
     $lines.Add('');$lines.Add('## Interpretation notes');$lines.Add('')
     switch($r.CheckId) {
+        'WSA-NET-005' {
+            $lines.Add('- Local adapter, IP interface, address, route, DNS, connection profile and legacy adapter settings are independent snapshots. No connectivity, name resolution, traffic capture or remote exposure test is performed.')
+            $lines.Add('- Only reviewed fields are requested. InterfaceIndex relates records within this snapshot; record IDs are scan-local. Addresses, DNS servers and route prefixes are SHA256 tokens. Adapter names, SSIDs, domain suffixes, MAC addresses, users, credentials and arbitrary provider text are excluded.')
+            $lines.Add('- AddressFamily: 2 IPv4, 23 IPv6. NetworkCategory: 0 Public, 1 Private, 2 DomainAuthenticated. TcpipNetbiosOptions: 0 DHCP-controlled, 1 enabled, 2 disabled. DHCP control alone does not establish effective NetBIOS state.')
+            $lines.Add('- Remaining CIM numeric modes are retained as provider enums, not a security verdict. In particular, contradictory Forwarding prose in the Microsoft class reference is not converted into a warning. A Private network or enabled NetBIOS requires context and approved exceptions.')
+            $lines.Add('- Machine DNS policies are explicit Registry64 configuration, not proof of effective policy or encrypted DNS transport. Missing values are NOT_CONFIGURED. DoHPolicy and other values remain informational unless a reviewed rule applies; Home policy applicability is not inferred from a selected profile.')
+            $lines.Add('- One common Windows 11 schema is used. Missing optional fields remain UNKNOWN and reduce coverage; failed providers or invalid required fields keep execution PARTIAL. Limits: 64 records per inventory, one DNS global record, eight DNS addresses per record, batches of 16. Overflow rejects the affected inventory without truncation.')
+        }
         'WSA-NET-004' {
             $lines.Add('- TCP LISTEN and UDP bindings are a local point-in-time inventory. UDP has no LISTEN state. Neither proves reachability, allowed Firewall traffic, vulnerability or the service using a port.')
             $lines.Add('- IPv4 and IPv6 are both included. ANY means a wildcard bind, LOOPBACK is local-only, SPECIFIC is a concrete local address. Addresses are SHA256 tokens; PID is transient. No process names, paths, command lines, users, peers or credentials are collected.')
@@ -70,6 +78,19 @@ function ConvertTo-WinSecTechnicalMarkdown {
     $group=''
     foreach($row in $r.Rows) {
         $d=Get-WinSecTechnicalRowDefinition $row.SettingId $defs
+        if($d.Kind -ceq 'networkBatch' -and $row.State -ceq 'OBSERVED'){
+            $group='';$lines.Add('');$lines.Add('## '+$d.Group+' / '+$row.SettingId);$lines.Add('')
+            $batch=ConvertTo-WinSecNetworkConfigurationBatch $row.Value
+            foreach($item in $batch.Items){
+                $lines.Add('### Record '+$item.Id);$lines.Add('')
+                $lines.Add('| Setting | Value | Collection state |');$lines.Add('| --- | --- | --- |')
+                foreach($field in $item.Values.PSObject.Properties){
+                    $state=if($null -eq $field.Value){'UNKNOWN'}else{'OBSERVED'}
+                    $value=if($null -eq $field.Value){'Not available'}elseif($field.Value -is [array]){if($field.Value.Count){$field.Value -join ', '}else{'EMPTY - no configured server returned'}}else{[string]$field.Value}
+                    $lines.Add('| '+(ConvertTo-WinSecTechnicalCell $field.Name)+' | '+(ConvertTo-WinSecTechnicalCell $value)+' | '+$state+' |')
+                };$lines.Add('')
+            };continue
+        }
         if($d.Kind -ceq 'portsBatch' -and $row.State -ceq 'OBSERVED'){
             $group='';$lines.Add('');$lines.Add('## '+$d.Group+' / '+$row.SettingId);$lines.Add('')
             $lines.Add('| ID | Family | Binding | Address token | Port | PID | Created UTC | State | Applied setting | Offload |')

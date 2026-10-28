@@ -113,13 +113,13 @@ function Show-WinSecScanConfirmation {
     if ($profileCount -gt 1) { throw 'Ambiguous assessment profile confirmation.' }
     if ($profileCount -eq 1) {
         $profile = Assert-WinSecAssessmentProfilePreview $profileValue
-        $profileLabel=if(@($profile.Policies|Where-Object {$_.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION')}).Count){'Windows context / profile: '}else{'Evaluation profile: '}
+        $profileLabel=if(@($profile.Policies|Where-Object {$_.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION','WSA-NETWORK-COLLECTION')}).Count){'Windows context / profile: '}else{'Evaluation profile: '}
         $profileLines += $profileLabel + $profile.Profile
         foreach ($policy in $profile.Policies) {
             if (@($Request.Checks|Where-Object {$_.CheckId -ceq $policy.CheckId}).Count -ne 1) {
                 throw 'Profile policy lies outside the confirmed control selection.'
             }
-            $label=if($policy.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION')){'Collection schema'}else{'Criteria'}
+            $label=if($policy.CatalogId -cin @('WSA-FIREWALL-COLLECTION','WSA-SMB-COLLECTION','WSA-RDP-COLLECTION','WSA-PORTS-COLLECTION','WSA-NETWORK-COLLECTION')){'Collection schema'}else{'Criteria'}
             $profileLines += ($label+': {0} | {1} / {2}' -f $policy.CheckId,$policy.CatalogId,$policy.CatalogVersion)
             $profileLines += 'Criteria SHA256: ' + $policy.CatalogSha256
             $profileLines += 'Applies to: {0} / {1} / {2}' -f $policy.OSFamily,$policy.OSRelease,$policy.Edition

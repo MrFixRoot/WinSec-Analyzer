@@ -4,7 +4,7 @@
 function Get-WinSecTechnicalReportPolicy {
     param([string]$ProjectRoot,[string]$DeviceId,[string[]]$CheckIds)
     foreach($check in $CheckIds){$null=Get-WinSecTechnicalControl $check}
-    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Core/TechnicalControlRegistry.ps1','src/Core/FirewallTelemetry.ps1','src/Core/SmbTelemetry.ps1','src/Core/RdpTelemetry.ps1','src/Core/OpenPortsTelemetry.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
+    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Core/TechnicalControlRegistry.ps1','src/Core/FirewallTelemetry.ps1','src/Core/SmbTelemetry.ps1','src/Core/RdpTelemetry.ps1','src/Core/OpenPortsTelemetry.ps1','src/Core/NetworkConfigurationTelemetry.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
         (Get-FileHash -LiteralPath (Join-Path $ProjectRoot $file) -Algorithm SHA256 -ErrorAction Stop).Hash
     })
     [pscustomobject]@{SchemaVersion=if($CheckIds -ccontains 'WSA-NET-001'){'3.0.0'}else{'2.0.0'};CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
