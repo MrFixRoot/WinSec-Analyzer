@@ -53,7 +53,8 @@ function Show-WinSecFrameworkFindings {
     $expected=@(Get-WinSecTechnicalScopeChecks $a.ScopeType $a.ScopeKey)
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){Write-WinSecText -Text ('Controls without a saved scan: '+($unscanned -join ', ')) -Color Yellow}
-    if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){Write-WinSecText -Text 'Coverage: saved Firewall / SMBv1 / RDP readings only. Open Ports and Network Configuration remain pending.' -Color Yellow}
+    $preference=Get-WinSecCLIValue $Context FrameworkSourcePreference
+    if($preference){Write-WinSecText -Text ('Sources: '+$preference+'. Original scan identities and scopes are preserved.') -Color Gray}
     Write-WinSecText -Text 'Review context; not a compliance verdict or evidence of an attack.' -Color DarkGray
     $rows=@($a.Rows|ForEach-Object {[pscustomobject]@{Id=$_.Id;Control=$_.CheckId+' / '+$_.CriterionId;Title=$_.Title;State=$_.State}})
     $index=if($rows.Count){[Math]::Max(0,[Math]::Min([int]$State.FindingsOffset,$rows.Count-1))}else{-1}

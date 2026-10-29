@@ -132,13 +132,13 @@ function ConvertFrom-WinSecTransitionJson {
 }
 
 function Read-WinSecTransitionReport {
-    param($Coordinator,[string]$DeviceId,[string]$ScanId,[string]$CheckId)
+    param($Coordinator,[string]$DeviceId,[string]$ScanId,[string]$CheckId,[scriptblock]$CancellationAction)
     $key=(Get-WinSecScanSessionKey $DeviceId $ScanId)+'|'+$CheckId
     if(-not $Coordinator.TechnicalLocations.ContainsKey($key)){return Read-WinSecTechnicalReport $Coordinator.ProjectRoot $DeviceId $ScanId $CheckId}
     $reference=$Coordinator.TechnicalLocations[$key];$catalog=Get-WinSecProjectionCatalog $CheckId
     Assert-WinSecSnapshotFields $reference @('Identity','CollectedAtUTC','CatalogSha256');Assert-WinSecSnapshotIdentity $reference.Identity
     if($reference.Identity.DeviceId -cne $DeviceId -or $reference.Identity.ScanId -cne $ScanId -or $reference.Identity.CheckId -cne $CheckId){throw 'Foreign cached technical reference.'}
-    $result=Read-WinSecTechnicalSnapshotPair $Coordinator.ProjectRoot $reference.Identity $reference.CollectedAtUTC $catalog $reference.CatalogSha256
+    $result=Read-WinSecTechnicalSnapshotPair $Coordinator.ProjectRoot $reference.Identity $reference.CollectedAtUTC $catalog $reference.CatalogSha256 -CancellationAction $CancellationAction
     if($result.PublicationStatus -cne 'COMMITTED'){throw 'Technical source is not committed.'}
     return ConvertFrom-WinSecProjectionSnapshot $result.Snapshot
 }

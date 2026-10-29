@@ -99,6 +99,39 @@ try {
             finally{$c.TechnicalLocations[$key]=$saved}
         }
     }
+    if($NewStorage){
+        Test-IdentityIntegration 'Cancellation reaches the paired reader without publishing a replacement source' {
+            $before=Get-WinSecPublicHistoryJson $c.TechnicalLocations;$cancelled=$false
+            try{$null=Read-WinSecTransitionReport $c $target.DeviceId identity-section WSA-IAM-001 -CancellationAction {$true}}
+            catch [OperationCanceledException]{$cancelled=$true}
+            Assert-IdentityIntegration ($cancelled -and (Get-WinSecPublicHistoryJson $c.TechnicalLocations) -ceq $before)
+        }
+        $script:IdentityFailure='Guest'
+        try{$partial=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId identity-partial -ScopeType CONTROL -ScopeKey WSA-IAM-002 -ConfirmAction {$true}}
+        finally{$script:IdentityFailure=''}
+        Assert-IdentityIntegration ($partial.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS')
+        foreach($preference in @('PREFER_COMPLETE','LATEST_ATTEMPT')){
+            Test-IdentityIntegration ('Restored partial/completed JSON sources remain selectable and exportable: '+$preference) {
+                $script:IdentitySelectedSource=$preference
+                $restored=New-WinSecScanCoordinator $sandbox;$restored.NewTechnicalStorageEnabled=$true
+                $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@($target);LocalDeviceId=$target.DeviceId;
+                    PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastExportMessage=''}
+                Restore-WinSecPublicHistory $ctx
+                $state=New-WinSecNavigationState;$state.SelectedDeviceId=$target.DeviceId;$state.Screen='Section';$state.ControlIndex=1
+                $state.SectionIndex=[array]::IndexOf(@((Get-WinSecMainMenuSections).Key),'IdentityAccess')
+                function Show-WinSecFindingsSourceSelection {param($Selection);[pscustomobject]@{Confirmed=$true;SourcePreference=$script:IdentitySelectedSource}}
+                function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+                $before=$IdentityCalls.Count
+                Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+                Assert-IdentityIntegration ($ctx.FrameworkSourcePreference -ceq $preference -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS')
+                $selected=$ctx.FrameworkFindings.Sources[0].ScanId
+                Assert-IdentityIntegration (($preference -ceq 'LATEST_ATTEMPT' -and $selected -ceq 'identity-partial') -or
+                    ($preference -ceq 'PREFER_COMPLETE' -and $selected -cne 'identity-partial'))
+                $state.Screen='Findings';$state.FindingsScope='Control';$file=Export-WinSecCLIFrameworkFindings $state $ctx
+                Assert-IdentityIntegration ([IO.File]::Exists($file.Path) -and $IdentityCalls.Count -eq $before)
+            }
+        }
+    }
     Test-IdentityIntegration 'Confirmed Delete Device recognizes IAM technical Markdown and Findings artifacts' {
         $devices=@((Import-WinSecDeviceInventory $sandbox).targets);$directory=Join-Path $sandbox ('reports/exports/'+(Get-WinSecEvidenceHash $target.DeviceId))
         $result=Remove-WinSecManagedDevice -ProjectRoot $sandbox -DeviceId $target.DeviceId -Coordinator $c -Devices $devices -ConfirmAction {$false};Assert-IdentityIntegration ($null -eq $result -and (Test-Path $directory))

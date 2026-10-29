@@ -207,6 +207,95 @@ function Get-WinSecCLIRecords {
 # Resolve assessment belonging to the selected device
 # ------------------------------------------------------------
 
+function Get-WinSecCLIStoredValue {
+    param($Value,[string]$Name)
+    if($Value -is [System.Collections.IDictionary]){
+        if($Value.GetType() -notin @([hashtable],[Collections.Specialized.OrderedDictionary],[Collections.Generic.Dictionary[string,object]])){throw 'Unsupported source dictionary.'}
+        return ,($Value[$Name])
+    }
+    if($null -eq $Value -or $Value.GetType() -ne [Management.Automation.PSCustomObject]){throw 'Source metadata requires plain objects.'}
+    $property=$Value.PSObject.Properties[$Name]
+    if($null -eq $property){return $null}
+    if($property.MemberType -ne [Management.Automation.PSMemberTypes]::NoteProperty){throw 'Source metadata requires plain properties.'}
+    return ,($property.Value)
+}
+
+function Get-WinSecCLIControlSource {
+    [CmdletBinding()]
+    param($Context,[string]$DeviceId,[object[]]$Candidates,
+        [ValidateSet('LATEST_ATTEMPT','PREFER_COMPLETE')][string]$SourcePreference='LATEST_ATTEMPT')
+    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
+    }
+    $publics=Get-WinSecCLIValue $Context PublicScans
+    if ($publics -isnot [System.Collections.IDictionary] -or $publics.Count -gt 10000) { throw 'Invalid public source collection.' }
+    $scopes=Get-WinSecCLIValue $Context ActiveScanByScope
+    $devices=Get-WinSecCLIValue $Context ActiveScanByDevice
+    $checkId=$Candidates[0].ScopeKey
+    # An index is an integrity constraint, not the only available historical source.
+    foreach($candidate in $Candidates) {
+        $id=$null;$present=$false
+        if($candidate.ScopeType -ceq 'DEVICE') {
+            if($devices -is [System.Collections.IDictionary] -and $devices.Contains($DeviceId)){$id=$devices[$DeviceId];$present=$true}
+        } else {
+            $index=Get-WinSecCLIScopeKey $DeviceId $candidate.ScopeType $candidate.ScopeKey
+            if($scopes.ContainsKey($index)){$id=$scopes[$index];$present=$true}
+        }
+        if(-not $present){continue}
+        if($id -isnot [string] -or -not (Test-WinSecTargetIdentifier $id)){throw 'Invalid control source index.'}
+        $key='{0}:{1}{2}:{3}' -f $DeviceId.Length,$DeviceId,$id.Length,$id
+        if(-not $publics.Contains($key)){throw 'Missing control source session.'}
+        $indexed=Copy-WinSecResultData $publics[$key]
+        if($indexed.DeviceId -isnot [string] -or $indexed.ScanId -isnot [string] -or
+            $indexed.DeviceId -cne $DeviceId -or $indexed.ScanId -cne $id -or
+            ($null -eq $indexed.ScopeType -and $candidate.ScopeType -cne 'DEVICE') -or
+            ($null -eq $indexed.ScopeType -and $null -ne $indexed.ScopeKey) -or
+            ($null -ne $indexed.ScopeType -and ($indexed.ScopeType -isnot [string] -or $indexed.ScopeKey -isnot [string] -or
+                $indexed.ScopeType -cne $candidate.ScopeType -or $indexed.ScopeKey -cne $candidate.ScopeKey))){throw 'Invalid indexed source ownership.'}
+    }
+    $prefix='{0}:{1}' -f $DeviceId.Length,$DeviceId
+    $eligible=New-Object 'Collections.Generic.List[object]'
+    foreach($key in @($publics.Keys)) {
+        if($key -isnot [string]){throw 'Invalid public source key.'}
+        if(-not $key.StartsWith($prefix,[StringComparison]::Ordinal)){continue}
+        # Order using data-only metadata; deeply validate only sources examined
+        # by the selected policy. No technical file reads during rendering.
+        $raw=$publics[$key]
+        $type=Get-WinSecCLIStoredValue $raw ScopeType;$scopeKey=Get-WinSecCLIStoredValue $raw ScopeKey
+        if($null -eq $type -and $null -eq $scopeKey){continue}
+        if($type -isnot [string] -or $scopeKey -isnot [string]){throw 'Invalid source scope metadata.'}
+        $scope=@($Candidates|Where-Object {$_.ScopeType -ceq $type -and $_.ScopeKey -ceq $scopeKey})
+        if(-not $scope.Count){continue}
+        $source=[pscustomobject]@{DeviceId=(Get-WinSecCLIStoredValue $raw DeviceId);ScanId=(Get-WinSecCLIStoredValue $raw ScanId);
+            StartedAtUTC=(Get-WinSecCLIStoredValue $raw StartedAtUTC);CompletedAtUTC=(Get-WinSecCLIStoredValue $raw CompletedAtUTC);ExecutionStatus=(Get-WinSecCLIStoredValue $raw ExecutionStatus)}
+        if($source.ScanId -isnot [string] -or -not (Test-WinSecTargetIdentifier $source.ScanId) -or
+            $source.DeviceId -isnot [string] -or $source.StartedAtUTC -isnot [string] -or $source.CompletedAtUTC -isnot [string] -or
+            $source.DeviceId -cne $DeviceId -or $key -cne ('{0}:{1}{2}:{3}' -f $DeviceId.Length,$DeviceId,$source.ScanId.Length,$source.ScanId) -or
+            $source.ExecutionStatus -cnotin @('COMPLETED','COMPLETED_WITH_ERRORS')){throw 'Invalid control source identity or execution.'}
+        $completed=ConvertTo-WinSecResultUtc $source.CompletedAtUTC CompletedAtUTC
+        if($completed -lt (ConvertTo-WinSecResultUtc $source.StartedAtUTC StartedAtUTC)){throw 'Invalid control source time range.'}
+        $eligible.Add([pscustomobject]@{Key=$key;ScanId=$source.ScanId;Scope=$scope[0];Completed=$completed;
+            Priority=[array]::IndexOf(@('CONTROL','SECTION','DEVICE'),$type)})
+    }
+    $ordered=@($eligible.ToArray()|Sort-Object @{Expression='Completed';Descending=$true},Priority,ScanId)
+    $latest=$null
+    foreach($candidate in $ordered){
+        $source=Copy-WinSecResultData $publics[$candidate.Key]
+        # Reuse all nested privacy/identity guards without recursively selecting a scope.
+        $validated=Get-WinSecCLIActiveAssessment -State ([pscustomobject]@{SelectedDeviceId=$DeviceId}) -Context ([pscustomobject]@{
+            ActiveScanByDevice=@{$DeviceId=$source.ScanId};PublicScans=@{$candidate.Key=$source}})
+        $selected=@($validated.ControlResults|Where-Object {$_.CheckId -ceq $checkId -and $_.Status -cne 'NOT_SELECTED'})
+        if(-not $selected.Count){continue}
+        if($selected.Count -ne 1){throw 'Ambiguous control source.'}
+        $ids=@($validated.ControlResults|Where-Object Status -CNE NOT_SELECTED|ForEach-Object CheckId)
+        Assert-WinSecResultScope -ScopeType $source.ScopeType -ScopeKey $source.ScopeKey -ExpectedCheckIds $ids `
+            -ControlResults $validated.ControlResults -DerivedResults $validated.Findings -ExecutionStatus $source.ExecutionStatus
+        if($null -eq $latest){$latest=$candidate}
+        if($SourcePreference -ceq 'LATEST_ATTEMPT' -or $selected[0].ObservedStatus -cin @('INFORMATIONAL','PASS','FAIL','NOT_APPLICABLE')){return $candidate}
+    }
+    return $latest
+}
+
 function Get-WinSecCLIActiveAssessment {
     [CmdletBinding()]
     param(
@@ -214,7 +303,10 @@ function Get-WinSecCLIActiveAssessment {
         [psobject]$State,
 
         [Parameter(Mandatory)]
-        [psobject]$Context
+        [psobject]$Context,
+
+        [ValidateSet('LATEST_ATTEMPT','PREFER_COMPLETE')]
+        [string]$SourcePreference='LATEST_ATTEMPT'
     )
 
     $deviceId = [string]$State.SelectedDeviceId
@@ -253,7 +345,7 @@ function Get-WinSecCLIActiveAssessment {
     $expectedScope = $null
     $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
     if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
-    if ($null -ne $scopeMap -and $scopeMap.Count -gt 0 -and
+    if ($null -ne $scopeMap -and
         $State.Screen -cin @('Section','Results','Findings')) {
         $viewScope = Get-WinSecCLIViewScope -State $State
         $candidates = @($viewScope)
@@ -262,9 +354,13 @@ function Get-WinSecCLIActiveAssessment {
             $candidates += [pscustomobject]@{ScopeType='SECTION';ScopeKey=$sections[$State.SectionIndex].Key}
             $candidates += [pscustomobject]@{ScopeType='DEVICE';ScopeKey='ALL'}
         }
-        $latestCompleted = $null
+        if($viewScope.ScopeType -ceq 'CONTROL') {
+            $chosen=Get-WinSecCLIControlSource $Context $deviceId $candidates $SourcePreference
+            $activeScanMap=@{}
+            if($null -ne $chosen){$activeScanMap[$deviceId]=$chosen.ScanId;$expectedScope=$chosen.Scope}
+        }
         $deviceScanMap = $activeScanMap
-        foreach ($candidate in $candidates) {
+        foreach ($candidate in @($candidates|Where-Object {$viewScope.ScopeType -cne 'CONTROL'})) {
             $scopeKey = Get-WinSecCLIScopeKey $deviceId $candidate.ScopeType $candidate.ScopeKey
             $candidateScanId = $null
             if ($candidate.ScopeType -ceq 'DEVICE') {
@@ -275,31 +371,6 @@ function Get-WinSecCLIActiveAssessment {
             else { continue }
             if ($null -eq $candidateScanId) { throw 'Missing control source identifier.' }
             if ($null -ne $candidateScanId) {
-                if ($viewScope.ScopeType -ceq 'CONTROL') {
-                    # A later section/device scan supersedes an older control
-                    # view. Inspect bounded data only; the selected session is
-                    # deeply validated below before any records are returned.
-                    if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
-                        . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
-                    }
-                    if ($candidateScanId -isnot [string] -or -not (Test-WinSecTargetIdentifier $candidateScanId) -or
-                        $publicScanMap -isnot [System.Collections.IDictionary]) { throw 'Invalid control source index.' }
-                    $key = '{0}:{1}{2}:{3}' -f $deviceId.Length,$deviceId,$candidateScanId.Length,$candidateScanId
-                    if (-not $publicScanMap.Contains($key)) { throw 'Missing control source session.' }
-                    $source = Copy-WinSecResultData $publicScanMap[$key]
-                    if ($candidate.ScopeType -ceq 'DEVICE' -and $null -eq $source.ScopeType -and
-                        $null -eq $source.ScopeKey -and $null -eq $source.ConfigurationAssessment) { continue }
-                    if ($source.DeviceId -isnot [string] -or $source.DeviceId -cne $deviceId -or
-                        $source.ScanId -isnot [string] -or $source.ScanId -cne $candidateScanId -or
-                        $source.ScopeType -isnot [string] -or $source.ScopeType -cne $candidate.ScopeType -or
-                        $source.ScopeKey -isnot [string] -or $source.ScopeKey -cne $candidate.ScopeKey -or
-                        $source.StartedAtUTC -isnot [string] -or $source.CompletedAtUTC -isnot [string] -or
-                        $source.ExecutionStatus -isnot [string] -or $source.ExecutionStatus -cne 'COMPLETED') { throw 'Invalid control source identity, scope or time.' }
-                    $completed = ConvertTo-WinSecResultUtc $source.CompletedAtUTC 'CompletedAtUTC'
-                    if ($completed -lt (ConvertTo-WinSecResultUtc $source.StartedAtUTC 'StartedAtUTC')) { throw 'Invalid control source time range.' }
-                    if ($null -ne $latestCompleted -and $completed -le $latestCompleted) { continue }
-                    $latestCompleted = $completed
-                }
                 $activeScanMap = @{ $deviceId = $candidateScanId }
                 $expectedScope = $candidate
                 if ($viewScope.ScopeType -cne 'CONTROL') { break }
@@ -523,6 +594,7 @@ function Get-WinSecCLIActiveAssessment {
             Warning        = ''
             SourceScopeType = Get-WinSecCLIValue $publicResult 'ScopeType'
             SourceScopeKey = Get-WinSecCLIValue $publicResult 'ScopeKey'
+            CompletedAtUTC = Get-WinSecCLIValue $publicResult 'CompletedAtUTC'
             CatalogVersion = Get-WinSecCLIValue $publicResult 'CatalogVersion'
             ConfigurationAssessment = $configurationAssessment
         }
@@ -792,7 +864,8 @@ function Get-WinSecCLIActiveAssessment {
 
 function Get-WinSecCLIControlViews {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context)
+    param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context,
+        [ValidateSet('LATEST_ATTEMPT','PREFER_COMPLETE')][string]$SourcePreference='LATEST_ATTEMPT')
 
     $sections = @(Get-WinSecMainMenuSections)
     if ($State.Screen -cnotin @('Section','Results') -or $State.SectionIndex -isnot [int] -or
@@ -806,7 +879,7 @@ function Get-WinSecCLIControlViews {
         for ($i = 0; $i -lt $controls.Count; $i++) {
             $selection = [pscustomobject]@{Screen='Section';SelectedDeviceId=$State.SelectedDeviceId;
                 SectionIndex=$State.SectionIndex;ControlIndex=$i}
-            $assessment = Get-WinSecCLIActiveAssessment -State $selection -Context $Context
+            $assessment = Get-WinSecCLIActiveAssessment -State $selection -Context $Context -SourcePreference $SourcePreference
             if ($assessment.Warning) { throw 'Ambiguous control table assessment.' }
             if ([string]::IsNullOrWhiteSpace($assessment.ScanId)) { continue }
             [pscustomobject]@{
@@ -815,6 +888,7 @@ function Get-WinSecCLIControlViews {
                 ScanId = $assessment.ScanId
                 ScopeType = Get-WinSecCLIValue $assessment 'SourceScopeType'
                 ScopeKey = Get-WinSecCLIValue $assessment 'SourceScopeKey'
+                CompletedAtUTC = Get-WinSecCLIValue $assessment 'CompletedAtUTC'
                 ControlResults = @($assessment.ControlResults)
                 ConfigurationAssessment = Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
             }
@@ -1526,8 +1600,6 @@ function Invoke-WinSecCLILocalRescan {
     $scope = Get-WinSecCLIScanScope -State $State
     # Operational notice ownership, separate from immutable scan results.
     $notice=[pscustomobject]@{DeviceId=$deviceId;ScopeType=$scope.ScopeType;ScopeKey=$scope.ScopeKey}
-    if($null -ne $Context.PSObject.Properties['LastScanMessageContext']){$Context.LastScanMessageContext=$notice}
-    else {$Context|Add-Member LastScanMessageContext $notice}
     $scopeMap = Get-WinSecCLIValue $Context 'ActiveScanByScope'
     if ($null -ne $scopeMap -and $scopeMap -isnot [hashtable]) { throw 'Invalid scope selection map.' }
     if ($null -eq $scopeMap) { $scopeMap = @{} }
@@ -1608,6 +1680,7 @@ function Invoke-WinSecCLILocalRescan {
             }
             if (-not $answer.Confirmed) {
                 $Context | Add-Member -NotePropertyName LastScanMessage -NotePropertyValue 'Scan cancelled. Previous results were preserved.' -Force
+                $Context | Add-Member LastScanMessageContext $notice -Force
                 if ($State.Screen -ceq 'Devices') {
                     $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
                 }
@@ -1665,6 +1738,7 @@ function Invoke-WinSecCLILocalRescan {
     if ($null -eq $publicResult) {
         # Cancellation is not a completed scan and must not replace history.
         $Context | Add-Member -NotePropertyName LastScanMessage -NotePropertyValue 'Scan cancelled. Previous results were preserved.' -Force
+        $Context | Add-Member LastScanMessageContext $notice -Force
         if ($State.Screen -ceq 'Devices') {
             $Context | Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $Context.LastScanMessage -Force
         }
@@ -1756,6 +1830,7 @@ function Invoke-WinSecCLILocalRescan {
     # Update display-only message
     # --------------------------------------------------------
 
+    $Context | Add-Member LastScanMessageContext $notice -Force
     if (
         $publicResult.ExecutionStatus -ceq
             'NO_EXECUTABLE_CHECKS'

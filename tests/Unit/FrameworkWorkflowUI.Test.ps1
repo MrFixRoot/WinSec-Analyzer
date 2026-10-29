@@ -37,6 +37,13 @@ function New-WorkflowUIContext {
     }
     return $ctx
 }
+Test-WorkflowUI 'Rendering control rows never rebuilds raw coordinator sessions or loads technical files' {
+    $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='Section'
+    function Get-WinSecCoordinatorPublicResult {throw 'Raw session reconstruction is forbidden during rendering.'}
+    function Read-WinSecTransitionReport {throw 'Technical file reads are forbidden during rendering.'}
+    $rows=@(Get-WinSecWorkflowControlRows $state $ctx)
+    Assert-WorkflowUI ($rows.Count -eq 3 -and @($rows|Where-Object Status -CNE COMPLETE).Count -eq 0 -and @($rows|Where-Object {$_.LastScan -eq 'Never' -or -not $_.LastScan}).Count -eq 0)
+}
 Test-WorkflowUI 'Completion and origin colors follow the new contract' {
     Assert-WorkflowUI ((Get-WinSecStatusColor PENDING) -ceq 'Red' -and (Get-WinSecStatusColor PARTIAL) -ceq 'Yellow' -and
         (Get-WinSecStatusColor COMPLETE) -ceq 'Green' -and (Get-WinSecStatusColor LIVE) -ceq 'Green' -and (Get-WinSecStatusColor RECORDS) -ceq 'DarkBlue')
@@ -95,6 +102,7 @@ Test-WorkflowUI 'Findings remain interactive and Esc restores the previous scree
     foreach($r in $reports){$source=@($sources|Where-Object CheckId -CEQ $r.CheckId)[0];$r.CompletedAtUTC=$source.CompletedAtUTC;$r.CollectedAtUTC=$source.CompletedAtUTC;$r.StartedAtUTC=$source.PublicResult.StartedAtUTC}
     $a=New-WinSecFrameworkAnalysis $root $ctx.LocalDeviceId SYNTHETIC SECTION SystemSecurity nist-csf $sources $reports
     $ctx|Add-Member FrameworkFindings $a;$ctx|Add-Member FrameworkSourcesStamp (Get-WinSecWorkflowSourceStamp $sources)
+    $ctx|Add-Member FrameworkSourcePreference LATEST_ATTEMPT
     $null=Invoke-WinSecNavigationAction $state ShowFindings -SectionCount 5
     $counts=Get-WinSecCLINavigationCounts $state $ctx
     Assert-WorkflowUI ($counts.FindingCount -eq $a.Rows.Count -and $a.Rows.Count -gt 1)
