@@ -1,0 +1,28 @@
+# Explicit candidate pair I/O only. No production import, index, network or process query.
+. (Join-Path $PSScriptRoot 'LocalAdminsTechnicalSnapshot.ps1')
+. (Join-Path $PSScriptRoot '../../Services/TechnicalSnapshotStore.ps1')
+
+function Write-WinSecLocalAdminsCandidatePair {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][object]$Package,
+        [Parameter(Mandatory)][object]$ExpectedIdentity,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback)
+    Assert-WinSecSnapshotIdentity $ExpectedIdentity;Assert-WinSecSnapshotFields $Package @('Snapshot','Catalog','CatalogSha256','Identity')
+    $catalog=Get-WinSecLocalAdminsCandidateCatalog;$hash=Get-WinSecSnapshotCatalogHash $catalog
+    if($Package.CatalogSha256 -cne $hash -or (Get-WinSecSnapshotCatalogHash $Package.Catalog) -cne $hash){throw 'Unreviewed local administrator candidate catalog.'}
+    Assert-WinSecSnapshotIdentity $Package.Identity
+    foreach($p in $ExpectedIdentity.PSObject.Properties){if($Package.Identity.($p.Name) -cne $p.Value){throw 'Foreign local administrator package identity.'}}
+    Assert-WinSecLocalAdminsCandidateSnapshot $Package.Snapshot $ExpectedIdentity -CancellationAction $CancellationAction
+    Write-WinSecTechnicalSnapshotPair -ProjectRoot $ProjectRoot -Snapshot $Package.Snapshot -Catalog $catalog -CatalogSha256 $hash -ExpectedIdentity $ExpectedIdentity `
+        -CancellationAction $CancellationAction -ProgressCallback $ProgressCallback
+}
+
+function Read-WinSecLocalAdminsCandidatePair {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][object]$ExpectedIdentity,
+        [Parameter(Mandatory)][string]$CollectedAtUTC,[scriptblock]$CancellationAction)
+    Assert-WinSecSnapshotIdentity $ExpectedIdentity;if($ExpectedIdentity.CheckId -cne 'WSA-IAM-001'){throw 'Foreign local administrator candidate control.'}
+    $catalog=Get-WinSecLocalAdminsCandidateCatalog;$hash=Get-WinSecSnapshotCatalogHash $catalog
+    $r=Read-WinSecTechnicalSnapshotPair -ProjectRoot $ProjectRoot -ExpectedIdentity $ExpectedIdentity -CollectedAtUTC $CollectedAtUTC -Catalog $catalog -CatalogSha256 $hash -CancellationAction $CancellationAction
+    if($r.PublicationStatus -ceq 'COMMITTED'){Assert-WinSecLocalAdminsCandidateSnapshot $r.Snapshot $ExpectedIdentity -CancellationAction $CancellationAction}
+    return $r
+}
