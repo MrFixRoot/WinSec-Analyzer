@@ -92,7 +92,9 @@ Test-WinSecBitLockerReview 'Reviewed framework references correlate only with th
 foreach($fault in @('Undeclared','TechniqueSpoof','WrongId','WrongType','Disabled')) {
     Test-WinSecBitLockerReview ('Mitigation reference cannot masquerade as an attack technique: '+$fault) {
         $fw=Get-Content -LiteralPath (Join-Path $root 'config/frameworks/mitre-attack.json') -Raw|ConvertFrom-Json
-        $ref=$fw.mappings[0].references[0]
+        $mapping=@($fw.mappings|Where-Object checkId -CEQ 'WSA-SYS-002')
+        Assert-WinSecBitLockerReview ($mapping.Count -eq 1 -and $mapping[0].references.Count -eq 1)
+        $ref=$mapping[0].references[0]
         switch($fault){Undeclared {$fw.mitigations=@()};TechniqueSpoof {$ref|Add-Member techniqueId T1119};WrongId {$ref.id='M9999'};
             WrongType {$ref.type='Technique'};Disabled {$fw.mappingRules.includeMitigations=$false}}
         Assert-WinSecBitLockerReview (@(Get-WinSecFrameworkMappings -CheckId WSA-SYS-002 -CriterionId WSA-BLK-BASE-001 -Platform Windows -Frameworks @($fw)).Count -eq 0)
