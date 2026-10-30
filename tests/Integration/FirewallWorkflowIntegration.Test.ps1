@@ -4,7 +4,7 @@
 $ErrorActionPreference='Stop'
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('WinSec-Firewall-'+[guid]::NewGuid().ToString('N'))))
+$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('wfw-'+[guid]::NewGuid().ToString('N').Substring(0,12))))
 $null=[IO.Directory]::CreateDirectory($sandbox)
 $savedHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-FW'
 $checksHash=(Get-FileHash -LiteralPath (Join-Path $sourceRoot 'config/checks.json')).Hash
@@ -135,7 +135,7 @@ try {
     $env:COMPUTERNAME=$savedHostname
     Assert-FWIntegration ((Get-FileHash -LiteralPath (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Firewall-[a-f0-9]{32}\z'){throw 'Unsafe Firewall fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awfw-[a-f0-9]{12}\z'){throw 'Unsafe Firewall fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 Write-Host ('Firewall integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Firewall integration tests failed.'}

@@ -66,7 +66,7 @@ function New-WinSecFrameworkMarkdown {
             $lines.Add('  Source: ['+(ConvertTo-WinSecTechnicalCell $ref.ReferenceId)+']('+$ref.Url+')')
         }
     }
-    $lines.Add('');$lines.Add('## Analysis record');$lines.Add('');$lines.Add('```json');$lines.Add((Get-WinSecPublicHistoryJson $a));$lines.Add('```');$lines.Add('')
+    $lines.Add('');$lines.Add('## Analysis record');$lines.Add('');$lines.Add('```json');$lines.Add((Get-WinSecFrameworkAnalysisJson $a -Serialization (Get-WinSecFrameworkAnalysisSerialization $a)));$lines.Add('```');$lines.Add('')
     $lines -join "`n"
 }
 

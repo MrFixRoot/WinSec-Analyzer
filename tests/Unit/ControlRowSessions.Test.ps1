@@ -13,6 +13,7 @@ function New-WinSecRowSession {
     param([string]$Id='defender-session',[string]$ScopeType='CONTROL',[string]$ScopeKey='WSA-SYS-001')
     [pscustomobject]@{DeviceId='local:synthetic';ScanId=$Id;PublicProjection=$true;ContainsRawEvidence=$false;
         ScoringEligible=$false;OverallScore=$null;OverallStatus='NOT_SCORED';ScopeType=$ScopeType;ScopeKey=$ScopeKey;
+        StartedAtUTC='2026-10-28T10:00:00Z';CompletedAtUTC='2026-10-28T10:00:30Z';ExecutionStatus='COMPLETED';
         SectionResults=@();Findings=@();ControlResults=@([pscustomobject]@{CheckId='WSA-SYS-001';
             DeviceId='local:synthetic';ScanId=$Id;SectionKey='SystemSecurity';Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL'})}
 }
@@ -65,11 +66,18 @@ foreach($scope in @('SECTION','DEVICE')) {
         else{$ctx.ActiveScanByDevice[$p.DeviceId]=$p.ScanId}
         $views=@(Get-WinSecCLIControlViews $state $ctx)
         $rows=@(Get-WinSecResultsControlRows SystemSecurity $state -ControlViews $views)
-        Assert-WinSecRowSession ($views.Count -eq 3 -and $rows[0].ScanId -ceq 'fallback' -and
-            $rows[0].SourceScopeType -ceq $scope -and $rows[1].Score -ceq 'NOT_SCORED')
+        Assert-WinSecRowSession ($views.Count -eq 1 -and $rows.Count -eq 3 -and $rows[0].ScanId -ceq 'fallback' -and
+            $rows[0].SourceScopeType -ceq $scope -and $rows[1].Score -ceq 'NOT_SCORED' -and
+            $rows[1].Status -ceq 'PENDING' -and $rows[2].Status -ceq 'PENDING')
     }
 }
-foreach($kind in @('ForeignDevice','ForeignScan','WrongControl','WrongSection','WrongScope','ArrayScope','Duplicate','UnknownField','UnapprovedScore')) {
+Test-WinSecRowSession 'Legacy seven-field control views remain readable without invented completion metadata' {
+    $views=@(Get-WinSecCLIControlViews $state $ctx)
+    foreach($view in $views){$view.PSObject.Properties.Remove('CompletedAtUTC')}
+    $rows=@(Get-WinSecResultsControlRows SystemSecurity $state -ControlViews $views)
+    Assert-WinSecRowSession ($rows[0].ScanId -ceq 'defender-session' -and $rows[0].Status -ceq 'INFORMATIONAL')
+}
+foreach($kind in @('ForeignDevice','ForeignScan','WrongControl','WrongSection','WrongScope','ArrayScope','Duplicate','UnknownField','UnapprovedScore','NullCompletion','ArrayCompletion','LocalCompletion')) {
     Test-WinSecRowSession ('Invalid row sessions publish no rows: '+$kind) {
         $views=@(Get-WinSecCLIControlViews $state $ctx)
         switch($kind) {
@@ -82,6 +90,9 @@ foreach($kind in @('ForeignDevice','ForeignScan','WrongControl','WrongSection','
             Duplicate {$views+=Copy-WinSecResultData $views[0]}
             UnknownField {$views[0]|Add-Member RawEvidence 'PRIVATE-ROW-REJECT'}
             UnapprovedScore {$views[0].ControlResults[0]|Add-Member Score 100}
+            NullCompletion {$views[0].CompletedAtUTC=$null}
+            ArrayCompletion {$views[0].CompletedAtUTC=@('2026-10-28T10:00:30Z')}
+            LocalCompletion {$views[0].CompletedAtUTC='2026-10-28T10:00:30'}
         }
         $published=New-Object 'System.Collections.Generic.List[object]';$caught=$false
         try{Get-WinSecResultsControlRows SystemSecurity $state -ControlViews $views|ForEach-Object{$published.Add($_)}}catch{$caught=$true}

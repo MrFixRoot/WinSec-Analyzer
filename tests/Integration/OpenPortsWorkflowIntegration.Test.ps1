@@ -3,7 +3,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=Join-Path $tempParent ('WinSec-Ports-'+[guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($sandbox)
+$sandbox=Join-Path $tempParent ('wpt-'+[guid]::NewGuid().ToString('N').Substring(0,12));$null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-PORTS';$passed=0;$failed=0
 function Assert-PortsIntegration {param([bool]$Value);if(-not $Value){throw 'Open Ports integration assertion failed.'}}
@@ -122,7 +122,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-PortsIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Ports-[a-f0-9]{32}\z'){throw 'Unsafe fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awpt-[a-f0-9]{12}\z'){throw 'Unsafe fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('Open Ports integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Open Ports integration failed.'}

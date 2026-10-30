@@ -38,6 +38,19 @@ try{
         $r=Export-WinSecFrameworkAnalysis $sandbox $control;$exports.Add($r)
         Assert-FE ($r.Path -cne $exports[0].Path -and (Read-WinSecFrozenFindingsReport $sandbox $r.Path $id).Analysis.AnalysisId -ceq $control.AnalysisId)
     }
+    Test-FE 'The other PowerShell edition reads the exact frozen CONTROL and SECTION reports' {
+        $other=if($PSVersionTable.PSEdition -ceq 'Desktop'){'pwsh.exe'}else{'powershell.exe'}
+        foreach($report in @($exports[0],$exports[1])){
+            $scriptPath=(Join-Path $sandbox 'src/Core/ScanCoordinator.ps1').Replace("'","''")
+            $readerRoot=$sandbox.Replace("'","''");$readerPath=$report.Path.Replace("'","''");$readerOwner=$id.Replace("'","''")
+            $code="`$ErrorActionPreference='Stop';. '$scriptPath';function Get-CimInstance {throw 'Native queries prohibited.'};"+
+                "`$saved=Read-WinSecFrozenFindingsReport '$readerRoot' '$readerPath' '$readerOwner';"+
+                "if(`$saved.Analysis.AnalysisId -cne '$($report.AnalysisId)' -or `$saved.FileSha256 -cne '$($report.FileSha256)'){throw 'Cross-runtime frozen report mismatch.'};'FROZEN_REPORT_CONFIRMED'"
+            $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+            $result=@(& $other -NoLogo -NoProfile -EncodedCommand $encoded)
+            Assert-FE ($LASTEXITCODE -eq 0 -and $result[-1] -ceq 'FROZEN_REPORT_CONFIRMED')
+        }
+    }
     Test-FE 'Exact time and AnalysisId collision preserves every existing byte' {
         $before=Get-FEFiles
         Reject-FE {Export-WinSecFrozenFindingsReport $sandbox $control -ExportedAtUTC $exports[0].ExportedAtUTC}

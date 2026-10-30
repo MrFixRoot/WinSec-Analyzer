@@ -167,14 +167,20 @@ function Get-WinSecResultsControlRows {
     $seen = @{}
     $ownedViews = Copy-WinSecResultData $ControlViews
     foreach ($view in $ownedViews) {
-        if ($view -isnot [pscustomobject] -or @($view.PSObject.Properties).Count -ne 7 -or
-            @($view.PSObject.Properties | Where-Object {$_.Name -cnotin @(
-                'CheckId','DeviceId','ScanId','ScopeType','ScopeKey','ControlResults','ConfigurationAssessment')}).Count -gt 0 -or
+        $viewFields=@('CheckId','DeviceId','ScanId','ScopeType','ScopeKey','ControlResults','ConfigurationAssessment')
+        $completedProperty=if($null -ne $view){$view.PSObject.Properties['CompletedAtUTC']}else{$null}
+        if($null -ne $completedProperty){$viewFields+='CompletedAtUTC'}
+        if ($view -isnot [pscustomobject] -or @($view.PSObject.Properties).Count -ne $viewFields.Count -or
+            @($view.PSObject.Properties | Where-Object {$_.Name -cnotin $viewFields}).Count -gt 0 -or
             $view.CheckId -isnot [string] -or $seen.ContainsKey($view.CheckId) -or
             $null -eq $NavigationState -or $view.DeviceId -isnot [string] -or
             [string]::IsNullOrWhiteSpace($view.DeviceId) -or $view.DeviceId -cne $NavigationState.SelectedDeviceId -or
             $view.ScanId -isnot [string] -or [string]::IsNullOrWhiteSpace($view.ScanId)) {
             throw 'Invalid control table session identity.'
+        }
+        if($null -ne $completedProperty){
+            if($completedProperty.Value -isnot [string]){throw 'Invalid control table completion metadata.'}
+            $null=ConvertTo-WinSecResultUtc $completedProperty.Value CompletedAtUTC
         }
         $matches = @($rows | Where-Object {$_.CheckId -ceq $view.CheckId})
         if ($matches.Count -ne 1) { throw 'Control table session belongs to another section.' }

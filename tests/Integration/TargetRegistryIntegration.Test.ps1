@@ -35,6 +35,13 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# Explicitly synthetic firmware; other Windows queries fail closed.
+function Get-CimInstance {
+    [CmdletBinding()]param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
+    if($ClassName -cne 'Win32_ComputerSystemProduct'){throw 'Unexpected native query in TargetRegistry integration.'}
+    [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
+
 $script:Passed = 0
 $script:Failed = 0
 
@@ -500,7 +507,7 @@ Test-Case 'Empty registry provides one local fallback' {
 }
 
 
-Test-Case 'Local fallback matches current computer name' {
+Test-Case 'Local fallback retains its hostname and uses a separate hardware identity' {
     $target = New-WinSecLocalTarget
 
     $hostname = [string]$env:COMPUTERNAME
@@ -513,9 +520,7 @@ Test-Case 'Local fallback matches current computer name' {
         -Actual $target.Hostname `
         -Expected $hostname
 
-    Assert-Equal `
-        -Actual $target.DeviceId `
-        -Expected "local:$hostname"
+    Assert-True ($target.DeviceId -cmatch '\Alocal:hw1-[a-f0-9]{64}\z')
 
     Assert-Equal `
         -Actual $target.Enabled `

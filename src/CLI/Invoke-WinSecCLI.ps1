@@ -227,6 +227,9 @@ function Get-WinSecCLIControlSource {
     if ($null -eq (Get-Command Copy-WinSecResultData -CommandType Function -ErrorAction SilentlyContinue)) {
         . (Join-Path $PSScriptRoot '../Core/ResultModel.ps1')
     }
+    if ($null -eq (Get-Command Test-WinSecTargetIdentifier -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../Core/TargetRegistry.ps1')
+    }
     $publics=Get-WinSecCLIValue $Context PublicScans
     if ($publics -isnot [System.Collections.IDictionary] -or $publics.Count -gt 10000) { throw 'Invalid public source collection.' }
     $scopes=Get-WinSecCLIValue $Context ActiveScanByScope
@@ -867,6 +870,9 @@ function Get-WinSecCLIControlViews {
     param([Parameter(Mandatory)][psobject]$State,[Parameter(Mandatory)][psobject]$Context,
         [ValidateSet('LATEST_ATTEMPT','PREFER_COMPLETE')][string]$SourcePreference='LATEST_ATTEMPT')
 
+    if ($null -eq (Get-Command Get-WinSecSectionControls -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot '../UI/Screens/Results.ps1')
+    }
     $sections = @(Get-WinSecMainMenuSections)
     if ($State.Screen -cnotin @('Section','Results') -or $State.SectionIndex -isnot [int] -or
         $State.SectionIndex -lt 0 -or $State.SectionIndex -ge $sections.Count) {
@@ -882,16 +888,18 @@ function Get-WinSecCLIControlViews {
             $assessment = Get-WinSecCLIActiveAssessment -State $selection -Context $Context -SourcePreference $SourcePreference
             if ($assessment.Warning) { throw 'Ambiguous control table assessment.' }
             if ([string]::IsNullOrWhiteSpace($assessment.ScanId)) { continue }
-            [pscustomobject]@{
+            $view=[pscustomobject]@{
                 CheckId = $controls[$i].CheckId
                 DeviceId = $State.SelectedDeviceId
                 ScanId = $assessment.ScanId
                 ScopeType = Get-WinSecCLIValue $assessment 'SourceScopeType'
                 ScopeKey = Get-WinSecCLIValue $assessment 'SourceScopeKey'
-                CompletedAtUTC = Get-WinSecCLIValue $assessment 'CompletedAtUTC'
                 ControlResults = @($assessment.ControlResults)
                 ConfigurationAssessment = Get-WinSecCLIValue $assessment 'ConfigurationAssessment'
             }
+            $completed=Get-WinSecCLIValue $assessment 'CompletedAtUTC'
+            if($null -ne $completed){$view|Add-Member CompletedAtUTC $completed}
+            $view
         }
     )
     return $views

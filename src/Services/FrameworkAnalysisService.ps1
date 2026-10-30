@@ -262,10 +262,48 @@ function New-WinSecFrameworkAnalysis {
     return Assert-WinSecFrameworkAnalysis $result $DeviceId $ScopeType $ScopeKey
 }
 
+function Get-WinSecFrameworkAnalysisJson {
+    param($Analysis,[ValidateSet('CURRENT','CORE','DESKTOP')][string]$Serialization='CURRENT')
+    $Serialization=$Serialization.ToUpperInvariant()
+    $json=Get-WinSecPublicHistoryJson $Analysis
+    if($Serialization -ceq 'CURRENT'){return $json}
+    if([Text.Encoding]::UTF8.GetByteCount($json) -gt 16777216){throw 'Framework JSON compatibility budget exceeded.'}
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    # Desktop ConvertTo-Json escapes these HTML characters; Core leaves them literal.
+    # Walk escape tokens so a literal backslash-u sequence remains literal data.
+    $characters=@{"'"='0027';'<'='003c';'>'='003e';'&'='0026'}
+    $builder=New-Object Text.StringBuilder
+    for($i=0;$i -lt $json.Length;$i++){
+        if(($i % 4096) -eq 0){Assert-WinSecSnapshotValidationBudget $clock}
+        $ch=$json[$i]
+        if($ch -ceq '\' -and $i+1 -lt $json.Length){
+            if($json[$i+1] -ceq 'u' -and $i+5 -lt $json.Length){
+                $hex=$json.Substring($i+2,4).ToLowerInvariant();$decoded=switch($hex){'0027'{"'"};'003c'{'<'};'003e'{'>'};'0026'{'&'};default{$null}}
+                if($null -ne $decoded){
+                    if($Serialization -ceq 'DESKTOP'){$null=$builder.Append('\u'+$hex)}else{$null=$builder.Append($decoded)}
+                    $i+=5;continue
+                }
+            }
+            $null=$builder.Append($ch);$i++;$null=$builder.Append($json[$i]);continue
+        }
+        if($Serialization -ceq 'DESKTOP' -and $characters.ContainsKey([string]$ch)){$null=$builder.Append('\u'+$characters[[string]$ch])}
+        else{$null=$builder.Append($ch)}
+    }
+    $builder.ToString()
+}
+
 function Get-WinSecFrameworkAnalysisDigest {
-    param($Analysis)
+    param($Analysis,[ValidateSet('CURRENT','CORE','DESKTOP')][string]$Serialization='CURRENT')
     $copy=Copy-WinSecResultData $Analysis;$copy.ContentSha256=''
-    Get-WinSecReportTextHash (Get-WinSecPublicHistoryJson $copy)
+    Get-WinSecReportTextHash (Get-WinSecFrameworkAnalysisJson $copy -Serialization $Serialization)
+}
+
+function Get-WinSecFrameworkAnalysisSerialization {
+    param($Analysis)
+    foreach($style in @('CURRENT','CORE','DESKTOP')){
+        if($Analysis.ContentSha256 -ceq (Get-WinSecFrameworkAnalysisDigest $Analysis -Serialization $style)){return $style}
+    }
+    throw 'Invalid or changed framework view digest.'
 }
 
 function Assert-WinSecFrameworkAnalysis {
@@ -301,7 +339,8 @@ function Assert-WinSecFrameworkAnalysis {
         $a.DeviceId -cne $DeviceId -or $a.ScopeType -cne $ScopeType -or $a.ScopeKey -cne $ScopeKey -or
         $a.ScopeType -cnotin @('SECTION','CONTROL') -or $a.FrameworkId -cnotin @('nist-csf','cis-controls','mitre-attack') -or $a.Sources -isnot [array] -or $a.Sources.Count -gt 14 -or
         $a.Rows -isnot [array] -or $a.Rows.Count -gt 2000 -or $a.MissingTechnicalCheckIds -isnot [array] -or
-        -not (Test-WinSecDeviceDisplayName $a.DeviceName) -or $a.ContentSha256 -cne (Get-WinSecFrameworkAnalysisDigest $a)){throw 'Invalid or changed framework view.'}
+        -not (Test-WinSecDeviceDisplayName $a.DeviceName)){throw 'Invalid or changed framework view.'}
+    $null=Get-WinSecFrameworkAnalysisSerialization $a
     Assert-WinSecResultScope $a.ScopeType $a.ScopeKey
     foreach($field in @('FrameworkVersion','RuleCatalogVersion')){if(-not (Test-WinSecResultText $a.$field)){throw 'Invalid analysis version.'}}
     foreach($field in @('FrameworkSha256','RuleCatalogSha256','ContentSha256')){if($a.$field -isnot [string] -or $a.$field -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid analysis digest.'}}

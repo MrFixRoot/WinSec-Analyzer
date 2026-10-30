@@ -3,7 +3,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=Join-Path $tempParent ('WinSec-Network-'+[guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($sandbox)
+$sandbox=Join-Path $tempParent ('wnc-'+[guid]::NewGuid().ToString('N').Substring(0,12));$null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-NETWORK';$passed=0;$failed=0
 function Assert-NetworkIntegration {param([bool]$Value);if(-not $Value){throw 'Network Configuration integration assertion failed.'}}
@@ -143,7 +143,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-NetworkIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Network-[a-f0-9]{32}\z'){throw 'Unsafe fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awnc-[a-f0-9]{12}\z'){throw 'Unsafe fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('Network Configuration integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Network Configuration integration failed.'}

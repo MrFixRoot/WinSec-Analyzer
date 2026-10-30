@@ -79,4 +79,15 @@ Test-FR 'Rendering and artifact validation never reevaluate rules or prompt for 
     $text=New-WinSecFrozenFindingsTestArtifact $a
     Assert-FR ((ConvertFrom-WinSecFrozenFindingsArtifact $text $a.DeviceId).Analysis.ContentSha256 -ceq $a.ContentSha256)
 }
+foreach($style in @('CORE','DESKTOP')){
+    Test-FR ('Known serializer compatibility preserves literal escapes and the original digest: '+$style) {
+        $a=New-WinSecFrozenFindingsFixture $root
+        $a.Rows[0].Title='Review organization'+[char]39+'s <policy> & literal \u0027 and \u003c'
+        $a.ContentSha256=Get-WinSecFrameworkAnalysisDigest $a -Serialization $style
+        $text=New-WinSecFrozenFindingsTestArtifact $a;$r=(ConvertFrom-WinSecFrozenFindingsArtifact $text $a.DeviceId).Analysis
+        Assert-FR ($r.ContentSha256 -ceq $a.ContentSha256 -and $r.Rows[0].Title -ceq $a.Rows[0].Title)
+        $copy=Copy-WinSecResultData $a;$copy.Rows[0].Title+=' changed'
+        Reject-FR {Assert-WinSecFrameworkAnalysis $copy $copy.DeviceId $copy.ScopeType $copy.ScopeKey}
+    }
+}
 [Console]::WriteLine('Frozen Findings unit: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Frozen Findings unit failed.'}

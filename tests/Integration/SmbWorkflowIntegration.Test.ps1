@@ -3,7 +3,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('WinSec-Smb-'+[guid]::NewGuid().ToString('N'))))
+$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('wsm-'+[guid]::NewGuid().ToString('N').Substring(0,12))))
 $null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-SMB'
@@ -131,7 +131,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-SmbIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Smb-[a-f0-9]{32}\z'){throw 'Unsafe SMB fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awsm-[a-f0-9]{12}\z'){throw 'Unsafe SMB fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('SMB integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'SMB integration tests failed.'}

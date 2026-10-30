@@ -2,7 +2,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('WinSec-Rdp-'+[guid]::NewGuid().ToString('N'))))
+$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('wrd-'+[guid]::NewGuid().ToString('N').Substring(0,12))))
 $null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-RDP';$passed=0;$failed=0
@@ -128,7 +128,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-RdpIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Rdp-[a-f0-9]{32}\z'){throw 'Unsafe RDP fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awrd-[a-f0-9]{12}\z'){throw 'Unsafe RDP fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('RDP integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'RDP integration tests failed.'}

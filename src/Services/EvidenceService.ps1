@@ -135,8 +135,9 @@ function Assert-WinSecEvidenceProtection {
 
     if ($null -eq $type) {
         try {
+            $assembly=if($PSVersionTable.PSEdition -ceq 'Desktop'){'System.Security'}else{'System.Security.Cryptography.ProtectedData'}
             Add-Type `
-                -AssemblyName 'System.Security.Cryptography.ProtectedData' `
+                -AssemblyName $assembly `
                 -ErrorAction Stop
         }
         catch {
