@@ -2,7 +2,7 @@
 [CmdletBinding()]param([switch]$NewStorage,[switch]$TraceFailures)
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=Join-Path $tempParent $(if($NewStorage){'wsi-'+[guid]::NewGuid().ToString('N').Substring(0,12)}else{'WinSec-Identity-'+[guid]::NewGuid().ToString('N')});$null=[IO.Directory]::CreateDirectory($sandbox)
+$sandbox=Join-Path $tempParent ('wsi-'+[guid]::NewGuid().ToString('N').Substring(0,12));$null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash;$oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-IDENTITY';$passed=0;$failed=0
 function Assert-IdentityIntegration {param([bool]$Value);if(-not $Value){throw 'IdentityAccess integration assertion failed.'}}
 function Test-IdentityIntegration {param($Name,[scriptblock]$Action);try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}catch{$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+': '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace);if($TraceFailures){$Error|Select-Object -First 4|ForEach-Object {[Console]::WriteLine($_.Exception.Message+' '+$_.ScriptStackTrace)}}}}
@@ -192,7 +192,7 @@ try {
         }
     }
     Test-IdentityIntegration 'Confirmed Delete Device recognizes IAM technical Markdown and Findings artifacts' {
-        $devices=@((Import-WinSecDeviceInventory $sandbox).targets);$directory=Join-Path $sandbox ('reports/exports/'+(Get-WinSecEvidenceHash $target.DeviceId))
+        $devices=@((Import-WinSecDeviceInventory $sandbox).targets);$directory=Join-Path $sandbox ($technicalRoot+'/'+(Get-WinSecEvidenceHash $target.DeviceId))
         $result=Remove-WinSecManagedDevice -ProjectRoot $sandbox -DeviceId $target.DeviceId -Coordinator $c -Devices $devices -ConfirmAction {$false};Assert-IdentityIntegration ($null -eq $result -and (Test-Path $directory))
         $result=Remove-WinSecManagedDevice -ProjectRoot $sandbox -DeviceId $target.DeviceId -Coordinator $c -Devices $devices -ConfirmAction {$true};Assert-IdentityIntegration ($result.Status -ceq 'REMOVED' -and -not (Test-Path $directory))
     }

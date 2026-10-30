@@ -119,6 +119,20 @@ Test-WorkflowUI 'Findings remain interactive and Esc restores the previous scree
     }
     $null=Invoke-WinSecNavigationAction $state Back;Assert-WorkflowUI ($state.Screen -ceq 'MainMenu')
 }
+Test-WorkflowUI 'P handles Esc before publication without replacing the selected view or reading Windows' {
+    $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='MainMenu'
+    $sources=@(Get-WinSecWorkflowSources $state $ctx)
+    $a=New-WinSecFrameworkAnalysis $root $ctx.LocalDeviceId SYNTHETIC SECTION SystemSecurity nist-csf $sources
+    $ctx|Add-Member FrameworkFindings $a;$ctx|Add-Member FrameworkSourcesStamp (Get-WinSecWorkflowSourceStamp $sources)
+    $ctx|Add-Member FrameworkSourcePreference LATEST_ATTEMPT
+    $state.Screen='Findings';$state.FindingsScope='Section';$state.FindingsOffset=1
+    function Read-WinSecPendingKey {[pscustomobject]@{KeyDown=$true;ControlKeyState=0;VirtualKeyCode=27}}
+    function Show-WinSecExportFrameworkSelection {throw 'P must not prompt for a framework.'}
+    function Open-WinSecDeviceInventoryStore {throw 'Cancelled P must not open storage.'}
+    $result=Invoke-WinSecCLIFindingsExport $state $ctx -ShowProgress
+    Assert-WorkflowUI ($null -eq $result -and [object]::ReferenceEquals($a,$ctx.FrameworkFindings) -and $state.FindingsOffset -eq 1 -and
+        $state.Screen -ceq 'Findings' -and $ctx.LastExportMessage -ceq 'Export cancelled. Existing reports were preserved.')
+}
 foreach($size in @(@{W=1;H=1},@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})) {
     Test-WorkflowUI ('Progress fits the terminal without fabricated counts '+$size.W+'x'+$size.H) {
         $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=[Math]::Max(1,$size.W-1);Height=$size.H}
@@ -128,6 +142,15 @@ foreach($size in @(@{W=1;H=1},@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})) {
     }
 }
 foreach($size in @(@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})){
+    Test-WorkflowUI ('Export progress shows publication steps and commit status '+$size.W+'x'+$size.H) {
+        $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=($size.W-1);Height=$size.H}
+        foreach($done in @(2,4)){
+            Show-WinSecFrameworkProgress ([pscustomobject]@{Activity='EXPORT';Phase='Publishing report';Completed=$done;Total=4;CanCancel=($done -lt 4)})
+            Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt ($size.W-1)}).Count -eq 0 -and $script:lines.Count -lt $size.H -and
+                ($script:lines -join '|').Contains('Publication steps: '+$done+'/4'))
+            if($done -eq 4){Assert-WorkflowUI (($script:lines -join '|').Contains('Report saved.') -and ($script:lines -join '|') -notmatch '\[Esc\] Cancel')}
+        }
+    }
     Test-WorkflowUI ('Projected frozen Findings redraw without analysis or file reads '+$size.W+'x'+$size.H) {
         $ctx=New-WorkflowUIContext;$f=New-WinSecFrameworkWorkflowFixture WSA-SYS-003 projected-ui
         $p=New-WinSecProjectionSnapshot $f.Report

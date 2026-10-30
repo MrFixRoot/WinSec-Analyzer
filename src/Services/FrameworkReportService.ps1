@@ -1,4 +1,5 @@
 # Export the exact selected framework view. No new evaluation or framework prompt.
+. (Join-Path $PSScriptRoot 'FrozenFindingsStore.ps1')
 function New-WinSecFrameworkMarkdown {
     param($Analysis)
     $a=Assert-WinSecFrameworkAnalysis $Analysis $Analysis.DeviceId $Analysis.ScopeType $Analysis.ScopeKey
@@ -74,6 +75,7 @@ function ConvertFrom-WinSecFrameworkMarkdownArtifact {
     if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
         $Text -cnotmatch '\A<!-- WinSec framework findings\n([^\r\n]+)\n-->\n([\s\S]*)\z'){throw 'Unrecognized framework report.'}
     $meta=ConvertFrom-WinSecStoredJson $Matches[1];$body=$Matches[2]
+    if($meta.SchemaVersion -ceq '2.0.0'){return (ConvertFrom-WinSecFrozenFindingsArtifact $Text $DeviceId).Metadata}
     Assert-WinSecConfigurationFields $meta @('SchemaVersion','DeviceId','AnalysisId','FrameworkId','ContentSha256')
     if($meta.SchemaVersion -cne '1.0.0' -or $meta.DeviceId -isnot [string] -or $meta.DeviceId -cne $DeviceId -or
         $meta.ContentSha256 -cne (Get-WinSecReportTextHash $body)){throw 'Invalid framework report ownership or digest.'}
@@ -85,28 +87,6 @@ function ConvertFrom-WinSecFrameworkMarkdownArtifact {
 }
 
 function Export-WinSecFrameworkAnalysis {
-    param([string]$ProjectRoot,[object]$Analysis)
-    $ProjectRoot=Get-WinSecReportInstallation $ProjectRoot
-    $a=Assert-WinSecFrameworkAnalysis $Analysis $Analysis.DeviceId $Analysis.ScopeType $Analysis.ScopeKey
-    $body=New-WinSecFrameworkMarkdown $a
-    $meta=@{SchemaVersion='1.0.0';DeviceId=$a.DeviceId;AnalysisId=$a.AnalysisId;FrameworkId=$a.FrameworkId;ContentSha256=(Get-WinSecReportTextHash $body)}
-    $text="<!-- WinSec framework findings`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
-    $null=ConvertFrom-WinSecFrameworkMarkdownArtifact $text $a.DeviceId
-    $directory=Join-Path $ProjectRoot ('reports/exports/'+(Get-WinSecEvidenceHash $a.DeviceId))
-    $name='findings-'+[datetime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')+'-'+[guid]::NewGuid().ToString('N')+'.md'
-    $path=Join-Path $directory $name;$temporary=Join-Path $directory ('.'+[guid]::NewGuid().ToString('N')+'.tmp')
-    if($path.Length -gt 240){throw 'Framework report path is too long.'}
-    Assert-WinSecDeviceRemovalPath $ProjectRoot $path;$null=[IO.Directory]::CreateDirectory($directory)
-    Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary;$owned=$false;$moved=$false
-    try {
-        $bytes=[Text.Encoding]::UTF8.GetBytes($text)
-        $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);$owned=$true
-        try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary
-        if((Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash -cne (Get-WinSecReportTextHash $text)){throw 'Framework write verification failed.'}
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $path;[IO.File]::Move($temporary,$path);$moved=$true
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $path
-        if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne (Get-WinSecReportTextHash $text)){throw 'Framework publication verification failed.'}
-        [pscustomobject]@{DeviceId=$a.DeviceId;AnalysisId=$a.AnalysisId;Path=$path;RelativePath=('reports/exports/'+(Get-WinSecEvidenceHash $a.DeviceId)+'/'+$name)}
-    } finally {if($owned -and -not $moved){Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary;if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}}
+    param([string]$ProjectRoot,[object]$Analysis,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback)
+    Export-WinSecFrozenFindingsReport -ProjectRoot $ProjectRoot -Analysis $Analysis -CancellationAction $CancellationAction -ProgressCallback $ProgressCallback
 }

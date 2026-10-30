@@ -68,7 +68,7 @@ function Get-WinSecSnapshotFindingsPath {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$DeviceId,
         [Parameter(Mandatory)][ValidateSet('CONTROL','SECTION')][string]$ScopeType,
         [Parameter(Mandatory)][string]$ScopeKey,[Parameter(Mandatory)][string]$AnalysisId,
-        [Parameter(Mandatory)][string]$GeneratedAtUTC)
+        [Parameter(Mandatory)][string]$GeneratedAtUTC,[switch]$AllowExistingArtifact)
     if($AnalysisId -cnotmatch '\A[a-f0-9]{32}\z'){throw 'Invalid Findings analysis identity.'}
     if($ScopeType -ceq 'CONTROL'){$c=Get-WinSecSnapshotControl $ScopeKey;$section=$c.SectionKey;$name=$c.ControlName}
     elseif($ScopeType -ceq 'SECTION' -and $ScopeKey -cin @('SystemSecurity','NetworkSecurity','IdentityAccess','LoggingAuditing','ServicesHardening')){$section=$ScopeKey;$name=$ScopeKey}
@@ -76,5 +76,5 @@ function Get-WinSecSnapshotFindingsPath {
     $key=Get-WinSecSnapshotDeviceKey $DeviceId
     $date=ConvertTo-WinSecSnapshotUtc $GeneratedAtUTC
     $stem=$date.ToString('yyyyMMddTHHmmssfffffffZ',[Globalization.CultureInfo]::InvariantCulture)+$name+'_'+$AnalysisId
-    return Assert-WinSecSnapshotStoragePath $ProjectRoot ('reports/'+$key+'/'+$section+'/findings/'+$stem+'.md')
+    return Assert-WinSecSnapshotStoragePath $ProjectRoot ('reports/'+$key+'/'+$section+'/findings/'+$stem+'.md') -AllowExistingArtifact:$AllowExistingArtifact
 }

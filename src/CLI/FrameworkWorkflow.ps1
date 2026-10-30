@@ -179,7 +179,7 @@ function Invoke-WinSecCLIFrameworkFindings {
 }
 
 function Export-WinSecCLIFrameworkFindings {
-    param($State,$Context)
+    param($State,$Context,[switch]$ShowProgress,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback)
     if($State.Screen -cne 'Findings'){throw 'Open Findings before exporting.'}
     $scope=Get-WinSecCLIViewScope $State
     $a=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
@@ -187,7 +187,15 @@ function Export-WinSecCLIFrameworkFindings {
     if($null -eq $preference){$preference='LATEST_ATTEMPT'}
     if($preference -cnotin @('LATEST_ATTEMPT','PREFER_COMPLETE')){throw 'Invalid frozen source preference.'}
     if((Get-WinSecCLIValue $Context FrameworkSourcesStamp) -cne (Get-WinSecWorkflowSourceStamp @(Get-WinSecWorkflowSources $State $Context -SourcePreference $preference))){throw 'Sources changed; reopen Findings.'}
-    $result=Export-WinSecFrameworkAnalysis $Context.ProjectRoot $a
+    if($ShowProgress){
+        if(-not $CancellationAction){$CancellationAction={
+            for($i=0;$i -lt 32;$i++){$key=Read-WinSecPendingKey;if($null -eq $key){break};if($key.KeyDown -cne $false -and ([int]$key.ControlKeyState -band 0x0F) -eq 0 -and $key.VirtualKeyCode -eq 27){return $true}}
+            return $false
+        }}
+        if(-not $ProgressCallback){$ProgressCallback={param($event);Show-WinSecFrameworkProgress $event}}
+    }
+    try{$result=Export-WinSecFrameworkAnalysis $Context.ProjectRoot $a -CancellationAction $CancellationAction -ProgressCallback $ProgressCallback}
+    catch [OperationCanceledException]{$Context|Add-Member LastExportMessage 'Export cancelled. Existing reports were preserved.' -Force;return $null}
     $Context|Add-Member LastExportMessage ('Exported: '+$result.RelativePath) -Force
     return $result
 }

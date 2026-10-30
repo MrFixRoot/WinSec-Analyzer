@@ -1343,8 +1343,8 @@ function Test-WinSecCLIFindingsExportEligibility {
 
 function Invoke-WinSecCLIFindingsExport {
     [CmdletBinding()]
-    param([psobject]$State,[psobject]$Context)
-    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true){return Export-WinSecCLIFrameworkFindings $State $Context}
+    param([psobject]$State,[psobject]$Context,[switch]$ShowProgress)
+    if((Get-WinSecCLIValue $Context FrameworkWorkflowEnabled) -ceq $true){return Export-WinSecCLIFrameworkFindings $State $Context -ShowProgress:$ShowProgress}
     $selection=Get-WinSecCLIFindingsExportSelection -State $State -Context $Context
     $before=ConvertTo-Json -InputObject $selection -Depth 30 -Compress
     $decision=@(Show-WinSecExportFrameworkSelection -Selection (Copy-WinSecResultData $selection))
@@ -2634,7 +2634,7 @@ function Invoke-WinSecCLI {
         }
 
         if ($navigationState.PendingCommand -eq 'ExportMD') {
-            try { $null=Invoke-WinSecCLIFindingsExport -State $navigationState -Context $context -ErrorAction Stop }
+            try { $null=Invoke-WinSecCLIFindingsExport -State $navigationState -Context $context -ShowProgress -ErrorAction Stop }
             catch { $context | Add-Member -NotePropertyName LastExportMessage -NotePropertyValue 'Export failed or was rejected.' -Force }
             finally { $navigationState.PendingCommand=$null; $navigationState.PendingScope=$null }
         }

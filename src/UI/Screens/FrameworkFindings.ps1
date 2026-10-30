@@ -8,8 +8,11 @@ function Show-WinSecFrameworkProgress {
     $bar=([string][char]0x2588)*$filled+([string][char]0x2591)*($barWidth-$filled)
     Clear-WinSecScreen
     $phase=if($null -ne $Progress.Phase){$Progress.Phase}else{'Comparing saved readings'}
-    $lines=@('WINSEC - FRAMEWORK REVIEW',$phase,('['+$bar+'] '+$percent+'%'),
-        ('Saved readings / sources: '+$Progress.Completed+'/'+$Progress.Total),'No Windows queries. [Esc] Cancel')
+    $export=$null -ne $Progress.PSObject.Properties['Activity'] -and $Progress.Activity -ceq 'EXPORT'
+    $title=if($export){'WINSEC - EXPORT FINDINGS'}else{'WINSEC - FRAMEWORK REVIEW'}
+    $label=if($export){'Publication steps: '}else{'Saved readings / sources: '}
+    $hint=if($export -and $Progress.CanCancel -ceq $false){'Report saved. No Windows queries.'}else{'No Windows queries. [Esc] Cancel'}
+    $lines=@($title,$phase,('['+$bar+'] '+$percent+'%'),($label+$Progress.Completed+'/'+$Progress.Total),$hint)
     foreach($line in @($lines|Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
         Write-WinSecText -Text $line.Substring(0,[Math]::Min($width,$line.Length)) -Color Cyan
     }

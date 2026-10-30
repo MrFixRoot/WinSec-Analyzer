@@ -184,7 +184,11 @@ function Get-WinSecTransitionDeviceFiles {
             foreach($item in @(Get-ChildItem -LiteralPath $dir -Force)){
                 Assert-WinSecDeviceRemovalPath $ProjectRoot $item.FullName
                 if(($files.Count+$directories.Count+$pending.Count) -gt 10000){throw 'Device transition removal budget exceeded.'}
-                if($item.PSIsContainer){$pending.Push($item.FullName)}elseif($item.Name -cne '.gitkeep' -and -not $known.ContainsKey($item.FullName)){throw 'Unknown or incomplete new storage blocks device deletion.'}
+                if($item.PSIsContainer){$pending.Push($item.FullName)}elseif($item.Name -cne '.gitkeep' -and -not $known.ContainsKey($item.FullName)){
+                    if($item.Extension -cne '.md' -or [IO.Path]::GetFileName($dir) -cne 'findings'){throw 'Unknown or incomplete new storage blocks device deletion.'}
+                    $report=Read-WinSecFrozenFindingsReport $ProjectRoot $item.FullName $DeviceId
+                    $files.Add([pscustomobject]@{Path=$item.FullName;Hash=$report.FileSha256});$known[$item.FullName]=$true
+                }
             }
         }
     }
