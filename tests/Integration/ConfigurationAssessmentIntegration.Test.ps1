@@ -270,11 +270,16 @@ foreach($field in @('DeviceId','ScanId','ScopeKey')) {
     }
 }
 Test-WinSecConfigIntegration 'Validation helper uses only synthetic providers after matching approval and never persists' {
+    . (Join-Path $root 'tests/Fixtures/NativeValidationDiagnostics.ps1')
     $helper=Join-Path $root 'tests/Integration/Invoke-DefenderNativeValidation.ps1'
     $plan=(. $helper -PlanOnly)|ConvertFrom-Json
     Assert-WinSecConfigIntegration ($script:reads -eq 0 -and $plan.Request.ReadOnly -ceq $true -and $plan.Request.Checks.Count -eq 1)
     Assert-WinSecConfigRejected {. $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash ('0'*64)}
-    $result=(. $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash $plan.RequestHash)|ConvertFrom-Json
+    $attemptState=[pscustomobject]@{Diagnostic=$null}
+    $result=(Invoke-WinSecValidationDiagnosticAttempt -ExpectedOperationId $plan.Request.OperationId -ExpectedRuntime $PSVersionTable.PSVersion.ToString() -AttemptState $attemptState -ValidatorAction {
+        . $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash $plan.RequestHash
+    })|ConvertFrom-Json
+    Assert-WinSecConfigIntegration ($null -eq $attemptState.Diagnostic)
     Assert-WinSecConfigIntegration ($result.AssessmentMode -ceq 'FRAMEWORK_REVIEW' -and $script:metrics.Reads -eq 1 -and $result.InMemoryReports -eq 3 -and
         $result.ApplicabilityDiagnostics.Count -eq 0 -and $script:store.Count -eq 0 -and -not $result.RawEvidencePersisted -and -not $result.PublicHistoryPersisted -and -not $result.WindowsChanges)
 }
