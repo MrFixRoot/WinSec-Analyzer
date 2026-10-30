@@ -18,6 +18,15 @@ function New-WinSecFrameworkMarkdown {
     $lines.Add('');$lines.Add('## Coverage');$lines.Add('')
     $lines.Add('Readings reviewed: '+$a.ReadingCount+'. Unknown/unavailable: '+$a.UnknownReadingCount+'. Warnings: '+$a.Rows.Count+'.')
     $lines.Add('A reading without a reviewed warning rule is informational. No warnings does not prove full framework coverage or compliance.')
+    if($a.SchemaVersion -ceq '1.1.0'){
+        $lines.Add('');$lines.Add('### Saved reading coverage');$lines.Add('')
+        $lines.Add('Review engine: '+$a.ReadingReview.EngineVersion+'. Ledger SHA256: '+$a.ReadingReview.LedgerSha256+'.')
+        $lines.Add('');$lines.Add('| Treatment | Readings |');$lines.Add('| --- | ---: |')
+        foreach($treatment in @('EVALUATED','INFORMATIVE_NO_RULE','UNRESOLVED_RULE','UNKNOWN','ERROR','NOT_COLLECTED','NOT_CONFIGURED','NOT_APPLICABLE')){
+            $lines.Add('| '+$treatment+' | '+$a.ReadingReview.Treatments.$treatment+' |')
+        }
+        $lines.Add('');$lines.Add('LIMITED_NOT_COMPLIANCE: source completion and framework coverage are separate. Original snapshot identities and digests are preserved in the frozen analysis record.')
+    }
     if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){
         if($a.RuleCatalogVersion -ceq '1.1.0'){$lines.Add('Only Windows Firewall currently has a reviewed collector in this section. SMB and RDP remain pending; this is not a complete Network Security assessment.')}
         elseif($a.RuleCatalogVersion -ceq '1.2.0') {$lines.Add('Reviewed technical adapters: Windows Firewall and SMBv1. Only confirmed, executed controls supply readings; pending or unvalidated controls are not scanned. Remote Desktop, Open Ports and Network Configuration remain pending. This is not a complete Network Security assessment.')}
@@ -33,7 +42,10 @@ function New-WinSecFrameworkMarkdown {
     if($a.RuleCatalogVersion -cne '1.7.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'IdentityAccess'){$expected=@()}
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){$lines.Add('Controls without a saved scan: '+($unscanned -join ', ')+'. Run a separately confirmed scan to collect them.')}
-    if($a.MissingTechnicalCheckIds.Count){$lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only recorded, verified deviations could be reviewed for these controls.')}
+    if($a.MissingTechnicalCheckIds.Count){
+        $limit=if($a.SchemaVersion -ceq '1.1.0'){'. No new warnings were evaluated for these controls.'}else{'. Only recorded, verified deviations could be reviewed for these controls.'}
+        $lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+$limit)
+    }
     $lines.Add('');$lines.Add('## Findings');$lines.Add('')
     $lines.Add('| ID | Control / criterion | Configuration warning | State | Observed | Framework reference |');$lines.Add('| --- | --- | --- | --- | --- | --- |')
     foreach($row in $a.Rows) {

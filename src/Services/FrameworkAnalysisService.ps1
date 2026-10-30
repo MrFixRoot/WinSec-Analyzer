@@ -1,6 +1,7 @@
 # Analyze saved, normalized readings. Never query Windows, execute remediation or rate security.
 . (Join-Path $PSScriptRoot '../Core/FrameworkMappingEngine.ps1')
 . (Join-Path $PSScriptRoot 'FrameworkService.ps1')
+. (Join-Path $PSScriptRoot 'ProjectionFrameworkReview.ps1')
 
 function Test-WinSecAnalysisText {
     param([AllowNull()][object]$Value)
@@ -84,11 +85,14 @@ function New-WinSecFrameworkAnalysis {
     param([string]$ProjectRoot,[string]$DeviceId,[string]$DeviceName,[string]$ScopeType,[string]$ScopeKey,
         [ValidateSet('nist-csf','cis-controls','mitre-attack')][string]$FrameworkId,
         [AllowEmptyCollection()][object[]]$Sources=@(),[AllowEmptyCollection()][object[]]$Reports=@(),
-        [scriptblock]$ProgressCallback,[scriptblock]$CancellationAction)
+        [scriptblock]$ProgressCallback,[scriptblock]$CancellationAction,[switch]$MappedRulesOnly)
     Assert-WinSecResultScope $ScopeType $ScopeKey
     if($ScopeType -cnotin @('SECTION','CONTROL') -or -not (Test-WinSecDeviceDisplayName $DeviceName) -or
         $DeviceId -cnotmatch '\Alocal:hw1-[a-f0-9]{64}\z'){throw 'Invalid analysis scope or device.'}
     $catalog=Get-WinSecFrameworkAnalysisCatalog $ProjectRoot $FrameworkId
+    if($MappedRulesOnly){
+        $catalog.Rules.rules=@($catalog.Rules.rules|Where-Object {@(Get-WinSecFrameworkMappings -CheckId $_.checkId -CriterionId $_.criterion -Platform Windows -Frameworks @($catalog.Framework)).Count -gt 0})
+    }
     $sourcesCopy=Copy-WinSecResultData $Sources;$reportsCopy=@($Reports|ForEach-Object {ConvertTo-WinSecTechnicalReport $_})
     $seen=@{};$manifest=@();$readings=@();$rows=New-Object 'Collections.Generic.List[object]'
     foreach($source in $sourcesCopy) {
@@ -128,6 +132,7 @@ function New-WinSecFrameworkAnalysis {
     $cancel={if($null -ne $CancellationAction){$answer=@(& $CancellationAction);if($answer.Count -ne 1 -or $answer[0] -isnot [bool]){throw 'Invalid analysis cancellation.'};return $answer[0]};return $false}
     $add={param($check,$scan,$setting,$criterion,$kind,$title,$observed,$recommendation)
         $refs=@(Get-WinSecFrameworkMappings -CheckId $check -CriterionId $criterion -Platform Windows -Frameworks @($catalog.Framework))
+        if($MappedRulesOnly -and -not $refs.Count){return}
         $rows.Add([pscustomobject]@{Id=('{0:D2}' -f ($rows.Count+1));CheckId=$check;ScanId=$scan;SettingId=$setting;
             CriterionId=$criterion;State='WARNING';Kind=$kind;Title=$title;Observed=$observed;Recommendation=$recommendation;
             References=@($refs|Select-Object FrameworkId,FrameworkName,FrameworkVersion,ReferenceId,ReferenceType,Title,Url,Description,Recommendation)})
@@ -217,6 +222,7 @@ function New-WinSecFrameworkAnalysis {
     }
     foreach($source in $sourcesCopy) {
         if(& $cancel){return $null}
+        if($MappedRulesOnly){$done++;$null=& $emit;continue}
         foreach($finding in @($source.PublicResult.Findings|Where-Object {$_.CheckId -ceq $source.CheckId -and $_.Kind -ceq 'CONFIGURATION_DEVIATION'})) {
             $g=$finding.Guidance
             if($null -eq $g -or $finding.EvaluationStatus -cne 'FAIL'){continue}
@@ -265,9 +271,16 @@ function Get-WinSecFrameworkAnalysisDigest {
 function Assert-WinSecFrameworkAnalysis {
     param($Analysis,[string]$DeviceId,[string]$ScopeType,[string]$ScopeKey)
     $a=Copy-WinSecResultData $Analysis
-    Assert-WinSecConfigurationFields $a @('SchemaVersion','AnalysisId','DeviceId','DeviceName','ScopeType','ScopeKey','FrameworkId',
+    $fields=@('SchemaVersion','AnalysisId','DeviceId','DeviceName','ScopeType','ScopeKey','FrameworkId',
         'FrameworkVersion','FrameworkSha256','RuleCatalogVersion','RuleCatalogSha256','GeneratedAtUTC','Sources','Rows','ReadingCount',
         'UnknownReadingCount','MissingTechnicalCheckIds','ContentSha256')
+    if($a.SchemaVersion -ceq '1.1.0'){$fields+=,'ReadingReview'}
+    Assert-WinSecConfigurationFields $a $fields
+    if($a.SchemaVersion -ceq '1.1.0'){
+        foreach($source in $a.ReadingReview.Sources){foreach($name in @('CollectedAtUTC','CompletedAtUTC')){
+            if($source.$name -is [datetime]){$source.$name=$source.$name.ToUniversalTime().ToString('o')}
+        }}
+    }
     if($a.GeneratedAtUTC -is [datetime]){$a.GeneratedAtUTC=$a.GeneratedAtUTC.ToUniversalTime().ToString('o')}
     $null=ConvertTo-WinSecResultUtc $a.GeneratedAtUTC GeneratedAtUTC
     $sourceIds=@{}
@@ -284,7 +297,7 @@ function Assert-WinSecFrameworkAnalysis {
             ($source.ScopeType -ceq 'SECTION' -and $source.ScopeKey -cne (Get-WinSecTechnicalControl $source.CheckId).SectionKey)){throw 'Invalid framework source manifest.'}
         $sourceIds[$source.CheckId]=$true
     }
-    if($a.SchemaVersion -cne '1.0.0' -or $a.AnalysisId -isnot [string] -or $a.AnalysisId -cnotmatch '\A[a-f0-9]{32}\z' -or $a.DeviceId -isnot [string] -or
+    if($a.SchemaVersion -cnotin @('1.0.0','1.1.0') -or $a.AnalysisId -isnot [string] -or $a.AnalysisId -cnotmatch '\A[a-f0-9]{32}\z' -or $a.DeviceId -isnot [string] -or
         $a.DeviceId -cne $DeviceId -or $a.ScopeType -cne $ScopeType -or $a.ScopeKey -cne $ScopeKey -or
         $a.ScopeType -cnotin @('SECTION','CONTROL') -or $a.FrameworkId -cnotin @('nist-csf','cis-controls','mitre-attack') -or $a.Sources -isnot [array] -or $a.Sources.Count -gt 14 -or
         $a.Rows -isnot [array] -or $a.Rows.Count -gt 2000 -or $a.MissingTechnicalCheckIds -isnot [array] -or
@@ -314,5 +327,6 @@ function Assert-WinSecFrameworkAnalysis {
             if(-not (Test-WinSecAnalysisReferenceUrl $ref.Url $a.FrameworkId)){throw 'Unsafe framework URL.'}
         }
     }
+    if($a.SchemaVersion -ceq '1.1.0'){Assert-WinSecProjectedReadingSummary $a.ReadingReview $a}
     return $a
 }

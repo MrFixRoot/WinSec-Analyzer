@@ -121,7 +121,8 @@ function Invoke-WinSecCLIFrameworkFindings {
     if($answer.FrameworkId -cnotin @('nist-csf','cis-controls','mitre-attack') -or
         $stamp -cne (Get-WinSecWorkflowSourceStamp @(Get-WinSecWorkflowSources $State $Context -SourcePreference $preference)) -or
         $selectionStamp -cne (Get-WinSecReportTextHash (Get-WinSecPublicHistoryJson ([pscustomobject]@{DeviceId=$State.SelectedDeviceId;Scope=(Get-WinSecCLIViewScope $State)})))){throw 'Analysis selection changed.'}
-    $reports=@();$loaded=0
+    $reports=@();$snapshots=@();$loaded=0
+    $projected=(Get-WinSecCLIValue $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true
     $display=[pscustomobject]@{Last=$null;Cancelled=$false;Clock=[Diagnostics.Stopwatch]::StartNew()}
     $progress=$null;$cancellation=$null
     if($ShowProgress) {
@@ -136,8 +137,9 @@ function Invoke-WinSecCLIFrameworkFindings {
         if($cancellation -and (& $cancellation)){return $false}
         $key=(Get-WinSecScanSessionKey $State.SelectedDeviceId $source.ScanId)+'|'+$source.CheckId
         $cache=Get-WinSecCLIValue $Context.ScanCoordinator TechnicalSnapshots
-        try{$r=if((Get-WinSecCLIValue $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){
-            Read-WinSecTransitionReport $Context.ScanCoordinator $State.SelectedDeviceId $source.ScanId $source.CheckId -CancellationAction $cancellation
+        try{$r=if($projected){
+            $saved=Read-WinSecProjectionFrameworkSource $Context.ScanCoordinator $source -CancellationAction $cancellation
+            if($null -ne $saved.Snapshot){$snapshots+=,$saved.Snapshot};$saved.Report
         }elseif($null -ne $cache -and $cache.ContainsKey($key)){$cache[$key]}else{
             Read-WinSecTechnicalReport $Context.ProjectRoot $State.SelectedDeviceId $source.ScanId $source.CheckId
         }}catch [OperationCanceledException]{return $false}
@@ -156,9 +158,16 @@ function Invoke-WinSecCLIFrameworkFindings {
             }
         }
     }
+    if($projected){
+        $review=New-WinSecProjectionFrameworkAnalysis -ProjectRoot $Context.ProjectRoot -DeviceId $State.SelectedDeviceId -DeviceName $name `
+            -ScopeType $scope.ScopeType -ScopeKey $scope.ScopeKey -FrameworkId $answer.FrameworkId -Sources $sources -Reports $reports -Snapshots $snapshots `
+            -ProgressCallback $progress -CancellationAction $cancellation
+        $analysis=if($null -ne $review){$review.Analysis}else{$null}
+    }else{
     $analysis=New-WinSecFrameworkAnalysis -ProjectRoot $Context.ProjectRoot -DeviceId $State.SelectedDeviceId -DeviceName $name `
         -ScopeType $scope.ScopeType -ScopeKey $scope.ScopeKey -FrameworkId $answer.FrameworkId -Sources $sources -Reports $reports `
         -ProgressCallback $progress -CancellationAction $cancellation
+    }
     if($null -eq $analysis){return $false}
     if($stamp -cne (Get-WinSecWorkflowSourceStamp @(Get-WinSecWorkflowSources $State $Context -SourcePreference $preference)) -or
         $selectionStamp -cne (Get-WinSecReportTextHash (Get-WinSecPublicHistoryJson ([pscustomobject]@{DeviceId=$State.SelectedDeviceId;Scope=(Get-WinSecCLIViewScope $State)})))){throw 'Analysis sources changed.'}

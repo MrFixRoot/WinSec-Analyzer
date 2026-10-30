@@ -36,7 +36,8 @@ function Show-WinSecFrameworkFindings {
     param($State,$Context)
     $scope=Get-WinSecCLIViewScope $State
     $a=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
-    $layout=Get-WinSecLayout -Screen Findings -ReservedRows 16
+    $reserved=if($a.SchemaVersion -ceq '1.1.0'){18}else{16}
+    $layout=Get-WinSecLayout -Screen Findings -ReservedRows $reserved
     Clear-WinSecScreen
     if($layout.IsTooSmall){Write-WinSecText -Text 'Resize the terminal. [Esc] Back' -Color Yellow;return}
     if($layout.BannerRows -gt 2) {
@@ -49,7 +50,16 @@ function Show-WinSecFrameworkFindings {
     Write-WinSecText -Text ('DEVICE: '+$a.DeviceName+' | '+$a.ScopeType+' / '+$a.ScopeKey) -Color Gray
     $coverageColor=if($a.UnknownReadingCount -gt 0){'Yellow'}else{'Gray'}
     Write-WinSecText -Text ('Readings reviewed: '+$a.ReadingCount+' | Unknown/unavailable: '+$a.UnknownReadingCount+' | Warnings: '+$a.Rows.Count) -Color $coverageColor
-    if($a.MissingTechnicalCheckIds.Count){Write-WinSecText -Text ('Detailed records unavailable: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only verified historical findings are available.') -Color Yellow}
+    if($a.SchemaVersion -ceq '1.1.0'){
+        $c=$a.ReadingReview.Treatments
+        Write-WinSecText -Text ('Saved fields: '+$a.ReadingReview.ReadingCount+' | Evaluated: '+$c.EVALUATED+' | No rule: '+$c.INFORMATIVE_NO_RULE+' | Unresolved: '+($c.UNKNOWN+$c.ERROR+$c.UNRESOLVED_RULE)) -Color Yellow
+        $unobserved=@($a.ReadingReview.Sources|Where-Object ApplicabilityBasis -CNE OBSERVED_WINDOWS11_CONTEXT).Count
+        Write-WinSecText -Text ('Not collected: '+$c.NOT_COLLECTED+' | Not applicable: '+$c.NOT_APPLICABLE+' | Not configured: '+$c.NOT_CONFIGURED+' | Unresolved OS: '+$unobserved) -Color Gray
+    }
+    if($a.MissingTechnicalCheckIds.Count){
+        $limit=if($a.SchemaVersion -ceq '1.1.0'){'. No new warnings were evaluated for these controls.'}else{'. Only verified historical findings are available.'}
+        Write-WinSecText -Text ('Detailed records unavailable: '+($a.MissingTechnicalCheckIds -join ', ')+$limit) -Color Yellow
+    }
     $expected=@(Get-WinSecTechnicalScopeChecks $a.ScopeType $a.ScopeKey)
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){Write-WinSecText -Text ('Controls without a saved scan: '+($unscanned -join ', ')) -Color Yellow}

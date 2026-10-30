@@ -127,5 +127,23 @@ foreach($size in @(@{W=1;H=1},@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})) {
         if($size.W -ge 40 -and $size.H -ge 12){Assert-WorkflowUI (($script:lines -join '|').Contains('50%'))}
     }
 }
+foreach($size in @(@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})){
+    Test-WorkflowUI ('Projected frozen Findings redraw without analysis or file reads '+$size.W+'x'+$size.H) {
+        $ctx=New-WorkflowUIContext;$f=New-WinSecFrameworkWorkflowFixture WSA-SYS-003 projected-ui
+        $p=New-WinSecProjectionSnapshot $f.Report
+        $review=New-WinSecProjectionFrameworkAnalysis $root $f.Session.DeviceId SYNTHETIC CONTROL WSA-SYS-003 nist-csf @($f.Source) @($f.Report) @($p.Snapshot)
+        $ctx|Add-Member FrameworkFindings $review.Analysis
+        $state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='Section';$state.ControlIndex=2
+        $null=Set-WinSecNavigationScreen $state Findings;$state.FindingsScope='Control';$state.FindingsOffset=1
+        function New-WinSecProjectionFrameworkAnalysis {throw 'Redraw must not analyze.'}
+        function Read-WinSecProjectionFrameworkSource {throw 'Redraw must not read files.'}
+        function New-WinSecFrameworkAnalysis {throw 'Redraw must not evaluate rules.'}
+        $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=($size.W-1);Height=$size.H}
+        $id=$ctx.FrameworkFindings.AnalysisId;Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt ($size.W-1)}).Count -eq 0 -and $script:lines.Count -lt $size.H -and $ctx.FrameworkFindings.AnalysisId -ceq $id -and $state.FindingsOffset -eq 1)
+        if($size.W -eq 120){Assert-WorkflowUI (($script:lines -join '|').Contains('Saved fields:'))}
+        $null=Invoke-WinSecNavigationAction $state Back;Assert-WorkflowUI ($state.Screen -ceq 'Section')
+    }
+}
 [Console]::WriteLine(('Framework workflow UI: {0} passed, {1} failed.' -f $script:passed,$script:failed))
 if($script:failed){throw 'Workflow UI tests failed.'}
