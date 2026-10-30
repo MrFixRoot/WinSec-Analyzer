@@ -116,7 +116,9 @@ try {
             (Get-FileHash -LiteralPath (Join-Path $root 'config/scoring.json') -Algorithm SHA256).Hash -ceq $scoringHash)
         $checks=ConvertFrom-WinSecStoredJson ([IO.File]::ReadAllText((Join-Path $root 'config/checks.json')))
         $update=@($checks.checks|Where-Object checkId -CEQ 'WSA-SYS-003')
-        Assert-WinSecWUReferenceIntegration ($update.Count -eq 1 -and -not $update[0].execution.enabled)
+        . (Join-Path $PSScriptRoot '../Fixtures/ValidatedCatalog.ps1')
+        Assert-WinSecWUReferenceIntegration ($update.Count -eq 1 -and $update[0].execution.enabled -and
+            (Test-WinSecValidatedCatalogFixture $checks))
     }
 } finally {
     # Only the fixture's known files and now-empty directories; no recursive deletion.

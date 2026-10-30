@@ -18,7 +18,7 @@
 #
 # Safety:
 # - Local target only
-# - Production checks remain disabled; only in-memory test metadata is simulated
+# - Production permissions are preserved; audit execution is synthetic
 # - No scoring
 # - No remote sessions
 # - No evidence persistence
@@ -247,7 +247,7 @@ Assert-WinSecIntegration `
     -Description 'Automatic execution remains disabled'
 
 # ------------------------------------------------------------
-# TEST 5 - ALL CHECKS DISABLED
+# TEST 5 - ONLY INDIVIDUALLY VALIDATED CHECKS ENABLED
 # ------------------------------------------------------------
 
 $enabledChecks = @(
@@ -256,9 +256,11 @@ $enabledChecks = @(
     }
 )
 
+. (Join-Path $PSScriptRoot '../Fixtures/ValidatedCatalog.ps1')
+$catalogValidated = Test-WinSecValidatedCatalogFixture $checksConfig
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 0) `
-    -Description 'No executable security checks are enabled'
+    -Condition $catalogValidated `
+    -Description 'Exactly eleven validated checks enabled; three pending checks disabled'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING DISABLED
@@ -281,7 +283,7 @@ Assert-WinSecIntegration `
 if (
     -not $readOnlyPolicy -or
     -not $automaticExecutionDisabled -or
-    $enabledChecks.Count -gt 0 -or
+    -not $catalogValidated -or
     -not $scoringDisabled
 ) {
     throw (
@@ -297,6 +299,7 @@ if (
 . $cliPath
 . $coordinatorPath
 . (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+. (Join-Path $PSScriptRoot '../Fixtures/LocalIdentity.ps1')
 try {
 
 $coordinator = New-WinSecScanCoordinator `
@@ -359,7 +362,8 @@ if ($localDevices.Count -ne 1) {
 # ------------------------------------------------------------
 
 $state = [pscustomobject]@{
-    Screen = 'MainMenu'
+    Screen = 'Devices'
+    DeviceIndex = 0
     SelectedDeviceId = $localId
 }
 
@@ -399,7 +403,7 @@ Assert-WinSecIntegration `
 # ------------------------------------------------------------
 
 # The production catalog was verified above.
-# Production checks remain disabled; the collector is replaced by a synthetic fixture.
+# Only the fixture registry is isolated; the collector is synthetic.
 # No evidence persistence parameter is supplied.
 
 Write-Host ''

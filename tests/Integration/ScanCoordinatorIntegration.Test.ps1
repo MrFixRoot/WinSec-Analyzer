@@ -46,6 +46,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../Fixtures/LocalIdentity.ps1')
 
 $script:Passed = 0
 $script:Failed = 0

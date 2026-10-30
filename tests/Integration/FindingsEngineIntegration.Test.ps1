@@ -13,7 +13,7 @@
 # - Synthetic LOCAL_POLICY end-to-end PASS/FAIL/UNKNOWN
 # - Traceable findings, privacy and device identity
 # - Incomplete/blocked criteria and dependencies
-# - Live Microsoft Defender evidence (Windows only)
+# - Production Defender collector with explicit synthetic providers
 # - No data collection changes or compliance inventions
 #
 # PowerShell 5.1 / 7.x
@@ -378,20 +378,27 @@ Test-Case 'Finding counts equal actual record collections' {
 }
 
 # ============================================================
-# REAL MICROSOFT DEFENDER - NEVER USE SYNTHETIC RULES
+# PRODUCTION COLLECTOR / SYNTHETIC WINDOWS - NEVER APPROVE REAL CRITERIA
 # ============================================================
 
 $script:LiveResult = $null
-if ($env:OS -ne 'Windows_NT') {
-    Skip-Case 'Real Defender returns a collector result' 'Windows only.'
-    Skip-Case 'Real Defender and draft catalog stay blocked' 'Windows only.'
-    Skip-Case 'Real Defender never receives synthetic scoring rules' 'Windows only.'
-}
-else {
-    $liveDevice = 'local:{0}' -f $env:COMPUTERNAME
-    $liveScan = 'FINDINGS-LIVE-{0}' -f ([guid]::NewGuid().ToString('N'))
+& {
+    . (Join-Path $script:Root 'src/Core/TargetRegistry.ps1')
+    . (Join-Path $PSScriptRoot '../Fixtures/LocalIdentity.ps1')
+    function Get-MpComputerStatus {
+        [CmdletBinding()]param()
+        [pscustomobject]@{AMRunningMode='Normal';AMServiceEnabled=$true;AntivirusEnabled=$true;
+            RealTimeProtectionEnabled=$true;BehaviorMonitorEnabled=$true;IsTamperProtected=$true}
+    }
+    function Get-MpPreference {
+        [CmdletBinding()]param()
+        [pscustomobject]@{PUAProtection=1;MAPSReporting=2;
+            AttackSurfaceReductionRules_Ids=@();AttackSurfaceReductionRules_Actions=@()}
+    }
+    $liveDevice = Get-WinSecLocalHardwareDeviceId
+    $liveScan = 'FINDINGS-SYNTHETIC-{0}' -f ([guid]::NewGuid().ToString('N'))
 
-    Test-Case 'Real Defender returns a collector result' {
+    Test-Case 'Production Defender collector returns a synthetic, correlated result' {
         $results = @(
             Test-WinSecDefender -DeviceId $liveDevice `
                 -ScanId $liveScan -CheckId 'WSA-SYS-001'

@@ -230,13 +230,13 @@ function Test-WinSecUpdateCoordinator {
 function Test-WinSecTechnicalCoordinator {
     param([string]$Name,[scriptblock]$TechnicalCaseBody)
     Test-WinSecUpdateCoordinator ('Technical TXT: '+$Name) {
-        $script:technicalRoot=Join-Path ([IO.Path]::GetTempPath()) ('WinSec-TC-'+[guid]::NewGuid().ToString('N'))
+        $script:technicalRoot=Join-Path ([IO.Path]::GetTempPath()) ('wtc-'+[guid]::NewGuid().ToString('N').Substring(0,8))
         $null=[IO.Directory]::CreateDirectory($script:technicalRoot)
         try {& $TechnicalCaseBody} finally {
             $absolute=[IO.Path]::GetFullPath($script:technicalRoot)
             $parent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
             if(-not [string]::Equals([IO.Path]::GetDirectoryName($absolute),$parent,[StringComparison]::OrdinalIgnoreCase) -or
-                [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-TC-[a-f0-9]{32}\z'){throw 'Unsafe technical coordinator cleanup.'}
+                [IO.Path]::GetFileName($absolute) -cnotmatch '\Awtc-[a-f0-9]{8}\z'){throw 'Unsafe technical coordinator cleanup.'}
             Remove-Item -LiteralPath $absolute -Recurse -Force
         }
     }
@@ -329,7 +329,9 @@ try {
     }
     Test-WinSecTechnicalCoordinator 'small confirmation and changed output directory cannot authorize writing' {
         $ctx=New-WinSecUpdateCoordinatorContext;$ctx.ScanCoordinator.TechnicalReportsEnabled=$true
-        $empty=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey IdentityAccess
+        $identity=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey IdentityAccess
+        Assert-WinSecUpdateCoordinator (($identity.CheckIds -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003')
+        $empty=Get-WinSecScanConfirmationPlan -Coordinator $ctx.ScanCoordinator -ScopeType SECTION -ScopeKey LoggingAuditing
         Assert-WinSecUpdateCoordinator ($empty.CheckIds.Count -eq 0 -and (ConvertFrom-Json $empty.RequestJson).TechnicalReports.Count -eq 0)
         $script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=12}
         $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character='';KeyDown=$true;ControlKeyState=0})

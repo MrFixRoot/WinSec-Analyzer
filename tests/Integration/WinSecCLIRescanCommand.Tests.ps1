@@ -250,13 +250,15 @@ $automaticExecutionDisabled = (
     $checksConfig.executionPolicy.automaticExecutionOnStartup -eq $false -and
     $checksConfig.executionPolicy.executeOnScreenRender -eq $false
 )
+. (Join-Path $PSScriptRoot '../Fixtures/ValidatedCatalog.ps1')
+$catalogValidated = Test-WinSecValidatedCatalogFixture $checksConfig
 
 Assert-WinSecIntegration `
     -Condition (
-        $enabledChecks.Count -eq 0 -and
+        $catalogValidated -and
         $automaticExecutionDisabled
     ) `
-    -Description 'No checks or automatic scans are enabled'
+    -Description 'Only eleven validated checks enabled; startup and rendering never scan'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING CONFIGURATION DISABLED
@@ -276,7 +278,7 @@ Assert-WinSecIntegration `
 
 if (
     -not $readOnlyPolicy -or
-    $enabledChecks.Count -gt 0 -or
+    -not $catalogValidated -or
     -not $automaticExecutionDisabled -or
     -not $scoringDisabled
 ) {
@@ -299,6 +301,7 @@ function Get-WinSecTerminalSize { [pscustomobject]@{Width=80;ContentWidth=79;Hei
 function Clear-WinSecScreen { }
 function Write-WinSecText { param($Text,$Color) }
 . (Join-Path $PSScriptRoot '../Fixtures/ConfirmedScan.ps1')
+. (Join-Path $PSScriptRoot '../Fixtures/LocalIdentity.ps1')
 try {
 
 $coordinator = New-WinSecScanCoordinator `
