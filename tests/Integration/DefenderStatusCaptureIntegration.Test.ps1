@@ -33,7 +33,7 @@ try {
         Set-StatusIntegrationSource $capture;$p=New-WinSecDefenderFixturePackage $f
         $saved=Write-WinSecDefenderTechnicalPair $sandbox $p $f.Identity;$read=Read-WinSecDefenderTechnicalPair $sandbox $f.Identity $p.Snapshot.CollectedAtUTC
         $md=Get-Content -LiteralPath $saved.MarkdownPath -Raw -Encoding UTF8
-        Assert-StatusIntegration ($capture.Coverage.Observed -eq 42 -and $read.PublicationStatus -ceq 'COMMITTED' -and $read.Snapshot.CollectorVersion -ceq '1.2.0' -and
+        Assert-StatusIntegration ($capture.Coverage.Observed -eq 42 -and $read.PublicationStatus -ceq 'COMMITTED' -and $read.Snapshot.CollectorVersion -ceq '1.3.0' -and
             $read.Snapshot.Identity.ScopeType -ceq $scope -and $md -ceq (ConvertTo-WinSecSnapshotMarkdown $p.Snapshot $p.Catalog $p.CatalogSha256 $f.Identity) -and
             $md -notmatch 'PRIVATE-|ComputerID|ThreatResources|RunspaceId' -and
             (ConvertTo-Json -InputObject $read.Snapshot -Depth 16 -Compress) -ceq (ConvertTo-Json -InputObject $p.Snapshot -Depth 16 -Compress))

@@ -1,5 +1,6 @@
-# Data-only candidate adapter 1.2. No native queries, execution registration or production imports.
+# Data-only candidate adapter 1.3. No native queries, execution registration or production imports.
 . (Join-Path $PSScriptRoot 'DefenderStatusReadings.ps1')
+. (Join-Path $PSScriptRoot 'DefenderPreferenceReadings.ps1')
 
 function Assert-WinSecDefenderCapturedCimSource {
     param([object]$Data,[string]$SourceId)
@@ -112,10 +113,15 @@ function New-WinSecDefenderTechnicalSnapshot {
     if($Identity.CheckId -cne 'WSA-SYS-001'){throw 'Defender candidate cannot process another control.'}
     $owner=$Identity.PSObject.Copy();$start=ConvertTo-WinSecSnapshotUtc $StartedAtUTC;$end=ConvertTo-WinSecSnapshotUtc $CompletedAtUTC
     if($start -gt $end -or -not (Test-WinSecSnapshotToken $SelectedProfile)){throw 'Invalid capture timeline or context.'}
-    $inputs=@{};$collected=$start
+    $inputs=@{};$collected=$start;$scalarPreferences=$false
     if($Sources.Count -ne 3){throw 'Defender capture requires exactly three source receipts.'}
     foreach($source in $Sources){
-        Assert-WinSecSnapshotFields $source @('SourceId','DeviceId','ScanId','CollectedAtUTC','State','Data')
+        $version=Get-WinSecDefenderCapturedProperty $source SchemaVersion
+        if($version.Exists){
+            Assert-WinSecSnapshotFields $source @('SchemaVersion','Scope','SourceId','DeviceId','ScanId','CollectedAtUTC','State','Data')
+            if($source.SchemaVersion -isnot [string] -or $source.Scope -isnot [string] -or $source.SchemaVersion -cne 'WinSec.Defender.PreferenceSource1.0' -or $source.Scope -cne 'SCALARS_ONLY' -or $source.SourceId -cne 'Preferences'){throw 'Unreviewed preference source scope.'}
+            $scalarPreferences=$true
+        }else{Assert-WinSecSnapshotFields $source @('SourceId','DeviceId','ScanId','CollectedAtUTC','State','Data')}
         if($source.SourceId -isnot [string] -or $source.SourceId -cnotin @('Platform','Status','Preferences') -or $inputs.ContainsKey($source.SourceId) -or
             $source.DeviceId -isnot [string] -or $source.ScanId -isnot [string] -or $source.DeviceId -cne $owner.DeviceId -or $source.ScanId -cne $owner.ScanId -or
             $source.State -isnot [string] -or $source.State -cnotin @('OBSERVED','ERROR','NOT_COLLECTED')){throw 'Invalid or foreign captured source.'}
@@ -137,7 +143,16 @@ function New-WinSecDefenderTechnicalSnapshot {
             $statusReadings=@{};foreach($reading in $inputs.Status.Data.Readings){$statusReadings[$reading.FieldId]=$reading.PSObject.Copy()}
         }
     }
-    $catalog=Get-WinSecDefenderTechnicalCatalog;$digest=Get-WinSecSnapshotCatalogHash $catalog;$specs=@(Get-WinSecDefenderTechnicalFields)
+    $preferenceReadings=$null
+    if($scalarPreferences -and $inputs.Preferences.State -ceq 'OBSERVED'){
+        Assert-WinSecDefenderPreferenceReadings $inputs.Preferences.Data -CancellationAction $CancellationAction
+        $preferenceReadings=@{};foreach($reading in $inputs.Preferences.Data.Readings){$preferenceReadings[$reading.FieldId]=$reading.PSObject.Copy()}
+    }elseif(-not $scalarPreferences -and $inputs.Preferences.State -ceq 'OBSERVED'){
+        $marker=Get-WinSecDefenderCapturedProperty $inputs.Preferences.Data ArtifactType
+        if($marker.Exists){throw 'Preference readings require their versioned scalar-only source.'}
+    }
+    $catalogVersion=if($scalarPreferences){'1.1.0'}else{'1.0.0'}
+    $catalog=Get-WinSecDefenderTechnicalCatalog $catalogVersion;$digest=Get-WinSecSnapshotCatalogHash $catalog;$specs=@(Get-WinSecDefenderTechnicalFields)
     $definitionsById=@{};foreach($definition in $specs){$definitionsById[$definition.Id]=$definition}
     $platform=[pscustomobject]@{Version=$null;OSRelease=$null;Edition=$null;BuildNumber=$null;UBR=$null;OperatingSystemSKU=$null;ProductType=$null}
     $inventories=New-Object 'Collections.Generic.List[object]';$batches=New-Object 'Collections.Generic.List[object]'
@@ -147,8 +162,13 @@ function New-WinSecDefenderTechnicalSnapshot {
     foreach($area in @('Platform','Status','Preferences','ExclusionCounts','ASR')){
         Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
         $source=$inputs[$(if($area -cin @('ASR','ExclusionCounts')){'Preferences'}else{$area})]
+        if($scalarPreferences -and $area -cin @('ASR','ExclusionCounts')){
+            $source=[pscustomobject]@{State='NOT_COLLECTED';Data=$null}
+        }
         $definitions=@($specs|Where-Object Inventory -CEQ $area);$records=@();$sequence=1;$retained=0;$reported=$null;$complete=$true;$reason='NONE';$inventoryState='OBSERVED'
+        if($scalarPreferences -and $area -cin @('ASR','ExclusionCounts')){$inventoryState='NOT_COLLECTED'}
         $ids=$null;$actions=$null;$rowCount=1
+        if($scalarPreferences -and $area -ceq 'ExclusionCounts'){$rowCount=0}
         if($area -ceq 'ASR'){
             if($source.State -cne 'OBSERVED'){$rowCount=0;$complete=$false;$inventoryState=$source.State;$reason=if($source.State -ceq 'ERROR'){'PROVIDER_UNAVAILABLE'}else{'NOT_REQUESTED'}}
             else{
@@ -180,6 +200,8 @@ function New-WinSecDefenderTechnicalSnapshot {
                 if($source.State -ceq 'ERROR'){$state='ERROR'}elseif($source.State -ceq 'NOT_COLLECTED'){$state='NOT_COLLECTED';$why='NOT_REQUESTED'}
                 elseif($area -ceq 'Status' -and $null -ne $statusReadings){
                     $captured=$statusReadings[$definition.Id];$state=$captured.State;$why=$captured.Reason;$value=$captured.Value
+                }elseif($area -ceq 'Preferences' -and $null -ne $preferenceReadings){
+                    $captured=$preferenceReadings[$definition.Id];$state=$captured.State;$why=$captured.Reason;$value=$captured.Value
                 }else{
                     $property=if($area -ceq 'ASR'){
                         $array=if($definition.Property -ceq 'RuleId'){,$ids.Value}else{,$actions.Value}
@@ -222,7 +244,7 @@ function New-WinSecDefenderTechnicalSnapshot {
     }}}
     $collection=[ordered]@{Status=$(if($complete){'COMPLETE'}else{'PARTIAL'});Coverage=$(if($complete -and -not ($counts.Unknown+$counts.Errors+$counts.NotCollected)){'COMPLETE'}else{'LIMITED'})}
     foreach($key in @('RetainedRecords','Observed','Unknown','Errors','NotCollected','NotConfigured','NotApplicable')){$collection[$key]=$counts[$key]}
-    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.2.0';
+    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.3.0';
         StartedAtUTC=$StartedAtUTC;CollectedAtUTC=$collected.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ',[Globalization.CultureInfo]::InvariantCulture);CompletedAtUTC=$CompletedAtUTC;GeneratedAtUTC=$GeneratedAtUTC;
         Platform=$platform;SelectedProfile=$SelectedProfile;Collection=[pscustomobject]$collection;Inventories=$inventories.ToArray();Batches=$batches.ToArray()}
     Assert-WinSecDefenderTechnicalSnapshot $snapshot $owner -CancellationAction $CancellationAction
@@ -232,10 +254,18 @@ function New-WinSecDefenderTechnicalSnapshot {
 function Assert-WinSecDefenderTechnicalSnapshot {
     [CmdletBinding()]param([object]$Snapshot,[object]$ExpectedIdentity,[scriptblock]$CancellationAction)
     Assert-WinSecSnapshotIdentity $ExpectedIdentity
-    $catalog=Get-WinSecDefenderTechnicalCatalog;$hash=Get-WinSecSnapshotCatalogHash $catalog
+    $version=Get-WinSecDefenderCapturedProperty $Snapshot CatalogVersion
+    if(-not $version.Safe -or $version.Value -isnot [string] -or $version.Value -cnotin @('1.0.0','1.1.0')){throw 'Unreviewed Defender catalog version.'}
+    $catalog=Get-WinSecDefenderTechnicalCatalog $version.Value;$hash=Get-WinSecSnapshotCatalogHash $catalog
     if($ExpectedIdentity.CheckId -cne 'WSA-SYS-001'){throw 'Foreign Defender candidate identity.'}
     Assert-WinSecTechnicalSnapshot $Snapshot $catalog $hash $ExpectedIdentity -CancellationAction $CancellationAction
-    if($Snapshot.CollectorVersion -isnot [string] -or $Snapshot.CollectorVersion -cnotin @('1.0.0','1.1.0','1.2.0')){throw 'Unreviewed Defender candidate collector version.'}
+    if($Snapshot.CollectorVersion -isnot [string] -or $Snapshot.CollectorVersion -cnotin @('1.0.0','1.1.0','1.2.0','1.3.0') -or
+        ($Snapshot.CatalogVersion -ceq '1.1.0' -and $Snapshot.CollectorVersion -cne '1.3.0')){throw 'Unreviewed Defender candidate collector version.'}
+    if($Snapshot.CatalogVersion -ceq '1.1.0'){
+        foreach($inventory in @($Snapshot.Inventories|Where-Object {$_.Id -cin @('ASR','ExclusionCounts')})){
+            if($inventory.State -cne 'NOT_COLLECTED' -or $inventory.Complete -or $inventory.Reason -cne 'NOT_REQUESTED' -or $null -ne $inventory.ReportedRecords){throw 'Scalar preference acquisition cannot claim other inventories.'}
+        }
+    }
     $definitionsById=@{};foreach($definition in Get-WinSecDefenderTechnicalFields){$definitionsById[$definition.Id]=$definition};$observed=@{}
     $clock=[Diagnostics.Stopwatch]::StartNew()
     $asrProblem=$false;$ruleIds=@{}

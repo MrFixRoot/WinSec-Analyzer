@@ -29,7 +29,7 @@ function Get-WinSecDefenderTechnicalFields {
 }
 
 function Get-WinSecDefenderTechnicalCatalog {
-    [CmdletBinding()]param()
+    [CmdletBinding()]param([ValidateSet('1.0.0','1.1.0')][string]$CatalogVersion='1.0.0')
     $rule=[pscustomobject]@{MinBuild=22000;MaxBuild=$null;Skus=@()}
     $inventories=@(foreach($name in @('Platform','Status','Preferences','ExclusionCounts','ASR')){
         [pscustomobject]@{Id=$name;SourceId=$(if($name -cin @('ASR','ExclusionCounts')){'Preferences'}else{$name});Required=($name -cne 'ExclusionCounts');Singleton=($name -cne 'ASR');Applicability=$rule}
@@ -37,11 +37,13 @@ function Get-WinSecDefenderTechnicalCatalog {
     $fields=@(Get-WinSecDefenderTechnicalFields|ForEach-Object {
         [pscustomobject]@{Id=$_.Id;InventoryId=$_.Inventory;Type=$_.Type;Unit=$_.Unit;Required=$_.Required;Exposure='CONFIGURATION';Applicability=$rule}
     })
-    [pscustomobject]@{ArtifactType='WinSec.TechnicalFieldCatalog';SchemaVersion='1.0.0';CatalogId='WinSec.Defender.Candidate';CatalogVersion='1.0.0';CheckId='WSA-SYS-001';
+    [pscustomobject]@{ArtifactType='WinSec.TechnicalFieldCatalog';SchemaVersion='1.0.0';CatalogId='WinSec.Defender.Candidate';CatalogVersion=$CatalogVersion;CheckId='WSA-SYS-001';
         Sources=@(
             [pscustomobject]@{Id='Platform';Provider='CIM';ReferenceUrl='https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-operatingsystem'},
             [pscustomobject]@{Id='Status';Provider='CMDLET';ReferenceUrl='https://learn.microsoft.com/ca-es/powershell/module/defender/get-mpcomputerstatus?view=windowsserver2022-ps'},
-            [pscustomobject]@{Id='Preferences';Provider='CMDLET';ReferenceUrl='https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference?view=windowsserver2025-ps'},
+            $(if($CatalogVersion -ceq '1.1.0'){
+                [pscustomobject]@{Id='Preferences';Provider='CIM';ReferenceUrl='https://learn.microsoft.com/en-us/previous-versions/windows/desktop/defender/msft-mppreference'}
+            }else{[pscustomobject]@{Id='Preferences';Provider='CMDLET';ReferenceUrl='https://learn.microsoft.com/en-us/powershell/module/defender/get-mppreference?view=windowsserver2025-ps'}}),
             [pscustomobject]@{Id='PreferenceSchema';Provider='DERIVED';ReferenceUrl='https://learn.microsoft.com/en-us/powershell/module/defender/set-mppreference?view=windowsserver2025-ps'},
             [pscustomobject]@{Id='ASRReference';Provider='DERIVED';ReferenceUrl='https://learn.microsoft.com/en-us/defender-endpoint/attack-surface-reduction-rules-reference'});
         Inventories=$inventories;Fields=$fields}
