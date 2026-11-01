@@ -87,5 +87,62 @@ Test-WinSecDiagnostic 'Serialization failures have a separate component' {
     $json=Microsoft.PowerShell.Utility\ConvertTo-Json (New-WinSecDiagnosticSummary) -Depth 5
     Assert-WinSecDiagnosticFailure {$json} SUMMARY_ENCODING JSON_ENCODER IO_ERROR
 }
+foreach($case in @(
+    @{Phase='NATIVE_INVENTORY';Reason='TARGET_REMOVED';Category='AUTHORIZATION_REVOKED'},
+    @{Phase='NATIVE_STATUS_PROVIDER';Reason='STATUS_UNAVAILABLE';Category='PROVIDER_UNAVAILABLE'},
+    @{Phase='NATIVE_STATUS_PROVIDER';Reason='STATUS_UNUSABLE';Category='TELEMETRY_UNUSABLE'},
+    @{Phase='NATIVE_NORMALIZATION';Reason='NORMALIZATION_REJECTED';Category='NORMALIZATION_REJECTED'},
+    @{Phase='NATIVE_CHECK_EXECUTION';Reason='CHECK_EXECUTION_FAILED';Category='EXECUTION_REJECTED'},
+    @{Phase='NATIVE_CONTROL_VALIDATION';Reason='CONTROL_RESULT_REJECTED';Category='CONTROL_RESULT_REJECTED'},
+    @{Phase='NATIVE_CONTROL_VALIDATION';Reason='RATING_PRESENT';Category='POLICY_REJECTED'},
+    @{Phase='NATIVE_HISTORY_VALIDATION';Reason='HISTORY_MISMATCH';Category='INTEGRITY_REJECTED'},
+    @{Phase='NATIVE_FRAMEWORK_VALIDATION';Reason='FRAMEWORK_MISMATCH';Category='INTEGRITY_REJECTED'})){
+    Test-WinSecDiagnostic ('Native diagnostic propagates closed reason: '+$case.Reason) {
+        $state=[pscustomobject]@{Diagnostic=$null};$caught=$null
+        try{
+            $null=Invoke-WinSecValidationDiagnosticAttempt -ExpectedOperationId $script:diagOperation -ExpectedRuntime $script:diagRuntime -AttemptState $state -ValidatorAction {
+                Set-WinSecNativeValidationFailure $state $case.Phase $case.Reason
+                throw $script:diagMarker
+            }
+        }catch{$caught=$_}
+        Assert-WinSecDiagnostic ($null -ne $caught -and $state.Diagnostic.SchemaVersion -ceq 'WinSec.ValidationDiagnostic1.1' -and
+            $state.Diagnostic.Phase -ceq $case.Phase -and $state.Diagnostic.Reason -ceq $case.Reason -and $state.Diagnostic.Category -ceq $case.Category)
+        Assert-WinSecDiagnostic (-not (($caught|Format-List * -Force|Out-String)+($state.Diagnostic|ConvertTo-Json)).Contains($script:diagMarker))
+    }
+}
+Test-WinSecDiagnostic 'First internal failure survives a later generic result rejection' {
+    $state=[pscustomobject]@{Diagnostic=$null}
+    Set-WinSecNativeValidationFailure $state NATIVE_NORMALIZATION NORMALIZATION_REJECTED
+    Set-WinSecNativeValidationFailure $state NATIVE_CONTROL_VALIDATION CONTROL_RESULT_REJECTED
+    Assert-WinSecDiagnostic ($state.Diagnostic.Phase -ceq 'NATIVE_NORMALIZATION')
+}
+Test-WinSecDiagnostic 'Diagnostic getters are never evaluated' {
+    $state=[pscustomobject]@{Diagnostic=$null};$script:diagGetterCalled=$false
+    $state|Add-Member -MemberType ScriptProperty -Name Evidence -Value {$script:diagGetterCalled=$true;throw $script:diagMarker}
+    $null=Get-WinSecNativeDiagnosticField $state Evidence
+    Assert-WinSecDiagnostic (-not $script:diagGetterCalled)
+}
+Test-WinSecDiagnostic 'Contradictory native diagnostic reason is rejected' {
+    $state=[pscustomobject]@{Diagnostic=$null};Set-WinSecNativeValidationFailure $state NATIVE_INVENTORY TARGET_REMOVED
+    $state.Diagnostic.Phase='NATIVE_SERIALIZATION';$state.Diagnostic.Component='SUMMARY_SERIALIZER'
+    Assert-WinSecDiagnostic ($null -eq (Copy-WinSecNativeValidationDiagnostic $state.Diagnostic))
+}
+Test-WinSecDiagnostic 'Private extra fields cannot be propagated as a diagnostic' {
+    $state=[pscustomobject]@{Diagnostic=$null};Set-WinSecNativeValidationFailure $state NATIVE_INVENTORY TARGET_REMOVED
+    $state.Diagnostic|Add-Member PrivatePayload $script:diagMarker
+    Assert-WinSecDiagnostic ($null -eq (Copy-WinSecNativeValidationDiagnostic $state.Diagnostic))
+}
+Test-WinSecDiagnostic 'Actual PowerShell conversion errors have a typed category' {
+    $failure=$null;try{$null=[int]$script:diagMarker}catch{$failure=$_}
+    $d=Get-WinSecValidationDiagnostic -Phase NATIVE_NORMALIZATION -Failure $failure
+    Assert-WinSecDiagnostic ($d.Category -ceq 'TYPE_CONVERSION')
+}
+Test-WinSecDiagnostic 'Native phase and reason vocabularies are case-sensitive' {
+    $state=[pscustomobject]@{Diagnostic=$null};Set-WinSecNativeValidationFailure $state NATIVE_INVENTORY TARGET_REMOVED
+    $state.Diagnostic.Reason='target_removed'
+    Assert-WinSecDiagnostic ($null -eq (Copy-WinSecNativeValidationDiagnostic $state.Diagnostic))
+    $state.Diagnostic.Reason='TARGET_REMOVED';$state.Diagnostic.Phase='native_inventory'
+    Assert-WinSecDiagnostic ($null -eq (Copy-WinSecNativeValidationDiagnostic $state.Diagnostic))
+}
 [Console]::WriteLine(('Diagnostic tests: {0} passed, {1} failed.' -f $script:diagPass,$script:diagFail))
 if($script:diagFail){throw 'Native validation diagnostic tests failed.'}

@@ -277,7 +277,7 @@ Test-WinSecConfigIntegration 'Validation helper uses only synthetic providers af
     Assert-WinSecConfigRejected {. $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash ('0'*64)}
     $attemptState=[pscustomobject]@{Diagnostic=$null}
     $result=(Invoke-WinSecValidationDiagnosticAttempt -ExpectedOperationId $plan.Request.OperationId -ExpectedRuntime $PSVersionTable.PSVersion.ToString() -AttemptState $attemptState -ValidatorAction {
-        . $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash $plan.RequestHash
+        . $helper -OperationId $plan.Request.OperationId -ApprovedRequestHash $plan.RequestHash -DiagnosticState $attemptState
     })|ConvertFrom-Json
     Assert-WinSecConfigIntegration ($null -eq $attemptState.Diagnostic)
     Assert-WinSecConfigIntegration ($result.AssessmentMode -ceq 'FRAMEWORK_REVIEW' -and $script:metrics.Reads -eq 1 -and $result.InMemoryReports -eq 3 -and
