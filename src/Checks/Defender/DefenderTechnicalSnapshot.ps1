@@ -1,10 +1,43 @@
-# Data-only candidate adapter. No native queries, execution registration or production imports.
+# Data-only candidate adapter 1.1. No native queries, execution registration or production imports.
 . (Join-Path $PSScriptRoot 'DefenderTechnicalCatalog.ps1')
+
+function Assert-WinSecDefenderCapturedCimSource {
+    param([object]$Data,[string]$SourceId)
+    # Invoke CLR accessors explicitly: ETS ScriptProperties must never replace them.
+    try {
+        if($Data -isnot [Microsoft.Management.Infrastructure.CimInstance]){throw 'Invalid carrier.'}
+        $system=[Microsoft.Management.Infrastructure.CimInstance].GetProperty('CimSystemProperties').GetValue($Data,$null)
+        $class=[Microsoft.Management.Infrastructure.CimSystemProperties].GetProperty('ClassName').GetValue($system,$null)
+        $namespace=[Microsoft.Management.Infrastructure.CimSystemProperties].GetProperty('Namespace').GetValue($system,$null)
+        $expectedClass=switch -CaseSensitive ($SourceId){
+            Platform {'Win32_OperatingSystem'}
+            Status {'MSFT_MpComputerStatus'}
+            Preferences {'MSFT_MpPreference'}
+            default {throw 'Unknown source.'}
+        }
+        $expectedNamespace=if($SourceId -ceq 'Platform'){'root/cimv2'}else{'root/Microsoft/Windows/Defender'}
+        if($class -isnot [string] -or $namespace -isnot [string] -or
+            -not [string]::Equals($class,$expectedClass,[StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($namespace.Replace('\','/'),$expectedNamespace,[StringComparison]::OrdinalIgnoreCase)){
+            throw 'Foreign CIM source.'
+        }
+    }catch{throw 'Invalid Defender captured CIM source.'}
+    # This checks a supplied carrier, not its native origin, locality or authorization.
+}
 
 function Get-WinSecDefenderCapturedProperty {
     param([AllowNull()][object]$Data,[string]$Name)
     $missing=[pscustomobject]@{Exists=$false;Safe=$true;Value=$null}
     if($null -eq $Data){return $missing}
+    if($Data -is [Microsoft.Management.Infrastructure.CimInstance]){
+        try {
+            $properties=[Microsoft.Management.Infrastructure.CimInstance].GetProperty('CimInstanceProperties').GetValue($Data,$null)
+            $property=$properties[$Name]
+            if($null -eq $property){return $missing}
+            $value=[Microsoft.Management.Infrastructure.CimProperty].GetProperty('Value').GetValue($property,$null)
+            return [pscustomobject]@{Exists=$true;Safe=$true;Value=$value}
+        }catch{return [pscustomobject]@{Exists=$true;Safe=$false;Value=$null}}
+    }
     if($Data.GetType() -in @([hashtable],[Collections.Specialized.OrderedDictionary],[Collections.Generic.Dictionary[string,object]])){
         $keys=@($Data.Keys|Where-Object {$_ -is [string] -and [string]::Equals($_,$Name,[StringComparison]::OrdinalIgnoreCase)})
         if(-not $keys.Count){return $missing}
@@ -90,7 +123,9 @@ function New-WinSecDefenderTechnicalSnapshot {
         if($time -lt $start -or $time -gt $end){throw 'Captured source lies outside its operation.'}
         if($time -gt $collected){$collected=$time}
         if($source.State -ceq 'OBSERVED'){
-            if($null -eq $source.Data -or $source.Data.GetType() -notin @([Management.Automation.PSCustomObject],[hashtable],[Collections.Specialized.OrderedDictionary],[Collections.Generic.Dictionary[string,object]])){throw 'Captured source must contain plain data.'}
+            if($source.Data -is [Microsoft.Management.Infrastructure.CimInstance]){
+                Assert-WinSecDefenderCapturedCimSource $source.Data $source.SourceId
+            }elseif($null -eq $source.Data -or $source.Data.GetType() -notin @([Management.Automation.PSCustomObject],[hashtable],[Collections.Specialized.OrderedDictionary],[Collections.Generic.Dictionary[string,object]])){throw 'Captured source must contain reviewed data.'}
         }elseif($null -ne $source.Data){throw 'Unavailable capture must not contain raw data.'}
         $inputs[$source.SourceId]=$source
     }
@@ -177,7 +212,7 @@ function New-WinSecDefenderTechnicalSnapshot {
     }}}
     $collection=[ordered]@{Status=$(if($complete){'COMPLETE'}else{'PARTIAL'});Coverage=$(if($complete -and -not ($counts.Unknown+$counts.Errors+$counts.NotCollected)){'COMPLETE'}else{'LIMITED'})}
     foreach($key in @('RetainedRecords','Observed','Unknown','Errors','NotCollected','NotConfigured','NotApplicable')){$collection[$key]=$counts[$key]}
-    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.0.0';
+    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.1.0';
         StartedAtUTC=$StartedAtUTC;CollectedAtUTC=$collected.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ',[Globalization.CultureInfo]::InvariantCulture);CompletedAtUTC=$CompletedAtUTC;GeneratedAtUTC=$GeneratedAtUTC;
         Platform=$platform;SelectedProfile=$SelectedProfile;Collection=[pscustomobject]$collection;Inventories=$inventories.ToArray();Batches=$batches.ToArray()}
     Assert-WinSecDefenderTechnicalSnapshot $snapshot $owner -CancellationAction $CancellationAction
@@ -190,6 +225,7 @@ function Assert-WinSecDefenderTechnicalSnapshot {
     $catalog=Get-WinSecDefenderTechnicalCatalog;$hash=Get-WinSecSnapshotCatalogHash $catalog
     if($ExpectedIdentity.CheckId -cne 'WSA-SYS-001'){throw 'Foreign Defender candidate identity.'}
     Assert-WinSecTechnicalSnapshot $Snapshot $catalog $hash $ExpectedIdentity -CancellationAction $CancellationAction
+    if($Snapshot.CollectorVersion -isnot [string] -or $Snapshot.CollectorVersion -cnotin @('1.0.0','1.1.0')){throw 'Unreviewed Defender candidate collector version.'}
     $definitionsById=@{};foreach($definition in Get-WinSecDefenderTechnicalFields){$definitionsById[$definition.Id]=$definition};$observed=@{}
     $clock=[Diagnostics.Stopwatch]::StartNew()
     $asrProblem=$false;$ruleIds=@{}

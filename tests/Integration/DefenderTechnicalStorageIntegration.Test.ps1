@@ -14,6 +14,25 @@ function Assert-DefenderStorage {param([bool]$Value);if(-not $Value){throw 'Defe
 function Reject-DefenderStorage {param([scriptblock]$Action);$caught=$false;try{$null=& $Action}catch{$caught=$true};Assert-DefenderStorage $caught}
 function Test-DefenderStorage {param($Name,[scriptblock]$Action);$f=New-WinSecDefenderTechnicalFixture;$f.Identity.SnapshotId=[guid]::NewGuid().ToString('N');try{& $Action;$script:passed++;Write-Host ('[PASS] '+$Name)}catch{$script:failed++;Write-Host ('[FAIL] '+$Name+': '+$_.Exception.Message);Write-Host $_.ScriptStackTrace}}
 try {
+    foreach($scope in @('CONTROL','SECTION','DEVICE')){Test-DefenderStorage ('Typed CIM capture persists as the same validated JSON/Markdown pair: '+$scope) {
+        $f.Identity.ScopeType=$scope;$f.Identity.ScopeKey=switch($scope){CONTROL {'WSA-SYS-001'};SECTION {'SystemSecurity'};DEVICE {'ALL'}}
+        $f=ConvertTo-WinSecDefenderCimFixture $f
+        try{$p=New-WinSecDefenderFixturePackage $f}finally{Close-WinSecDefenderCimFixture $f}
+        $saved=Write-WinSecDefenderTechnicalPair $sandbox $p $f.Identity
+        $read=Read-WinSecDefenderTechnicalPair $sandbox $f.Identity $p.Snapshot.CollectedAtUTC
+        $md=Get-Content -LiteralPath $saved.MarkdownPath -Raw -Encoding UTF8
+        Assert-DefenderStorage ($read.PublicationStatus -ceq 'COMMITTED' -and $read.Snapshot.CollectorVersion -ceq '1.1.0' -and
+            (ConvertTo-Json -InputObject $read.Snapshot -Depth 16 -Compress) -ceq (ConvertTo-Json -InputObject $p.Snapshot -Depth 16 -Compress) -and
+            $md -ceq (ConvertTo-WinSecSnapshotMarkdown $read.Snapshot $p.Catalog $p.CatalogSha256 $f.Identity) -and
+            $md -notmatch 'PRIVATE-DEFENDER|CimInstanceProperties|CimSystemProperties')
+    }}
+    Test-DefenderStorage 'Candidate collector 1.0 pairs still render and read without migration' {
+        $p=New-WinSecDefenderFixturePackage $f;$p.Snapshot.CollectorVersion='1.0.0'
+        $saved=Write-WinSecDefenderTechnicalPair $sandbox $p $f.Identity
+        $before=(Get-FileHash $saved.JsonPath).Hash;$read=Read-WinSecDefenderTechnicalPair $sandbox $f.Identity $p.Snapshot.CollectedAtUTC
+        Assert-DefenderStorage ($read.PublicationStatus -ceq 'COMMITTED' -and $read.Snapshot.CollectorVersion -ceq '1.0.0' -and
+            (Get-FileHash $saved.JsonPath).Hash -ceq $before)
+    }
     foreach($scope in @('CONTROL','SECTION','DEVICE')){Test-DefenderStorage ('One validated source produces the same JSON and Markdown readings with original scope: '+$scope) {
         $f.Identity.ScopeType=$scope;$f.Identity.ScopeKey=switch($scope){CONTROL {'WSA-SYS-001'};SECTION {'SystemSecurity'};DEVICE {'ALL'}}
         $p=New-WinSecDefenderFixturePackage $f;$saved=Write-WinSecDefenderTechnicalPair $sandbox $p $f.Identity

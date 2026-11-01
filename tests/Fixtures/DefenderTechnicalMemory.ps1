@@ -32,3 +32,52 @@ function Get-WinSecDefenderFixtureReading {
     param($Snapshot,[string]$Id)
     @($Snapshot.Batches|ForEach-Object Records|ForEach-Object Readings|Where-Object FieldId -CEQ $Id)[0]
 }
+
+function ConvertTo-WinSecDefenderCimFixture {
+    # Client-side objects only: no CIM sessions, cmdlets, discovery or Windows queries.
+    param([object]$Fixture)
+    foreach($source in $Fixture.Sources){
+        $class=switch($source.SourceId){Platform {'Win32_OperatingSystem'};Status {'MSFT_MpComputerStatus'};Preferences {'MSFT_MpPreference'}}
+        $namespace=if($source.SourceId -ceq 'Platform'){'root/cimv2'}else{'root/Microsoft/Windows/Defender'}
+        $instance=[Microsoft.Management.Infrastructure.CimInstance]::new($class,$namespace)
+        try {
+            foreach($property in $source.Data.PSObject.Properties){
+                $value=$property.Value
+                if($value -is [datetimeoffset]){$value=$value.UtcDateTime}
+                $type=if($property.Name -ceq 'AttackSurfaceReductionRules_Ids' -or $property.Name -cin @('ExclusionPath','ExclusionProcess','ExclusionExtension',
+                    'AttackSurfaceReductionOnlyExclusions','ControlledFolderAccessAllowedApplications','ControlledFolderAccessProtectedFolders')){
+                    if($null -ne $value){$value=[string[]]$value};[Microsoft.Management.Infrastructure.CimType]::StringArray
+                }elseif($property.Name -ceq 'AttackSurfaceReductionRules_Actions'){
+                    if($null -ne $value){$value=[uint32[]]$value};[Microsoft.Management.Infrastructure.CimType]::UInt32Array
+                }elseif($value -is [bool]){[Microsoft.Management.Infrastructure.CimType]::Boolean
+                }elseif($value -is [uint32]){[Microsoft.Management.Infrastructure.CimType]::UInt32
+                }elseif($value -is [datetime]){[Microsoft.Management.Infrastructure.CimType]::DateTime
+                }else{[Microsoft.Management.Infrastructure.CimType]::String}
+                $instance.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create($property.Name,$value,$type,[Microsoft.Management.Infrastructure.CimFlags]::None))
+            }
+            $source.Data=$instance
+        }catch{$instance.Dispose();throw}
+    }
+    return $Fixture
+}
+
+function Close-WinSecDefenderCimFixture {
+    param([object]$Fixture)
+    foreach($source in $Fixture.Sources){if($source.Data -is [Microsoft.Management.Infrastructure.CimInstance]){
+        $null=[Microsoft.Management.Infrastructure.CimInstance].GetMethod('Dispose').Invoke($source.Data,$null)
+    }}
+}
+
+function Set-WinSecDefenderCimFixtureProperty {
+    param([object]$Source,[string]$Name,[object]$Value,[Microsoft.Management.Infrastructure.CimType]$Type,[switch]$Remove)
+    $old=$Source.Data
+    $replacement=[Microsoft.Management.Infrastructure.CimInstance]::new($old.CimSystemProperties.ClassName,$old.CimSystemProperties.Namespace)
+    try {
+        foreach($property in $old.CimInstanceProperties){if($property.Name -cne $Name){
+            $replacement.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create($property.Name,$property.Value,$property.CimType,[Microsoft.Management.Infrastructure.CimFlags]::None))
+        }}
+        if(-not $Remove){$replacement.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create($Name,$Value,$Type,[Microsoft.Management.Infrastructure.CimFlags]::None))}
+        $Source.Data=$replacement
+    }catch{$replacement.Dispose();throw}
+    finally{$old.Dispose()}
+}
