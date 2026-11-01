@@ -22,7 +22,7 @@ Test-CimCapture 'Typed CIM carriers preserve the ordinary normalized package exa
     $plain.Sources[2].Data.AttackSurfaceReductionRules_Ids=[string[]]$f.Sources[2].Data.CimInstanceProperties['AttackSurfaceReductionRules_Ids'].Value
     $a=New-WinSecDefenderFixturePackage $plain;$b=New-WinSecDefenderFixturePackage $f
     Assert-CimCapture ((ConvertTo-Json -InputObject $a -Depth 20 -Compress) -ceq (ConvertTo-Json -InputObject $b -Depth 20 -Compress))
-    Assert-CimCapture ($b.Snapshot.CollectorVersion -ceq '1.1.0' -and $b.Snapshot.Collection.Status -ceq 'COMPLETE')
+    Assert-CimCapture ($b.Snapshot.CollectorVersion -ceq '1.2.0' -and $b.Snapshot.Collection.Status -ceq 'COMPLETE')
 }
 Test-CimCapture 'Only reviewed values enter normalized JSON, never CIM metadata or private properties' {
     $f.Sources[1].Data.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create('ComputerID','PRIVATE-SECRET',[Microsoft.Management.Infrastructure.CimFlags]::None))

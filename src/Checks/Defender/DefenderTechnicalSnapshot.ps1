@@ -1,5 +1,5 @@
-# Data-only candidate adapter 1.1. No native queries, execution registration or production imports.
-. (Join-Path $PSScriptRoot 'DefenderTechnicalCatalog.ps1')
+# Data-only candidate adapter 1.2. No native queries, execution registration or production imports.
+. (Join-Path $PSScriptRoot 'DefenderStatusReadings.ps1')
 
 function Assert-WinSecDefenderCapturedCimSource {
     param([object]$Data,[string]$SourceId)
@@ -129,6 +129,14 @@ function New-WinSecDefenderTechnicalSnapshot {
         }elseif($null -ne $source.Data){throw 'Unavailable capture must not contain raw data.'}
         $inputs[$source.SourceId]=$source
     }
+    $statusReadings=$null
+    if($inputs.Status.State -ceq 'OBSERVED' -and $inputs.Status.Data -isnot [Microsoft.Management.Infrastructure.CimInstance]){
+        $marker=Get-WinSecDefenderCapturedProperty $inputs.Status.Data ArtifactType
+        if($marker.Safe -and $marker.Value -is [string] -and $marker.Value -ceq 'WinSec.Defender.StatusReadings'){
+            Assert-WinSecDefenderStatusReadings $inputs.Status.Data -CancellationAction $CancellationAction
+            $statusReadings=@{};foreach($reading in $inputs.Status.Data.Readings){$statusReadings[$reading.FieldId]=$reading.PSObject.Copy()}
+        }
+    }
     $catalog=Get-WinSecDefenderTechnicalCatalog;$digest=Get-WinSecSnapshotCatalogHash $catalog;$specs=@(Get-WinSecDefenderTechnicalFields)
     $definitionsById=@{};foreach($definition in $specs){$definitionsById[$definition.Id]=$definition}
     $platform=[pscustomobject]@{Version=$null;OSRelease=$null;Edition=$null;BuildNumber=$null;UBR=$null;OperatingSystemSKU=$null;ProductType=$null}
@@ -170,7 +178,9 @@ function New-WinSecDefenderTechnicalSnapshot {
             foreach($definition in $definitions){
                 $state='UNKNOWN';$why='PROVIDER_UNAVAILABLE';$value=$null
                 if($source.State -ceq 'ERROR'){$state='ERROR'}elseif($source.State -ceq 'NOT_COLLECTED'){$state='NOT_COLLECTED';$why='NOT_REQUESTED'}
-                else{
+                elseif($area -ceq 'Status' -and $null -ne $statusReadings){
+                    $captured=$statusReadings[$definition.Id];$state=$captured.State;$why=$captured.Reason;$value=$captured.Value
+                }else{
                     $property=if($area -ceq 'ASR'){
                         $array=if($definition.Property -ceq 'RuleId'){,$ids.Value}else{,$actions.Value}
                         if($null -ne $array -and $index -lt $array.Length){[pscustomobject]@{Exists=$true;Safe=$true;Value=$array[$index]}}else{[pscustomobject]@{Exists=$false;Safe=$true;Value=$null}}
@@ -212,7 +222,7 @@ function New-WinSecDefenderTechnicalSnapshot {
     }}}
     $collection=[ordered]@{Status=$(if($complete){'COMPLETE'}else{'PARTIAL'});Coverage=$(if($complete -and -not ($counts.Unknown+$counts.Errors+$counts.NotCollected)){'COMPLETE'}else{'LIMITED'})}
     foreach($key in @('RetainedRecords','Observed','Unknown','Errors','NotCollected','NotConfigured','NotApplicable')){$collection[$key]=$counts[$key]}
-    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.1.0';
+    $snapshot=[pscustomobject]@{ArtifactType='WinSec.TechnicalSnapshot';SchemaVersion='2.0.0';Identity=$owner;CatalogId=$catalog.CatalogId;CatalogVersion=$catalog.CatalogVersion;CatalogSha256=$digest;CollectorVersion='1.2.0';
         StartedAtUTC=$StartedAtUTC;CollectedAtUTC=$collected.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ',[Globalization.CultureInfo]::InvariantCulture);CompletedAtUTC=$CompletedAtUTC;GeneratedAtUTC=$GeneratedAtUTC;
         Platform=$platform;SelectedProfile=$SelectedProfile;Collection=[pscustomobject]$collection;Inventories=$inventories.ToArray();Batches=$batches.ToArray()}
     Assert-WinSecDefenderTechnicalSnapshot $snapshot $owner -CancellationAction $CancellationAction
@@ -225,7 +235,7 @@ function Assert-WinSecDefenderTechnicalSnapshot {
     $catalog=Get-WinSecDefenderTechnicalCatalog;$hash=Get-WinSecSnapshotCatalogHash $catalog
     if($ExpectedIdentity.CheckId -cne 'WSA-SYS-001'){throw 'Foreign Defender candidate identity.'}
     Assert-WinSecTechnicalSnapshot $Snapshot $catalog $hash $ExpectedIdentity -CancellationAction $CancellationAction
-    if($Snapshot.CollectorVersion -isnot [string] -or $Snapshot.CollectorVersion -cnotin @('1.0.0','1.1.0')){throw 'Unreviewed Defender candidate collector version.'}
+    if($Snapshot.CollectorVersion -isnot [string] -or $Snapshot.CollectorVersion -cnotin @('1.0.0','1.1.0','1.2.0')){throw 'Unreviewed Defender candidate collector version.'}
     $definitionsById=@{};foreach($definition in Get-WinSecDefenderTechnicalFields){$definitionsById[$definition.Id]=$definition};$observed=@{}
     $clock=[Diagnostics.Stopwatch]::StartNew()
     $asrProblem=$false;$ruleIds=@{}
