@@ -175,6 +175,17 @@ function Get-WinSecTransitionDeviceFiles {
         foreach($file in $plan.Files){if(-not $known.ContainsKey($file.Path)){$files.Add([pscustomobject]@{Path=$file.Path;Hash=$file.Sha256});$known[$file.Path]=$true}}
     }
     $key=Get-WinSecSnapshotDeviceKey $DeviceId;$directories=@()
+    $technicalDirectory=Join-Path $ProjectRoot ('scans/'+$key+'/technical-sessions')
+    if(Test-Path -LiteralPath $technicalDirectory -ErrorAction Stop){
+        . (Join-Path $PSScriptRoot 'TechnicalSourceSessionRemoval.ps1')
+        $technical=Get-WinSecTechnicalSessionRemovalFiles $ProjectRoot $DeviceId $Device
+        $hashes=@{};foreach($file in $files){$hashes[$file.Path]=$file.Hash}
+        foreach($file in $technical.Files){
+            if($known.ContainsKey($file.Path)){
+                if($hashes[$file.Path] -cne $file.Hash){throw 'Technical session contradicts an existing removal source.'}
+            }else{$files.Add($file);$known[$file.Path]=$true;$hashes[$file.Path]=$file.Hash}
+        }
+    }
     foreach($base in @('scans','reports')){
         $path=Join-Path $ProjectRoot ($base+'/'+$key)
         Assert-WinSecDeviceRemovalPath $ProjectRoot $path
