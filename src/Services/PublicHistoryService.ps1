@@ -226,6 +226,8 @@ function Restore-WinSecPublicHistory {
         if((Get-WinSecTargetField $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){$Context.ScanCoordinator.TechnicalLocations=$newReferences}
         $Context.ActiveScanByDevice=$devices;$Context.ActiveScanByScope=$scopes
         if($RestoreTechnicalSources){
+            # A single shared map lets confirmed backend removal invalidate every restored-context alias.
+            $Context.ScanCoordinator | Add-Member -NotePropertyName TechnicalSourceIndexes -NotePropertyValue $technicalIndexes -Force
             $Context | Add-Member -NotePropertyName TechnicalSourceIndexes -NotePropertyValue $technicalIndexes -Force
             $Context | Add-Member -NotePropertyName TechnicalSourcesReady -NotePropertyValue $true -Force
         }

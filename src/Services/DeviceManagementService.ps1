@@ -247,6 +247,10 @@ function Remove-WinSecManagedDevice {
     finally {
         try {
             if ($started) {
+                # Invalidate only after removal starts, including INCOMPLETE. The restored context shares
+                # this exact map; cancellation/rejection before mutation must leave it untouched.
+                $technicalIndexes=Get-WinSecTargetField $Coordinator TechnicalSourceIndexes
+                if($technicalIndexes -is [hashtable]){$technicalIndexes.Remove($plan.DeviceId)}
                 $snapshots=Get-WinSecTargetField $Coordinator TechnicalSnapshots
                 foreach ($key in $plan.SessionKeys) {
                     $Coordinator.Sessions.Remove($key)

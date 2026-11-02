@@ -19,6 +19,10 @@ function New-WinSecTechnicalRestoreStamp {
         if($null -ne $property -and $property.MemberType -ne [Management.Automation.PSMemberTypes]::NoteProperty){throw 'Unsafe restoration context property.'}
     }
     $technical=Get-WinSecTargetField $Context TechnicalSourceIndexes;$ready=Get-WinSecTargetField $Context TechnicalSourcesReady
+    $aliasProperty=$Context.ScanCoordinator.PSObject.Properties['TechnicalSourceIndexes']
+    if($null -ne $aliasProperty -and $aliasProperty.MemberType -ne [Management.Automation.PSMemberTypes]::NoteProperty){throw 'Unsafe coordinator cache property.'}
+    $coordinatorTechnical=Get-WinSecTargetField $Context.ScanCoordinator TechnicalSourceIndexes
+    if($null -ne $coordinatorTechnical -and ($coordinatorTechnical -isnot [hashtable] -or $coordinatorTechnical.Count)){throw 'Restoration requires an empty coordinator technical cache.'}
     $historyReady=Get-WinSecTargetField $Context HistoryReady
     if(($null -ne $technical -and ($technical -isnot [hashtable] -or $technical.Count)) -or
         ($null -ne $ready -and ($ready -isnot [bool] -or $ready)) -or
@@ -28,7 +32,7 @@ function New-WinSecTechnicalRestoreStamp {
     }
     [pscustomobject]@{ProjectRoot=$Context.ProjectRoot;Coordinator=$Context.ScanCoordinator;Devices=@(Get-WinSecTechnicalRestoreDevices @($Context.Devices));
         Sessions=$Context.ScanCoordinator.Sessions;Locations=$Context.ScanCoordinator.TechnicalLocations;Publics=$Context.PublicScans;
-        ActiveDevice=$Context.ActiveScanByDevice;ActiveScope=$Context.ActiveScanByScope;Technical=$technical;TechnicalReady=$ready;HistoryReady=$historyReady}
+        ActiveDevice=$Context.ActiveScanByDevice;ActiveScope=$Context.ActiveScanByScope;Technical=$technical;CoordinatorTechnical=$coordinatorTechnical;TechnicalReady=$ready;HistoryReady=$historyReady}
 }
 
 function Assert-WinSecTechnicalRestoreStamp {
@@ -36,7 +40,7 @@ function Assert-WinSecTechnicalRestoreStamp {
     $current=New-WinSecTechnicalRestoreStamp $Context
     if($current.ProjectRoot -cne $Stamp.ProjectRoot -or (Get-WinSecPublicHistoryJson $current.Devices) -cne (Get-WinSecPublicHistoryJson $Stamp.Devices) -or
         $current.TechnicalReady -cne $Stamp.TechnicalReady -or $current.HistoryReady -cne $Stamp.HistoryReady){throw 'Restoration context changed.'}
-    foreach($name in @('Coordinator','Sessions','Locations','Publics','ActiveDevice','ActiveScope','Technical')){
+    foreach($name in @('Coordinator','Sessions','Locations','Publics','ActiveDevice','ActiveScope','Technical','CoordinatorTechnical')){
         if(-not [object]::ReferenceEquals($current.$name,$Stamp.$name)){throw 'Restoration caches changed.'}
     }
 }
@@ -100,6 +104,9 @@ function Select-WinSecRestoredTechnicalSource {
         $historyReady=Get-WinSecTargetField $Context HistoryReady;$technicalReady=Get-WinSecTargetField $Context TechnicalSourcesReady
         if($historyReady -isnot [bool] -or -not $historyReady -or $technicalReady -isnot [bool] -or -not $technicalReady){throw 'Technical history is not ready.'}
         $indexes=Get-WinSecTargetField $Context TechnicalSourceIndexes
+        $coordinator=Get-WinSecTargetField $Context ScanCoordinator
+        $bound=Get-WinSecTargetField $coordinator TechnicalSourceIndexes
+        if($bound -isnot [hashtable] -or -not [object]::ReferenceEquals($indexes,$bound)){throw 'Restored technical cache binding changed.'}
         if($indexes -isnot [hashtable] -or -not $indexes.ContainsKey($DeviceId) -or
             @((Get-WinSecTechnicalRestoreDevices @($Context.Devices))|Where-Object DeviceId -CEQ $DeviceId).Count -ne 1){throw 'Missing restored technical index.'}
         # D-135 revalidates the physical selected/latest sources on every consumption. No cached view

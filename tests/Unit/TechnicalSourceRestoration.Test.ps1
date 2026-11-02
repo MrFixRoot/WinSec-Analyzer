@@ -85,6 +85,7 @@ try{
         }
         $c=New-RUContext;$c|Add-Member NoteProperty HistoryReady $true;$c|Add-Member NoteProperty TechnicalSourcesReady $true
         $c|Add-Member NoteProperty TechnicalSourceIndexes @{$device=[pscustomobject]@{Marker='INDEX'}}
+        $c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes $c.TechnicalSourceIndexes
         $s=Select-WinSecRestoredTechnicalSource $c $device DEFENDER_CANDIDATE CONTROL WSA-SYS-001 -SourcePreference LATEST_ATTEMPT
         Assert-RU ($s.Preference -ceq 'LATEST_ATTEMPT' -and $s.Family -ceq 'DEFENDER_CANDIDATE' -and $s.Index.Marker -ceq 'INDEX' -and $c.PublicScans.Count -eq 0)
     }
@@ -94,6 +95,7 @@ try{
             $c=New-RUContext;$script:selectionCalled=$false
             $c|Add-Member NoteProperty HistoryReady $flag;$c|Add-Member NoteProperty TechnicalSourcesReady $true
             $c|Add-Member NoteProperty TechnicalSourceIndexes @{$device='INDEX'}
+            $c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes $c.TechnicalSourceIndexes
             Reject-RU {Select-WinSecRestoredTechnicalSource $c $device DEFENDER_CANDIDATE CONTROL WSA-SYS-001}
             Assert-RU (-not $script:selectionCalled)
         }
@@ -101,10 +103,32 @@ try{
     Test-RU 'Missing and incompatible restored indexes reject rather than using legacy results' {
         $c=New-RUContext;$c|Add-Member NoteProperty HistoryReady $true;$c|Add-Member NoteProperty TechnicalSourcesReady $true
         $c|Add-Member NoteProperty TechnicalSourceIndexes @{};$c.PublicScans['legacy']='LEGACY'
+        $c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes $c.TechnicalSourceIndexes
         Reject-RU {Select-WinSecRestoredTechnicalSource $c $device REVIEWED_PROJECTION CONTROL WSA-SYS-001}
         $c.TechnicalSourceIndexes[$device]=[pscustomobject]@{ArtifactType='WinSec.StoredSession';SchemaVersion='1.0.0'}
         Reject-RU {Select-WinSecRestoredTechnicalSource $c $device REVIEWED_PROJECTION CONTROL WSA-SYS-001}
         Assert-RU ($c.PublicScans['legacy'] -ceq 'LEGACY')
+    }
+    Test-RU 'A stale coordinator alias cannot be silently overwritten during restoration' {
+        $c=New-RUContext;$c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes @{$device='STALE'}
+        Reject-RU {New-WinSecTechnicalRestoreStamp $c}
+        Assert-RU ($c.ScanCoordinator.TechnicalSourceIndexes[$device] -ceq 'STALE')
+    }
+    Test-RU 'Replacing an empty coordinator alias during preparation rejects publication' {
+        $c=New-RUContext;$c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes @{}
+        $s=New-WinSecTechnicalRestoreStamp $c;$c.ScanCoordinator.TechnicalSourceIndexes=@{}
+        Reject-RU {Assert-WinSecTechnicalRestoreStamp $c $s}
+    }
+    foreach($side in @('Context','Coordinator')){
+        Test-RU ('A detached cache alias cannot be consumed or fall back: '+$side) {
+            function Select-WinSecTechnicalSource {$script:selectionCalled=$true;'UNEXPECTED'}
+            $c=New-RUContext;$c|Add-Member NoteProperty HistoryReady $true;$c|Add-Member NoteProperty TechnicalSourcesReady $true
+            $map=@{$device='INDEX'};$c|Add-Member NoteProperty TechnicalSourceIndexes $map
+            $c.ScanCoordinator|Add-Member NoteProperty TechnicalSourceIndexes $map;$script:selectionCalled=$false
+            if($side -ceq 'Context'){$c.TechnicalSourceIndexes=@{$device='STALE'}}else{$c.ScanCoordinator.TechnicalSourceIndexes=@{}}
+            Reject-RU {Select-WinSecRestoredTechnicalSource $c $device DEFENDER_CANDIDATE CONTROL WSA-SYS-001}
+            Assert-RU (-not $script:selectionCalled)
+        }
     }
 }finally{
     $full=[IO.Path]::GetFullPath($sandbox)
