@@ -183,16 +183,23 @@ function Read-WinSecPublicHistoryArtifacts {
 
 function Restore-WinSecPublicHistory {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][psobject]$Context)
+    param([Parameter(Mandatory)][psobject]$Context,[switch]$RestoreTechnicalSources,[scriptblock]$CancellationAction)
     Assert-WinSecScanCoordinator $Context.ScanCoordinator
     if($Context.ScanCoordinator.Sessions.Count -or $Context.PublicScans.Count -or $Context.ActiveScanByDevice.Count -or $Context.ActiveScanByScope.Count){throw 'Restore requires empty session caches.'}
+    $technicalIndexes=$null;$technicalStamp=$null;$restoreDevices=@($Context.Devices);$restoreRoot=$Context.ProjectRoot
+    if($RestoreTechnicalSources){
+        . (Join-Path $PSScriptRoot 'TechnicalSourceRestoration.ps1')
+        $technicalStamp=New-WinSecTechnicalRestoreStamp $Context;$restoreDevices=$technicalStamp.Devices
+        $technicalIndexes=Read-WinSecTechnicalRestoreIndexes $restoreRoot $restoreDevices $CancellationAction
+        Assert-WinSecTechnicalRestoreStamp $Context $technicalStamp
+    }
     $sessions=@{};$publics=@{};$devices=@{};$scopes=@{}
-    $lease=Open-WinSecDeviceInventoryStore $Context.ProjectRoot
+    $lease=Open-WinSecDeviceInventoryStore $restoreRoot
     try{
-        $records=@(Read-WinSecPublicHistoryArtifacts -ProjectRoot $Context.ProjectRoot -Devices @($Context.Devices))
+        $records=@(Read-WinSecPublicHistoryArtifacts -ProjectRoot $restoreRoot -Devices $restoreDevices)
         $newReferences=@{}
         if((Get-WinSecTargetField $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){
-            $newHistory=Read-WinSecTransitionSessions $Context.ProjectRoot @($Context.Devices)
+            $newHistory=Read-WinSecTransitionSessions $restoreRoot $restoreDevices
             $records+=@($newHistory.Records);$newReferences=$newHistory.References
         }
         $validated=@(foreach($record in $records){ConvertFrom-WinSecPublicHistoryRecord $record})
@@ -211,9 +218,17 @@ function Restore-WinSecPublicHistory {
             $scopeIndex='{0}:{1}{2}:{3}{4}:{5}' -f $r.DeviceId.Length,$r.DeviceId,$r.ScopeType.Length,$r.ScopeType,$r.ScopeKey.Length,$r.ScopeKey
             $scopes[$scopeIndex]=$r.ScanId
         }
+        if($RestoreTechnicalSources){
+            Assert-WinSecTechnicalRestoreIndexes $restoreRoot $technicalIndexes $restoreDevices $CancellationAction
+            Assert-WinSecTechnicalRestoreStamp $Context $technicalStamp
+        }
         $Context.ScanCoordinator.Sessions=$sessions;$Context.PublicScans=$publics
         if((Get-WinSecTargetField $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){$Context.ScanCoordinator.TechnicalLocations=$newReferences}
         $Context.ActiveScanByDevice=$devices;$Context.ActiveScanByScope=$scopes
+        if($RestoreTechnicalSources){
+            $Context | Add-Member -NotePropertyName TechnicalSourceIndexes -NotePropertyValue $technicalIndexes -Force
+            $Context | Add-Member -NotePropertyName TechnicalSourcesReady -NotePropertyValue $true -Force
+        }
         $Context | Add-Member -NotePropertyName HistoryReady -NotePropertyValue $true -Force
     }finally{$lease.Lock.Dispose()}
 }
