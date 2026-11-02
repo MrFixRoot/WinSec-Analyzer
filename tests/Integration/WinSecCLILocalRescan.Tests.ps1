@@ -230,9 +230,9 @@ $enabledChecks = @(
 )
 
 Assert-WinSecIntegration `
-    -Condition ($enabledChecks.Count -eq 8 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+    -Condition ($enabledChecks.Count -eq 11 -and (($enabledChecks.checkId | Sort-Object) -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
         @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -eq 0) `
-    -Description 'Only validated System Security, Firewall, SMBv1, Remote Desktop, Open Ports and Network Configuration controls are enabled in production'
+    -Description 'Only individually validated System, Network and Identity controls are enabled in production'
 
 # ------------------------------------------------------------
 # TEST 6 - SCORING POLICY DISABLED
@@ -254,8 +254,8 @@ Assert-WinSecIntegration `
 if (
     -not $readOnly -or
     -not $noAutomaticStartup -or
-    $enabledChecks.Count -ne 8 -or
-    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
+    $enabledChecks.Count -ne 11 -or
+    (($enabledChecks.checkId | Sort-Object) -join '|') -cne 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -or
     @($enabledChecks | Where-Object {$_.implementationStatus -cne 'VALIDATED'}).Count -ne 0 -or
     -not $scoringDisabled
 ) {

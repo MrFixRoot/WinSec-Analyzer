@@ -2,13 +2,14 @@
 . (Join-Path $PSScriptRoot '../Core/TechnicalReportModel.ps1')
 
 function Get-WinSecTechnicalReportPolicy {
-    param([string]$ProjectRoot,[string]$DeviceId,[string[]]$CheckIds)
+    param([string]$ProjectRoot,[string]$DeviceId,[string[]]$CheckIds,[switch]$NewStorage)
     foreach($check in $CheckIds){$null=Get-WinSecTechnicalControl $check}
-    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Core/TechnicalControlRegistry.ps1','src/Core/FirewallTelemetry.ps1','src/Core/SmbTelemetry.ps1','src/Core/RdpTelemetry.ps1','src/Core/OpenPortsTelemetry.ps1','src/Core/NetworkConfigurationTelemetry.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
+    $parts=@(foreach($file in @('src/Core/TechnicalReportModel.ps1','src/Core/TechnicalControlRegistry.ps1','src/Core/FirewallTelemetry.ps1','src/Core/SmbTelemetry.ps1','src/Core/RdpTelemetry.ps1','src/Core/OpenPortsTelemetry.ps1','src/Core/NetworkConfigurationTelemetry.ps1','src/Core/IdentityAccessTelemetry.ps1','src/Core/IdentityNativeReadOnly.ps1','src/Checks/Accounts/IdentityAccessCollector.ps1','src/Services/TechnicalReportService.ps1','src/Services/TechnicalMarkdownService.ps1','src/Services/ExportService.ps1')) {
         (Get-FileHash -LiteralPath (Join-Path $ProjectRoot $file) -Algorithm SHA256 -ErrorAction Stop).Hash
     })
-    [pscustomobject]@{SchemaVersion=if($CheckIds -ccontains 'WSA-NET-001'){'3.0.0'}else{'2.0.0'};CatalogVersion='1.0.0';Mode='PER_EXECUTED_CONTROL';Count=$CheckIds.Count;
-        Directory=('reports/exports/'+(Get-WinSecEvidenceHash $DeviceId));PolicySha256=(Get-WinSecReportTextHash ($parts -join '|'))}
+    if($NewStorage){foreach($file in @('src/Core/TechnicalProjectionSnapshot.ps1','src/Core/TechnicalSnapshotContract.ps1','src/Core/TechnicalSnapshotPaths.ps1','src/Core/TechnicalSnapshotFileIO.ps1','src/Services/TechnicalSnapshotStore.ps1','src/Services/TechnicalSnapshotMarkdown.ps1','src/Services/StorageTransitionService.ps1')){$parts+=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot $file) -Algorithm SHA256).Hash}}
+    [pscustomobject]@{SchemaVersion=if($NewStorage){'2.1.0'}elseif($CheckIds -ccontains 'WSA-NET-001'){'3.0.0'}else{'2.0.0'};CatalogVersion='1.0.0';Mode=$(if($NewStorage){'PAIRED_SNAPSHOTS'}else{'PER_EXECUTED_CONTROL'});Count=$CheckIds.Count;
+        Directory=$(if($NewStorage){'scans/'+(Get-WinSecEvidenceHash $DeviceId)+'/<section>; reports/'+(Get-WinSecEvidenceHash $DeviceId)+'/<section>'}else{'reports/exports/'+(Get-WinSecEvidenceHash $DeviceId)});PolicySha256=(Get-WinSecReportTextHash ($parts -join '|'))}
 }
 
 function ConvertTo-WinSecTechnicalBody {
@@ -118,6 +119,7 @@ function Write-WinSecTechnicalArtifact {
 
 function Save-WinSecTechnicalReports {
     param([object]$Coordinator,[object]$Session,[object]$Target,[AllowNull()][object]$Context)
+    if((Get-WinSecTargetField $Coordinator NewTechnicalStorageEnabled) -ceq $true){return Save-WinSecTransitionReports $Coordinator $Session $Target $Context}
     $files=@();$failures=@();$name=$Target.Hostname;$lease=$null
     try {
     try {
@@ -149,3 +151,5 @@ function Save-WinSecTechnicalReports {
         Files=$files;FailedCheckIds=$failures}
     } finally {if($null -ne $lease){$lease.Lock.Dispose()}}
 }
+
+. (Join-Path $PSScriptRoot 'StorageTransitionService.ps1')

@@ -1,6 +1,6 @@
-# Real Defender/coordinator/public history/CLI/UI/Markdown; all Windows and I/O synthetic.
+﻿# Real Defender/coordinator/public history/CLI/UI/Markdown; all Windows and I/O synthetic.
 [CmdletBinding()]
-param()
+param([string]$CasePattern='*')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/UI/Core/NavigationController.ps1',
@@ -8,6 +8,7 @@ foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1'
     'src/UI/Components/Table.ps1','src/UI/Components/Banner.ps1','src/UI/Components/KeyboardHelp.ps1',
     'src/UI/Screens/MainMenu.ps1','src/UI/Screens/Results.ps1','src/UI/Screens/Findings.ps1',
     'src/Services/FrameworkService.ps1','src/Core/FrameworkMappingEngine.ps1','src/Services/ReportService.ps1')){. (Join-Path $root $file)}
+. (Join-Path $PSScriptRoot '../Fixtures/FrameworkMemory.ps1')
 function Get-CimInstance {
     [CmdletBinding()]param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
     if($ClassName -ceq 'Win32_ComputerSystemProduct'){return [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}}
@@ -25,7 +26,8 @@ function Get-MpPreference {
         MAPSReporting=if($script:badCriterion -ceq 'UNKNOWN_CLOUD'){$null}elseif($script:additionalHealthy -and $script:badCriterion -cne 'CLOUD'){2}else{0};ExclusionPath=@('C:\PRIVATE-REVIEW-INTEGRATION');
         AttackSurfaceReductionRules_Ids=@('56a863a9-875e-4185-98a7-b882c64b5ce5','9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2',
             'e6db77e5-3df2-4cf1-b95a-636979351e5b','d4f940ab-401b-4efc-aadc-ad5f3c50688a');
-        AttackSurfaceReductionRules_Actions=@($(if($script:badCriterion -ceq 'ASR'){2}else{1}),2,6,0)}
+        AttackSurfaceReductionRules_Actions=@($(if($script:badCriterion -ceq 'ASR'){2}else{1}),
+            $(if($script:additionalHealthy){1}else{2}),$(if($script:additionalHealthy){1}else{6}),$(if($script:additionalHealthy){1}else{0}))}
     switch($script:asrShape) {
         'NULL_PAIR' {$preferences.AttackSurfaceReductionRules_Ids=$null;$preferences.AttackSurfaceReductionRules_Actions=$null}
         'MISSING' {$preferences.PSObject.Properties.Remove('AttackSurfaceReductionRules_Actions')}
@@ -37,6 +39,7 @@ function Get-MpPreference {
 }
 function Save-WinSecPublicHistory {throw 'Unexpected history write.'}
 function Save-WinSecEvidence {throw 'Unexpected evidence write.'}
+function Import-WinSecDeviceInventory {param($ProjectRoot);[pscustomobject]@{schemaVersion='1.2.0';targets=@(New-WinSecLocalTarget);removedDeviceHashes=@()}}
 function Get-WinSecTerminalSize {$script:terminal}
 function Clear-WinSecScreen {$script:lines.Clear();$null=$script:fragment.Clear()}
 function Write-Host {
@@ -51,235 +54,186 @@ $script:lines=New-Object 'System.Collections.Generic.List[string]';$script:fragm
 function Assert-WinSecReviewIntegration {param([bool]$Value);if(-not $Value){throw 'Defender review integration assertion failed.'}}
 function Test-WinSecReviewIntegration {
     param([string]$Name,[scriptblock]$Action)
+    if($Name -notlike $CasePattern){return}
     try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}
     catch{$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+' : '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace)}
 }
-$coordinator=New-WinSecScanCoordinator
-$target=New-WinSecLocalTarget
-$coordinator.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
-$coordinator.AssessmentEnabled=$true;$coordinator.PublicHistoryEnabled=$false
-$public=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -DeviceId $target.DeviceId -ScanId 'defender-review-integration' `
-    -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-$key='{0}:{1}{2}:{3}' -f $public.DeviceId.Length,$public.DeviceId,$public.ScanId.Length,$public.ScanId
-$ctx=[pscustomobject]@{ProjectRoot=$root;Version='0.9.0';PublicScans=@{$key=$public};ActiveScanByDevice=@{};
-    ActiveScanByScope=@{(Get-WinSecCLIScopeKey $public.DeviceId CONTROL WSA-SYS-001)=$public.ScanId};ScanCoordinator=$coordinator;Devices=@($target)}
-$state=New-WinSecNavigationState;$state.Screen='Findings';$state.FindingsScope='Control';$state.SelectedDeviceId=$public.DeviceId
-Test-WinSecReviewIntegration 'The real collector grades the selected baseline and preserves the remaining ASR inventory' {
-    Assert-WinSecReviewIntegration ($script:reads -eq 1 -and $public.ReviewItems.Count -eq 8 -and $public.Findings.Count -eq 4 -and
-        $public.ConfigurationAssessment.Controls[0].Value -eq 50 -and $public.ConfigurationAssessment.Controls[0].Criteria.Count -eq 8)
-    $rules=@($public.ReviewItems|Where-Object {$_.DefenderSetting.Topic -ceq 'ASR' -and $_.DefenderSetting.SettingId -cne 'INVENTORY'})
-    Assert-WinSecReviewIntegration (($rules.DefenderSetting.Mode -join ',') -ceq 'BLOCK,AUDIT,WARN,DISABLED' -and
-        (ConvertTo-Json $public -Depth 40) -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"')
+Reset-WinSecFrameworkMemory
+function New-WinSecReviewContext {
+    param([string]$Id='defender-review-integration',[scriptblock]$ConfirmAction={$true})
+    $coordinator=New-WinSecScanCoordinator -ProjectRoot $root;$target=New-WinSecLocalTarget
+    $coordinator.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)};$coordinator.TechnicalReportsEnabled=$true;$coordinator.AssessmentEnabled=$true
+    $p=Invoke-WinSecCoordinatedScan -Coordinator $coordinator -DeviceId $target.DeviceId -ScanId $Id -ScopeType CONTROL -ScopeKey WSA-SYS-001 `
+        -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction $ConfirmAction
+    $c=[pscustomobject]@{ProjectRoot=$root;Version='0.9.0';PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};
+        ScanCoordinator=$coordinator;Devices=@($target);FrameworkWorkflowEnabled=$true;LocalDeviceId=$target.DeviceId}
+    if($null -ne $p){Add-WinSecFrameworkMemoryPublic $c $p}
+    $c
 }
-Test-WinSecReviewIntegration 'Canonical public history roundtrip preserves inventory and its original session without Windows reads' {
-    $session=($coordinator.Sessions.Values|Select-Object -First 1).Session
-    $record=New-WinSecPublicHistoryRecord $session
-    $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
-    $expected=ConvertTo-WinSecPublicScanResult $session
-    Assert-WinSecReviewIntegration ((Get-WinSecPublicHistoryJson $restored.PublicResult) -ceq (Get-WinSecPublicHistoryJson $expected) -and
-        (Get-WinSecPublicHistoryJson $restored.PublicResult.ReviewItems) -ceq (Get-WinSecPublicHistoryJson $public.ReviewItems) -and $script:reads -eq 1)
-    # All subsequent UI/export cases consume only the reconstructed public history.
-    $ctx.PublicScans[$key]=Copy-WinSecResultData $restored.PublicResult
+function New-WinSecReviewState {
+    param($Context)
+    $s=New-WinSecNavigationState;$s.Screen='Findings';$s.FindingsScope='Control';$s.SelectedDeviceId=$Context.Devices[0].DeviceId;$s
 }
-Test-WinSecReviewIntegration 'Findings routes observations separately and includes them in scrolling without false deviations' {
-    $active=Get-WinSecCLIActiveAssessment $state $ctx
-    $view=Get-WinSecSelectedFindings $state -ControlResults $active.ControlResults -Findings $active.Findings -ScanId $active.ScanId -ReviewItems $active.ReviewItems -ConfigurationAssessment $active.ConfigurationAssessment
-    $counts=Get-WinSecCLINavigationCounts $state $ctx
-    Show-WinSecCLICurrentScreen $state $ctx
-    Assert-WinSecReviewIntegration ($view.Findings.Count -eq 4 -and $view.ReviewItems.Count -eq 8 -and $view.CheckRows.Count -eq 8 -and $counts.FindingCount -eq 12 -and
-        ($script:lines -join '|').Contains('PASS') -and ($script:lines -join '|').Contains('FAIL') -and $script:reads -eq 1)
-    Assert-WinSecReviewIntegration (($script:lines -join "`n") -match '(?m)^\s*ID\s+CONTROL\s+CONFIGURATION\s+STATE\s+CONFIGURATION %\s*$')
-    foreach($row in $view.Rows|Where-Object {$_.Kind -ceq 'CRITERION_RESULT'}) {
-        Assert-WinSecReviewIntegration ($row.ControlCode -ceq ($row.CheckId+' / '+$row.CriterionId) -and
-            ($script:lines -join '|').Contains($row.ControlCode))
+function Assert-WinSecReviewRejected {
+    param([scriptblock]$Action)
+    $caught=$false;try{$null=& $Action}catch{$caught=$true};Assert-WinSecReviewIntegration $caught
+}
+$ctx=New-WinSecReviewContext;$state=New-WinSecReviewState $ctx
+$public=@($ctx.PublicScans.Values)[0];$key=@($ctx.PublicScans.Keys)[0];$target=$ctx.Devices[0]
+Test-WinSecReviewIntegration 'Production collector preserves complete ASR inventory in technical readings without grading the scan' {
+    $r=Read-WinSecTechnicalReport $root $public.DeviceId $public.ScanId WSA-SYS-001
+    $rules=@($r.Rows|Where-Object SettingId -CLike 'AttackSurfaceReduction.Rules.*.Mode')
+    Assert-WinSecReviewIntegration ($script:reads -eq 1 -and $null -eq $public.ConfigurationAssessment -and $public.Findings.Count -eq 4 -and
+        $rules.Count -eq 4 -and (($rules.Value|Sort-Object) -join ',') -ceq 'AUDIT,BLOCK,DISABLED,WARN' -and
+        (Get-WinSecPublicHistoryJson $r) -notmatch 'PRIVATE-REVIEW-INTEGRATION|ExclusionPath|"Evidence"' -and
+        (Get-WinSecPublicHistoryJson $public) -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"')
+    $expected=@{
+        '56a863a9-875e-4185-98a7-b882c64b5ce5'=@('BLOCK','1');'9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2'=@('AUDIT','2');
+        'e6db77e5-3df2-4cf1-b95a-636979351e5b'=@('WARN','6');'d4f940ab-401b-4efc-aadc-ad5f3c50688a'=@('DISABLED','0')}
+    foreach($id in $expected.Keys) {
+        $mode=@($r.Rows|Where-Object SettingId -CEQ ('AttackSurfaceReduction.Rules.'+$id+'.Mode'))
+        $code=@($r.Rows|Where-Object SettingId -CEQ ('AttackSurfaceReduction.Rules.'+$id+'.RawAction'))
+        Assert-WinSecReviewIntegration ($mode.Count -eq 1 -and $code.Count -eq 1 -and $mode[0].Value -ceq $expected[$id][0] -and $code[0].Value -ceq $expected[$id][1])
     }
-    $state.ControlIndex=1
-    $other=Get-WinSecCLIActiveAssessment $state $ctx
-    Assert-WinSecReviewIntegration (@($other.ReviewItems).Count -eq 0)
-    $state.ControlIndex=0
+}
+Test-WinSecReviewIntegration 'Canonical history roundtrip preserves its original session; saved technical readings remain independently readable' {
+    $session=(@($ctx.ScanCoordinator.Sessions.Values)[0]).Session;$record=New-WinSecPublicHistoryRecord $session
+    $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
+    Assert-WinSecReviewIntegration ((Get-WinSecPublicHistoryJson $restored.PublicResult) -ceq (Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)) -and $script:reads -eq 1)
+    $ctx.PublicScans[$key]=Copy-WinSecResultData $restored.PublicResult
+    # Force F through the saved artifact reader rather than its in-memory cache.
+    $ctx.ScanCoordinator.TechnicalSnapshots.Clear()
+}
+Test-WinSecReviewIntegration 'Findings displays only warnings, retaining ASR context and real navigation counts' {
+    $a=Open-WinSecFrameworkMemoryView $state $ctx
+    $count=Get-WinSecCLINavigationCounts $state $ctx;Show-WinSecCLICurrentScreen $state $ctx
+    Assert-WinSecReviewIntegration ($a.Rows.Count -eq 8 -and $count.FindingCount -eq $a.Rows.Count -and $a.UnknownReadingCount -gt 0 -and
+        ($script:lines -join '|').Contains('WARNING') -and ($script:lines -join '|') -notmatch 'CONFIGURATION %|/100' -and $script:reads -eq 1)
+    $state.ControlIndex=1;$other=Open-WinSecFrameworkMemoryView $state $ctx
+    Assert-WinSecReviewIntegration ($other.Rows.Count -eq 0 -and $other.Sources.Count -eq 0)
+    $state.ControlIndex=0;$null=Open-WinSecFrameworkMemoryView $state $ctx
 }
 foreach($framework in @('cis-controls','nist-csf','mitre-attack')) {
-    Test-WinSecReviewIntegration ('Markdown re-exports only public inventory and the existing approved finding: '+$framework) {
-        $selection=Get-WinSecCLIFindingsExportSelection $state $ctx
-        $report=New-WinSecFindingsMarkdown $selection -FrameworkId $framework
-        Assert-WinSecReviewIntegration ($report.Markdown.Contains('Defender observations') -and $report.Markdown.Contains('BLOCK') -and
-            $report.Markdown.Contains('9e6c4e1f') -and $report.Markdown.Contains('excluded from scoring') -and
-            $report.Markdown.Contains('50/100') -and $report.Markdown.Contains('Configuration checks') -and $report.Markdown.Contains('Framework-oriented manual guidance:') -and
-            $report.Markdown.Contains('Operating system (recorded criteria): Windows 11 10\.0\.26100 / SKU:48') -and
-            $report.Markdown.Contains('Build (recorded criteria): 26100') -and -not $report.Markdown.Contains('Current local OS') -and
-            $report.Markdown -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"' -and $script:reads -eq 1)
-        $markdownLines=@($report.Markdown -split '\r?\n')
-        Assert-WinSecReviewIntegration ($report.Markdown.Contains('| ID | Control | Configuration | State | Configuration % | Referenced framework control | Applicability |'))
-        $active=Get-WinSecCLIActiveAssessment $state $ctx
-        $view=Get-WinSecSelectedFindings $state -ControlResults $active.ControlResults -Findings $active.Findings -ScanId $active.ScanId -ReviewItems $active.ReviewItems -ConfigurationAssessment $active.ConfigurationAssessment
-        for($i=0;$i -lt $view.CheckRows.Count;$i++) {
-            $row=$view.Rows[$i]
-            $values=@($row.DisplayId,$row.ControlCode,$row.Finding,$row.ConfigurationState,$row.ConfigurationPercent)
-            $prefix='| '+((@($values|ForEach-Object {ConvertTo-WinSecMarkdownText $_})) -join ' | ')+' |'
-            Assert-WinSecReviewIntegration ($report.Markdown.Contains($prefix))
+    Test-WinSecReviewIntegration ('Markdown exports exactly the frozen warning rows and table boundaries: '+$framework) {
+        $a=Open-WinSecFrameworkMemoryView $state $ctx $framework;$frozen=Get-WinSecPublicHistoryJson $a
+        $null=Invoke-WinSecCLIFindingsExport $state $ctx;$e=$script:frameworkExports[$script:frameworkExports.Count-1];$text=$e.Markdown
+        Assert-WinSecReviewIntegration ($e.Analysis.AnalysisId -ceq $a.AnalysisId -and $e.Analysis.FrameworkId -ceq $framework -and
+            (Get-WinSecPublicHistoryJson $e.Analysis.Rows) -ceq (Get-WinSecPublicHistoryJson $a.Rows) -and
+            $text.Contains('## Source scans') -and $text.Contains('## Coverage') -and $text.Contains('Manual recommendation:') -and
+            $text -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"|/100|Configuration %' -and
+            $script:reads -eq 1 -and $frozen -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings))
+        foreach($row in $a.Rows) {
+            $values=@($row.Id,($row.CheckId+' / '+$row.CriterionId),$row.Title,$row.State,$row.Observed)
+            $prefix='| '+((@($values|ForEach-Object {ConvertTo-WinSecTechnicalCell $_})) -join ' | ')+' |'
+            Assert-WinSecReviewIntegration ($text.Contains($prefix) -and $row.References.Count -gt 0)
         }
-        for($i=0;$i -lt $markdownLines.Count;$i++) {
-            if(-not $markdownLines[$i].StartsWith('|')){continue}
-            if($i -eq 0 -or -not $markdownLines[$i-1].StartsWith('|')) {
-                Assert-WinSecReviewIntegration ($i -gt 0 -and [string]::IsNullOrWhiteSpace($markdownLines[$i-1]))
-            }
-            if($i+1 -eq $markdownLines.Count -or -not $markdownLines[$i+1].StartsWith('|')) {
-                Assert-WinSecReviewIntegration ($i+1 -lt $markdownLines.Count -and [string]::IsNullOrWhiteSpace($markdownLines[$i+1]))
-            }
+        $lines=@($text -split '\r?\n')
+        for($i=0;$i -lt $lines.Count;$i++) {
+            if(-not $lines[$i].StartsWith('|')){continue}
+            if($i -eq 0 -or -not $lines[$i-1].StartsWith('|')){Assert-WinSecReviewIntegration ($i -gt 0 -and [string]::IsNullOrWhiteSpace($lines[$i-1]))}
+            if($i+1 -eq $lines.Count -or -not $lines[$i+1].StartsWith('|')){Assert-WinSecReviewIntegration ($i+1 -lt $lines.Count -and [string]::IsNullOrWhiteSpace($lines[$i+1]))}
         }
-        # The built-in PS7 Markdown renderer verifies actual table structure.
-        # PS5.1 exercises the same table boundaries without an extra dependency.
         if($null -ne (Get-Command ConvertFrom-Markdown -CommandType Cmdlet -ErrorAction SilentlyContinue)) {
-            $html=(ConvertFrom-Markdown -InputObject $report.Markdown).Html
-            $tables=[regex]::Matches($html,'<table>[\s\S]*?</table>')
-            Assert-WinSecReviewIntegration ($tables.Count -eq 3 -and
-                [regex]::Matches($tables[0].Value,'<tr>').Count -eq 9 -and
-                -not $tables[0].Value.Contains('Percentages describe'))
+            $html=(ConvertFrom-Markdown -InputObject $text).Html;$tables=[regex]::Matches($html,'<table>[\s\S]*?</table>')
+            Assert-WinSecReviewIntegration ($tables.Count -eq 2 -and [regex]::Matches($tables[1].Value,'<tr>').Count -eq ($a.Rows.Count+1))
         }
     }
 }
 foreach($size in @(@(80,26),@(40,20),@(16,5))) {
-    Test-WinSecReviewIntegration ('Review rows and the last ASR item fit terminal '+($size -join 'x')) {
-        $script:terminal=[pscustomobject]@{Width=$size[0];ContentWidth=($size[0]-1);Height=$size[1]};$state.FindingsOffset=8
-        Show-WinSecCLICurrentScreen $state $ctx
+    Test-WinSecReviewIntegration ('Frozen Findings and last warning fit terminal '+($size -join 'x')) {
+        $script:terminal=[pscustomobject]@{Width=$size[0];ContentWidth=($size[0]-1);Height=$size[1]};$state.FindingsOffset=7
+        $before=Get-WinSecPublicHistoryJson $ctx.FrameworkFindings;Show-WinSecCLICurrentScreen $state $ctx
         Assert-WinSecReviewIntegration (@($script:lines|Where-Object {$_.Length -gt $size[0]}).Count -eq 0 -and
-            $state.FindingsOffset -eq 8 -and $script:reads -eq 1)
+            $state.FindingsOffset -eq 7 -and $script:reads -eq 1 -and $before -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings))
     }
 }
 foreach($fault in @('Device','Scan','Scope','Raw','Duplicate')) {
-    Test-WinSecReviewIntegration ('Export rejects a forged observation before publishing Markdown: '+$fault) {
-        $selection=Get-WinSecCLIFindingsExportSelection $state $ctx
-        switch($fault){Device {$selection.ReviewItems[0].DeviceId='local:another'};Scan {$selection.ReviewItems[0].ScanId='another'};
-            Scope {$selection.ScopeKey='WSA-SYS-002'};Raw {$selection.ReviewItems[0].DefenderSetting|Add-Member RawAction 'PRIVATE'};
-            Duplicate {$selection.ReviewItems+=Copy-WinSecResultData $selection.ReviewItems[0]}}
-        $caught=$false;try{$null=New-WinSecFindingsMarkdown $selection -FrameworkId nist-csf}catch{$caught=$true}
-        Assert-WinSecReviewIntegration ($caught -and $script:reads -eq 1)
+    Test-WinSecReviewIntegration ('Export rejects forged frozen observations before publication: '+$fault) {
+        $bad=Copy-WinSecResultData $ctx.FrameworkFindings
+        switch($fault){Device {$bad.DeviceId='local:other'};Scan {$bad.Rows[0].ScanId='another'};Scope {$bad.ScopeKey='WSA-SYS-002'};
+            Raw {$bad.Rows[0]|Add-Member RawAction PRIVATE};Duplicate {$bad.Rows+=Copy-WinSecResultData $bad.Rows[0]}}
+        $bad.ContentSha256=Get-WinSecFrameworkAnalysisDigest $bad
+        $count=$script:frameworkExports.Count
+        $saved=$ctx.FrameworkFindings;$ctx.FrameworkFindings=$bad
+        try{Assert-WinSecReviewRejected {Invoke-WinSecCLIFindingsExport $state $ctx}}
+        finally{$ctx.FrameworkFindings=$saved}
+        Assert-WinSecReviewIntegration ($count -eq $script:frameworkExports.Count -and $script:reads -eq 1)
     }
 }
-Test-WinSecReviewIntegration 'Cancelling a fresh operation cannot collect or publish new review observations' {
-    $cancelled=New-WinSecScanCoordinator;$cancelled.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
-    $result=Invoke-WinSecCoordinatedScan -Coordinator $cancelled -DeviceId $target.DeviceId -ScanId 'review-cancelled' `
-        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -ConfirmAction {$false}
-    Assert-WinSecReviewIntegration ($null -eq $result -and $cancelled.Sessions.Count -eq 0 -and $script:reads -eq 1)
+Test-WinSecReviewIntegration 'Cancelling a fresh scan cannot collect or publish any new observations' {
+    $cancelled=New-WinSecReviewContext review-cancelled -ConfirmAction {$false}
+    Assert-WinSecReviewIntegration ($cancelled.PublicScans.Count -eq 0 -and $cancelled.ScanCoordinator.Sessions.Count -eq 0 -and $script:reads -eq 1)
 }
-Test-WinSecReviewIntegration 'A scan with no approved deviations can export observations without inventing a failed control' {
-    $script:realtime=$true;$script:additionalHealthy=$true
-    $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)};$fresh.AssessmentEnabled=$true
-    $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId 'review-only-export' `
-        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-    $sessionKey='{0}:{1}{2}:{3}' -f $p.DeviceId.Length,$p.DeviceId,$p.ScanId.Length,$p.ScanId
-    $freshCtx=[pscustomobject]@{ProjectRoot=$root;PublicScans=@{$sessionKey=$p};ActiveScanByDevice=@{};
-        ActiveScanByScope=@{(Get-WinSecCLIScopeKey $p.DeviceId CONTROL WSA-SYS-001)=$p.ScanId}}
-    $selection=Get-WinSecCLIFindingsExportSelection $state $freshCtx
-    $report=New-WinSecFindingsMarkdown $selection -FrameworkId nist-csf
-    Assert-WinSecReviewIntegration ($p.Findings.Count -eq 0 -and $selection.Findings.Count -eq 0 -and $selection.ReviewItems.Count -eq 8 -and
-        $p.ConfigurationAssessment.Controls[0].Value -eq 100 -and $report.Markdown.Contains('No verified configuration deviations') -and
-        $report.Markdown.Contains('Defender observations') -and $report.Markdown.Contains('Configuration checks') -and
-        $report.Markdown -notmatch 'Criteria: PENDING_APPROVED_CRITERIA' -and $script:reads -eq 2)
+Test-WinSecReviewIntegration 'A healthy scan exports zero warnings while technical observations and limited coverage remain accessible' {
+    $script:realtime=$true;$script:additionalHealthy=$true;$fresh=New-WinSecReviewContext review-only-export;$s=New-WinSecReviewState $fresh
+    $a=Open-WinSecFrameworkMemoryView $s $fresh;$null=Invoke-WinSecCLIFindingsExport $s $fresh
+    Assert-WinSecReviewIntegration ($a.Rows.Count -eq 0 -and $a.ReadingCount -gt 80 -and $a.UnknownReadingCount -gt 0 -and
+        $script:frameworkExports[$script:frameworkExports.Count-1].Markdown.Contains('No warnings does not prove full framework coverage') -and $script:reads -eq 2)
 }
 foreach($fault in @('Device','Scan','Raw','Duplicate')) {
-    Test-WinSecReviewIntegration ('CLI refuses a forged cached observation before drawing: '+$fault) {
-        $bad=[pscustomobject]@{PublicScans=(Copy-WinSecResultData $ctx.PublicScans);ActiveScanByDevice=@{};
-            ActiveScanByScope=(Copy-WinSecResultData $ctx.ActiveScanByScope);Version='0.9.0'}
-        $item=$bad.PublicScans[$key].ReviewItems[0]
-        switch($fault){Device {$item.DeviceId='local:other'};Scan {$item.ScanId='other'};
-            Raw {$item.DefenderSetting|Add-Member RawEvidence 'PRIVATE'};Duplicate {$bad.PublicScans[$key].ReviewItems+=Copy-WinSecResultData $item}}
-        $before=$script:lines -join '|';$reads=$script:reads;$caught=$false
-        try{Show-WinSecCLICurrentScreen $state $bad}catch{$caught=$true}
-        Assert-WinSecReviewIntegration ($caught -and $before -ceq ($script:lines -join '|') -and $script:reads -eq $reads)
+    Test-WinSecReviewIntegration ('F refuses forged cached public observations before replacing the frozen view: '+$fault) {
+        $bad=Copy-WinSecResultData $ctx.PublicScans[$key];$saved=$ctx.PublicScans[$key]
+        switch($fault){Device {$bad.ControlResults[0].DeviceId='local:other'};Scan {$bad.ControlResults[0].ScanId='other'};
+            Raw {$bad.ControlResults[0]|Add-Member RawEvidence PRIVATE};Duplicate {$bad.ControlResults+=Copy-WinSecResultData $bad.ControlResults[0]}}
+        $ctx.PublicScans[$key]=$bad;$before=$script:lines -join '|';$reads=$script:reads;$view=Get-WinSecPublicHistoryJson $ctx.FrameworkFindings
+        try{Assert-WinSecReviewRejected {Open-WinSecFrameworkMemoryView $state $ctx}}
+        finally{$ctx.PublicScans[$key]=$saved}
+        Assert-WinSecReviewIntegration ($before -ceq ($script:lines -join '|') -and $script:reads -eq $reads -and $view -ceq (Get-WinSecPublicHistoryJson $ctx.FrameworkFindings))
     }
 }
 foreach($spec in @(@{Topic='PUA';Id='WSA-DEF-ADD-001'},@{Topic='CLOUD';Id='WSA-DEF-ADD-002'},
     @{Topic='TAMPER';Id='WSA-DEF-ADD-003'},@{Topic='ASR';Id='WSA-DEF-ADD-004'})) {
-    Test-WinSecReviewIntegration ('Each new group contributes independently to the score and framework guidance: '+$spec.Topic) {
+    Test-WinSecReviewIntegration ('Each added protection contributes independently to qualitative findings and framework guidance: '+$spec.Topic) {
         $script:badCriterion=$spec.Topic;$script:realtime=$true;$script:additionalHealthy=$true
-        $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)};$fresh.AssessmentEnabled=$true
-        $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId ('score-'+$spec.Topic) `
-            -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-        Assert-WinSecReviewIntegration ($p.ConfigurationAssessment.Controls[0].Value -eq 87.5 -and $p.Findings.Count -eq 1 -and
-            $p.Findings[0].Guidance.CriterionId -ceq $spec.Id)
-        $sessionKey='{0}:{1}{2}:{3}' -f $p.DeviceId.Length,$p.DeviceId,$p.ScanId.Length,$p.ScanId
-        $exportContext=[pscustomobject]@{ProjectRoot=$root;PublicScans=@{$sessionKey=$p};ActiveScanByDevice=@{};
-            ActiveScanByScope=@{(Get-WinSecCLIScopeKey $p.DeviceId CONTROL WSA-SYS-001)=$p.ScanId}}
-        $selection=Get-WinSecCLIFindingsExportSelection $state $exportContext
+        $fresh=New-WinSecReviewContext ('protection-'+$spec.Topic);$s=New-WinSecReviewState $fresh
         foreach($fw in @('cis-controls','nist-csf','mitre-attack')) {
-            $report=New-WinSecFindingsMarkdown $selection -FrameworkId $fw
+            $a=Open-WinSecFrameworkMemoryView $s $fresh $fw;$null=Invoke-WinSecCLIFindingsExport $s $fresh
+            $expectedCount=if($spec.Topic -ceq 'ASR'){2}else{1}
+            Assert-WinSecReviewIntegration ($a.Rows.Count -eq $expectedCount -and @($a.Rows|Where-Object CriterionId -CEQ $spec.Id).Count -eq 1 -and
+                @($a.Rows|Where-Object {$_.CriterionId -cnotin @($spec.Id,'WSA-DEF-BASE-001')}).Count -eq 0)
             if($spec.Topic -ceq 'ASR') {
-                $expectedReference=switch($fw){'cis-controls' {'10.5'};'nist-csf' {'PR.PS-05'};'mitre-attack' {'T1068'}}
-                if(-not $report.Markdown.Contains('reference: '+(ConvertTo-WinSecMarkdownText $expectedReference))){throw ('Missing ASR mapping: '+$fw)}
+                $expected=switch($fw){cis-controls {'10.5'};nist-csf {'PR.PS-05'};mitre-attack {'T1068'}}
+                Assert-WinSecReviewIntegration (@($a.Rows|Where-Object CriterionId -CEQ $spec.Id)[0].References.ReferenceId -ccontains $expected)
             }
-            Assert-WinSecReviewIntegration ($report.Markdown.Contains('87.5/100') -and $report.Markdown.Contains('Framework-oriented manual guidance:') -and
-                $report.Markdown.Contains('Configuration checks') -and $report.Markdown.Contains('PASS') -and $report.Markdown.Contains('FAIL'))
+            Assert-WinSecReviewIntegration ($script:frameworkExports[$script:frameworkExports.Count-1].Markdown -notmatch '/100|CONFIGURATION %')
         }
         $script:badCriterion=''
     }
 }
-Test-WinSecReviewIntegration 'Missing added telemetry is UNKNOWN and never becomes a false failure or numeric score' {
+Test-WinSecReviewIntegration 'Unavailable cloud telemetry remains UNKNOWN and never becomes a false failure or score' {
     $script:badCriterion='UNKNOWN_CLOUD';$script:realtime=$true;$script:additionalHealthy=$true
-    $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)};$fresh.AssessmentEnabled=$true
-    $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId 'unknown-added-criterion' `
-        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-    $control=$p.ConfigurationAssessment.Controls[0]
-    Assert-WinSecReviewIntegration ($null -eq $control.Value -and $control.Coverage -eq 87.5 -and
-        @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-002' -and $_.Status -ceq 'UNKNOWN'}).Count -eq 1 -and
-        @($p.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0)
+    $fresh=New-WinSecReviewContext unknown-added-criterion;$s=New-WinSecReviewState $fresh;$a=Open-WinSecFrameworkMemoryView $s $fresh
+    $r=Read-WinSecTechnicalReport $root $s.SelectedDeviceId unknown-added-criterion WSA-SYS-001
+    Assert-WinSecReviewIntegration ($a.Rows.Count -eq 0 -and $a.UnknownReadingCount -gt 0 -and
+        @($r.Rows|Where-Object {$_.SettingId -ceq 'ConfigurationModes.Cloud' -and $_.State -ceq 'UNKNOWN'}).Count -eq 1)
     $script:badCriterion=''
 }
-Test-WinSecReviewIntegration 'Present null ASR preferences score as not configured and survive public history, UI and export' {
-    $script:asrShape='NULL_PAIR';$script:realtime=$true;$script:additionalHealthy=$true
-    $original=Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]
+Test-WinSecReviewIntegration 'Present null ASR pair is explicitly not configured and survives history, Findings and all exports' {
+    $script:asrShape='NULL_PAIR';$script:realtime=$true;$script:additionalHealthy=$true;$original=Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]
     try {
-        $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
-        $fresh.AssessmentEnabled=$true;$fresh.PublicHistoryEnabled=$false
-        $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId 'null-asr-pair' `
-            -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-        $control=$p.ConfigurationAssessment.Controls[0]
-        Assert-WinSecReviewIntegration ($control.Value -eq 87.5 -and $control.Coverage -eq 100 -and
-            @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-004' -and $_.Status -ceq 'FAIL'}).Count -eq 1 -and
-            $p.Findings.Count -eq 1 -and $p.Findings[0].Guidance.CriterionId -ceq 'WSA-DEF-ADD-004')
-        $inventory=@($p.ReviewItems|Where-Object {$_.DefenderSetting.Topic -ceq 'ASR'})
-        Assert-WinSecReviewIntegration ($inventory.Count -eq 1 -and $inventory[0].DefenderSetting.SettingId -ceq 'INVENTORY' -and
-            $inventory[0].DefenderSetting.InventoryState -ceq 'COMPLETE')
-        $session=($fresh.Sessions.Values|Select-Object -First 1).Session
-        $record=New-WinSecPublicHistoryRecord $session
-        $restored=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
-        # Storage-operation counters returned by the coordinator are not historical fields.
-        $expected=ConvertTo-WinSecPublicScanResult $session
-        Assert-WinSecReviewIntegration ((Get-WinSecPublicHistoryJson $restored.PublicResult) -ceq (Get-WinSecPublicHistoryJson $expected) -and
-            (Get-WinSecPublicHistoryJson $restored.PublicResult.ConfigurationAssessment) -ceq (Get-WinSecPublicHistoryJson $p.ConfigurationAssessment))
-        $sessionKey='{0}:{1}{2}:{3}' -f $p.DeviceId.Length,$p.DeviceId,$p.ScanId.Length,$p.ScanId
-        $exportContext=[pscustomobject]@{ProjectRoot=$root;PublicScans=@{$sessionKey=$restored.PublicResult};ActiveScanByDevice=@{};
-            ActiveScanByScope=@{(Get-WinSecCLIScopeKey $p.DeviceId CONTROL WSA-SYS-001)=$p.ScanId}}
-        $before=$script:reads
-        $active=Get-WinSecCLIActiveAssessment $state $exportContext
-        $rows=@(Get-WinSecResultsControlRows -SectionKey SystemSecurity -NavigationState $state `
-            -ControlResults $active.ControlResults -ConfigurationAssessment $active.ConfigurationAssessment)
-        Assert-WinSecReviewIntegration (@($rows|Where-Object {$_.CheckId -ceq 'WSA-SYS-001' -and $_.Score -eq '87.5/100'}).Count -eq 1)
-        $selection=Get-WinSecCLIFindingsExportSelection $state $exportContext
+        $fresh=New-WinSecReviewContext null-asr-pair;$s=New-WinSecReviewState $fresh
+        $session=(@($fresh.ScanCoordinator.Sessions.Values)[0]).Session;$record=New-WinSecPublicHistoryRecord $session
+        $saved=ConvertFrom-WinSecPublicHistoryRecord (ConvertFrom-WinSecStoredJson (Get-WinSecPublicHistoryJson $record))
+        Assert-WinSecReviewIntegration ((Get-WinSecPublicHistoryJson $saved.PublicResult) -ceq (Get-WinSecPublicHistoryJson (ConvertTo-WinSecPublicScanResult $session)))
+        $r=Read-WinSecTechnicalReport $root $s.SelectedDeviceId null-asr-pair WSA-SYS-001
+        Assert-WinSecReviewIntegration (@($r.Rows|Where-Object {$_.SettingId -ceq 'AttackSurfaceReduction.Complete' -and $_.Value -ceq $true}).Count -eq 1 -and
+            @($r.Rows|Where-Object {$_.SettingId -ceq 'ConfigurationModes.AsrVulnerableDriver' -and $_.Value -ceq 'NOT_CONFIGURED'}).Count -eq 1)
         foreach($fw in @('cis-controls','nist-csf','mitre-attack')) {
-            $report=New-WinSecFindingsMarkdown $selection -FrameworkId $fw
-            Assert-WinSecReviewIntegration ($report.Markdown.Contains('87.5/100') -and
-                $report.Markdown.Contains((ConvertTo-WinSecMarkdownText 'WSA-DEF-ADD-004')) -and
-                $report.Markdown.Contains('Framework-oriented manual guidance:') -and
-                $report.Markdown -notmatch 'PRIVATE-REVIEW-INTEGRATION|RawAction|ExclusionPath|"Evidence"')
+            $a=Open-WinSecFrameworkMemoryView $s $fresh $fw;$null=Invoke-WinSecCLIFindingsExport $s $fresh
+            Assert-WinSecReviewIntegration ($a.Rows.Count -eq 1 -and $a.Rows[0].CriterionId -ceq 'WSA-DEF-ADD-004' -and
+                $script:frameworkExports[$script:frameworkExports.Count-1].Markdown -notmatch '/100|PRIVATE|RawAction|ExclusionPath')
         }
-        Assert-WinSecReviewIntegration ($script:reads -eq $before -and
-            (Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]) -ceq $original)
+        Assert-WinSecReviewIntegration ($original -ceq (Get-WinSecPublicHistoryJson $ctx.PublicScans[$key]))
     } finally {$script:asrShape='NORMAL'}
 }
 foreach($shape in @('MISSING','NULL_IDS','NULL_ACTIONS','NULL_ENTRIES')) {
-    Test-WinSecReviewIntegration ('Malformed or unavailable ASR preferences stay UNKNOWN without false findings: '+$shape) {
+    Test-WinSecReviewIntegration ('Malformed ASR telemetry stays UNKNOWN with explicit gaps and no invented deviation: '+$shape) {
         $script:asrShape=$shape;$script:realtime=$true;$script:additionalHealthy=$true
         try {
-            $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
-            $fresh.AssessmentEnabled=$true;$fresh.PublicHistoryEnabled=$false
-            $p=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId ('asr-'+$shape) `
-                -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$true}
-            $control=$p.ConfigurationAssessment.Controls[0]
-            Assert-WinSecReviewIntegration ($null -eq $control.Value -and $control.Coverage -eq 87.5 -and
-                @($p.Findings|Where-Object Kind -CEQ CONFIGURATION_DEVIATION).Count -eq 0 -and
-                @($p.Findings|Where-Object {$_.Kind -ceq 'EVIDENCE_GAP' -and $_.EvaluationStatus -ceq 'UNKNOWN'}).Count -eq 1 -and
-                @($control.Criteria|Where-Object {$_.CriterionId -ceq 'WSA-DEF-ADD-004' -and $_.Status -ceq 'UNKNOWN'}).Count -eq 1)
+            $fresh=New-WinSecReviewContext ('asr-'+$shape);$s=New-WinSecReviewState $fresh;$a=Open-WinSecFrameworkMemoryView $s $fresh
+            $r=Read-WinSecTechnicalReport $root $s.SelectedDeviceId ('asr-'+$shape) WSA-SYS-001
+            Assert-WinSecReviewIntegration ($a.Rows.Count -eq 0 -and $a.UnknownReadingCount -gt 0 -and
+                @($r.Rows|Where-Object {$_.SettingId -ceq 'ConfigurationModes.AsrVulnerableDriver' -and $_.State -ceq 'UNKNOWN'}).Count -eq 1)
         } finally {$script:asrShape='NORMAL'}
     }
 }
@@ -288,14 +242,11 @@ function Get-FileHash {
     if($script:changedRevision -and $LiteralPath -like '*defender-additional.json'){return [pscustomobject]@{Hash=('F'*64)}}
     Microsoft.PowerShell.Utility\Get-FileHash @PSBoundParameters
 }
-Test-WinSecReviewIntegration 'Changing the approved additional catalog during confirmation aborts before any collection' {
+Test-WinSecReviewIntegration 'Changing the approved additional catalog during confirmation aborts before collection' {
     $before=$script:reads;$script:changedRevision=$false
-    $fresh=New-WinSecScanCoordinator;$fresh.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)};$fresh.AssessmentEnabled=$true
-    $caught=$false
-    try{$null=Invoke-WinSecCoordinatedScan -Coordinator $fresh -DeviceId $target.DeviceId -ScanId 'revision-race' `
-        -ScopeType CONTROL -ScopeKey WSA-SYS-001 -AssessmentProfile WSA-W11-24H2-PRO-DEF-BASE -ConfirmAction {$script:changedRevision=$true;return $true}}
-    catch{$caught=$true}finally{$script:changedRevision=$false}
-    Assert-WinSecReviewIntegration ($caught -and $script:reads -eq $before -and $fresh.Sessions.Count -eq 0)
+    try{Assert-WinSecReviewRejected {New-WinSecReviewContext revision-race -ConfirmAction {$script:changedRevision=$true;return $true}}}
+    finally{$script:changedRevision=$false}
+    Assert-WinSecReviewIntegration ($script:reads -eq $before)
 }
 [Console]::WriteLine(('Defender review integration: {0} passed, {1} failed.' -f $script:passed,$script:failed))
 if($script:failed){throw 'Defender review integration failed.'}

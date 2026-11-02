@@ -149,6 +149,11 @@ function Get-WinSecDeviceRemovalPlan {
             }
         }
     }
+    if($DeviceId -cmatch '\Alocal:hw1-[a-f0-9]{64}\z' -and (Get-Command Get-WinSecTransitionDeviceFiles -ErrorAction SilentlyContinue)){
+        $newStorage=Get-WinSecTransitionDeviceFiles $ProjectRoot $DeviceId $owner
+        foreach($file in $newStorage.Files){$files.Add($file)}
+        foreach($directory in $newStorage.Directories){$directories.Add($directory)}
+    }
     $local = New-WinSecLocalTarget
     $request = [pscustomobject]@{
         Operation='DELETE_DEVICE'; DeviceId=$DeviceId; Hostname=[string]$owner.Hostname
@@ -207,7 +212,10 @@ function Remove-WinSecManagedDevice {
         foreach ($file in $plan.Files) {
             Assert-WinSecDeviceRemovalPath -ProjectRoot $ProjectRoot -Path $file.Path
             if ((Get-FileHash -LiteralPath $file.Path -Algorithm SHA256 -ErrorAction Stop).Hash -cne $file.Hash) { throw 'Device history changed during deletion.' }
-            [IO.File]::Delete($file.Path)
+            $full=[IO.Path]::GetFullPath($file.Path);$newScanRoot=Join-Path $ProjectRoot 'scans';$newReportRoot=Join-Path $ProjectRoot ('reports/'+(Get-WinSecEvidenceHash $plan.DeviceId))
+            if($full.StartsWith($newScanRoot+'\',[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($newReportRoot+'\',[StringComparison]::OrdinalIgnoreCase)){
+                Remove-WinSecVerifiedTransitionFile $ProjectRoot $full $file.Hash
+            }else{[IO.File]::Delete($file.Path)}
             if ([IO.File]::Exists($file.Path)) { throw 'History file deletion failed.' }
         }
         foreach ($directory in @($plan.Directories | Sort-Object Length -Descending)) {
@@ -247,6 +255,8 @@ function Remove-WinSecManagedDevice {
                     }
                 }
                 $receipt=Get-WinSecTargetField $Coordinator LastTechnicalReports
+                $locations=Get-WinSecTargetField $Coordinator TechnicalLocations
+                if($locations -is [hashtable]){foreach($locationKey in @($locations.Keys)){if($locations[$locationKey].Identity.DeviceId -ceq $plan.DeviceId){$locations.Remove($locationKey)}}}
                 if($null -ne $receipt -and [string]::Equals([string]$receipt.DeviceId,$plan.DeviceId,[StringComparison]::OrdinalIgnoreCase)) {
                     $Coordinator.LastTechnicalReports=$null
                 }

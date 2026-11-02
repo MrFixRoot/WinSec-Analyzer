@@ -282,9 +282,9 @@
       "description": "Assess local administrative group membership against an approved baseline.",
       "order": 1,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Accounts/Test-LocalAdmins.ps1",
         "function": "Test-WinSecLocalAdmins"
@@ -308,9 +308,9 @@
       "description": "Assess the built-in Windows Guest account configuration.",
       "order": 2,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Accounts/Test-GuestAccount.ps1",
         "function": "Test-WinSecGuestAccount"
@@ -334,9 +334,9 @@
       "description": "Assess applicable Windows password policy settings.",
       "order": 3,
       "visible": true,
-      "implementationStatus": "PENDING_VALIDATION",
+      "implementationStatus": "VALIDATED",
       "execution": {
-        "enabled": false,
+        "enabled": true,
         "type": "PowerShell",
         "script": "src/Checks/Policies/Test-PasswordPolicy.ps1",
         "function": "Test-WinSecPasswordPolicy"

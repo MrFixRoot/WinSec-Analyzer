@@ -87,6 +87,7 @@ foreach ($path in @($cliPath, $coordinatorPath)) {
 . $cliPath
 . (Join-Path $projectRoot 'src/UI/Screens/MainMenu.ps1')
 . $coordinatorPath
+. (Join-Path $PSScriptRoot '../Fixtures/LocalIdentity.ps1')
 
 # ------------------------------------------------------------
 # INITIALIZE REAL COORDINATOR

@@ -44,6 +44,10 @@ logs/*
 /data/scans/*
 !/data/scans/.gitkeep
 
+# Future technical snapshots: keep contents local, allow only the folder placeholder.
+/scans/*
+!/scans/.gitkeep
+
 # ------------------------------------------------------------
 # Temporary files
 # ------------------------------------------------------------

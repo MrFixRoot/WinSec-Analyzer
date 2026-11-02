@@ -1,4 +1,5 @@
 # Export the exact selected framework view. No new evaluation or framework prompt.
+. (Join-Path $PSScriptRoot 'FrozenFindingsStore.ps1')
 function New-WinSecFrameworkMarkdown {
     param($Analysis)
     $a=Assert-WinSecFrameworkAnalysis $Analysis $Analysis.DeviceId $Analysis.ScopeType $Analysis.ScopeKey
@@ -18,6 +19,15 @@ function New-WinSecFrameworkMarkdown {
     $lines.Add('');$lines.Add('## Coverage');$lines.Add('')
     $lines.Add('Readings reviewed: '+$a.ReadingCount+'. Unknown/unavailable: '+$a.UnknownReadingCount+'. Warnings: '+$a.Rows.Count+'.')
     $lines.Add('A reading without a reviewed warning rule is informational. No warnings does not prove full framework coverage or compliance.')
+    if($a.SchemaVersion -ceq '1.1.0'){
+        $lines.Add('');$lines.Add('### Saved reading coverage');$lines.Add('')
+        $lines.Add('Review engine: '+$a.ReadingReview.EngineVersion+'. Ledger SHA256: '+$a.ReadingReview.LedgerSha256+'.')
+        $lines.Add('');$lines.Add('| Treatment | Readings |');$lines.Add('| --- | ---: |')
+        foreach($treatment in @('EVALUATED','INFORMATIVE_NO_RULE','UNRESOLVED_RULE','UNKNOWN','ERROR','NOT_COLLECTED','NOT_CONFIGURED','NOT_APPLICABLE')){
+            $lines.Add('| '+$treatment+' | '+$a.ReadingReview.Treatments.$treatment+' |')
+        }
+        $lines.Add('');$lines.Add('LIMITED_NOT_COMPLIANCE: source completion and framework coverage are separate. Original snapshot identities and digests are preserved in the frozen analysis record.')
+    }
     if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){
         if($a.RuleCatalogVersion -ceq '1.1.0'){$lines.Add('Only Windows Firewall currently has a reviewed collector in this section. SMB and RDP remain pending; this is not a complete Network Security assessment.')}
         elseif($a.RuleCatalogVersion -ceq '1.2.0') {$lines.Add('Reviewed technical adapters: Windows Firewall and SMBv1. Only confirmed, executed controls supply readings; pending or unvalidated controls are not scanned. Remote Desktop, Open Ports and Network Configuration remain pending. This is not a complete Network Security assessment.')}
@@ -30,9 +40,13 @@ function New-WinSecFrameworkMarkdown {
     if($a.RuleCatalogVersion -ceq '1.2.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002')}
     if($a.RuleCatalogVersion -cin @('1.3.0','1.4.0') -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002','WSA-NET-003')}
     if($a.RuleCatalogVersion -ceq '1.5.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){$expected=@('WSA-NET-001','WSA-NET-002','WSA-NET-003','WSA-NET-004')}
+    if($a.RuleCatalogVersion -cne '1.7.0' -and $a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'IdentityAccess'){$expected=@()}
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){$lines.Add('Controls without a saved scan: '+($unscanned -join ', ')+'. Run a separately confirmed scan to collect them.')}
-    if($a.MissingTechnicalCheckIds.Count){$lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only recorded, verified deviations could be reviewed for these controls.')}
+    if($a.MissingTechnicalCheckIds.Count){
+        $limit=if($a.SchemaVersion -ceq '1.1.0'){'. No new warnings were evaluated for these controls.'}else{'. Only recorded, verified deviations could be reviewed for these controls.'}
+        $lines.Add('Detailed snapshots not available: '+($a.MissingTechnicalCheckIds -join ', ')+$limit)
+    }
     $lines.Add('');$lines.Add('## Findings');$lines.Add('')
     $lines.Add('| ID | Control / criterion | Configuration warning | State | Observed | Framework reference |');$lines.Add('| --- | --- | --- | --- | --- | --- |')
     foreach($row in $a.Rows) {
@@ -52,7 +66,7 @@ function New-WinSecFrameworkMarkdown {
             $lines.Add('  Source: ['+(ConvertTo-WinSecTechnicalCell $ref.ReferenceId)+']('+$ref.Url+')')
         }
     }
-    $lines.Add('');$lines.Add('## Analysis record');$lines.Add('');$lines.Add('```json');$lines.Add((Get-WinSecPublicHistoryJson $a));$lines.Add('```');$lines.Add('')
+    $lines.Add('');$lines.Add('## Analysis record');$lines.Add('');$lines.Add('```json');$lines.Add((Get-WinSecFrameworkAnalysisJson $a -Serialization (Get-WinSecFrameworkAnalysisSerialization $a)));$lines.Add('```');$lines.Add('')
     $lines -join "`n"
 }
 
@@ -61,6 +75,7 @@ function ConvertFrom-WinSecFrameworkMarkdownArtifact {
     if([Text.Encoding]::UTF8.GetByteCount($Text) -gt 1048576 -or $Text -match '[\x00-\x09\x0b-\x1f\x7f]' -or
         $Text -cnotmatch '\A<!-- WinSec framework findings\n([^\r\n]+)\n-->\n([\s\S]*)\z'){throw 'Unrecognized framework report.'}
     $meta=ConvertFrom-WinSecStoredJson $Matches[1];$body=$Matches[2]
+    if($meta.SchemaVersion -ceq '2.0.0'){return (ConvertFrom-WinSecFrozenFindingsArtifact $Text $DeviceId).Metadata}
     Assert-WinSecConfigurationFields $meta @('SchemaVersion','DeviceId','AnalysisId','FrameworkId','ContentSha256')
     if($meta.SchemaVersion -cne '1.0.0' -or $meta.DeviceId -isnot [string] -or $meta.DeviceId -cne $DeviceId -or
         $meta.ContentSha256 -cne (Get-WinSecReportTextHash $body)){throw 'Invalid framework report ownership or digest.'}
@@ -72,28 +87,6 @@ function ConvertFrom-WinSecFrameworkMarkdownArtifact {
 }
 
 function Export-WinSecFrameworkAnalysis {
-    param([string]$ProjectRoot,[object]$Analysis)
-    $ProjectRoot=Get-WinSecReportInstallation $ProjectRoot
-    $a=Assert-WinSecFrameworkAnalysis $Analysis $Analysis.DeviceId $Analysis.ScopeType $Analysis.ScopeKey
-    $body=New-WinSecFrameworkMarkdown $a
-    $meta=@{SchemaVersion='1.0.0';DeviceId=$a.DeviceId;AnalysisId=$a.AnalysisId;FrameworkId=$a.FrameworkId;ContentSha256=(Get-WinSecReportTextHash $body)}
-    $text="<!-- WinSec framework findings`n"+(ConvertTo-Json $meta -Compress)+"`n-->`n"+$body
-    $null=ConvertFrom-WinSecFrameworkMarkdownArtifact $text $a.DeviceId
-    $directory=Join-Path $ProjectRoot ('reports/exports/'+(Get-WinSecEvidenceHash $a.DeviceId))
-    $name='findings-'+[datetime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')+'-'+[guid]::NewGuid().ToString('N')+'.md'
-    $path=Join-Path $directory $name;$temporary=Join-Path $directory ('.'+[guid]::NewGuid().ToString('N')+'.tmp')
-    if($path.Length -gt 240){throw 'Framework report path is too long.'}
-    Assert-WinSecDeviceRemovalPath $ProjectRoot $path;$null=[IO.Directory]::CreateDirectory($directory)
-    Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary;$owned=$false;$moved=$false
-    try {
-        $bytes=[Text.Encoding]::UTF8.GetBytes($text)
-        $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);$owned=$true
-        try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary
-        if((Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash -cne (Get-WinSecReportTextHash $text)){throw 'Framework write verification failed.'}
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $path;[IO.File]::Move($temporary,$path);$moved=$true
-        Assert-WinSecDeviceRemovalPath $ProjectRoot $path
-        if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne (Get-WinSecReportTextHash $text)){throw 'Framework publication verification failed.'}
-        [pscustomobject]@{DeviceId=$a.DeviceId;AnalysisId=$a.AnalysisId;Path=$path;RelativePath=('reports/exports/'+(Get-WinSecEvidenceHash $a.DeviceId)+'/'+$name)}
-    } finally {if($owned -and -not $moved){Assert-WinSecDeviceRemovalPath $ProjectRoot $temporary;if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}}
+    param([string]$ProjectRoot,[object]$Analysis,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback)
+    Export-WinSecFrozenFindingsReport -ProjectRoot $ProjectRoot -Analysis $Analysis -CancellationAction $CancellationAction -ProgressCallback $ProgressCallback
 }

@@ -37,6 +37,13 @@ function New-WorkflowUIContext {
     }
     return $ctx
 }
+Test-WorkflowUI 'Rendering control rows never rebuilds raw coordinator sessions or loads technical files' {
+    $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='Section'
+    function Get-WinSecCoordinatorPublicResult {throw 'Raw session reconstruction is forbidden during rendering.'}
+    function Read-WinSecTransitionReport {throw 'Technical file reads are forbidden during rendering.'}
+    $rows=@(Get-WinSecWorkflowControlRows $state $ctx)
+    Assert-WorkflowUI ($rows.Count -eq 3 -and @($rows|Where-Object Status -CNE COMPLETE).Count -eq 0 -and @($rows|Where-Object {$_.LastScan -eq 'Never' -or -not $_.LastScan}).Count -eq 0)
+}
 Test-WorkflowUI 'Completion and origin colors follow the new contract' {
     Assert-WorkflowUI ((Get-WinSecStatusColor PENDING) -ceq 'Red' -and (Get-WinSecStatusColor PARTIAL) -ceq 'Yellow' -and
         (Get-WinSecStatusColor COMPLETE) -ceq 'Green' -and (Get-WinSecStatusColor LIVE) -ceq 'Green' -and (Get-WinSecStatusColor RECORDS) -ceq 'DarkBlue')
@@ -95,6 +102,7 @@ Test-WorkflowUI 'Findings remain interactive and Esc restores the previous scree
     foreach($r in $reports){$source=@($sources|Where-Object CheckId -CEQ $r.CheckId)[0];$r.CompletedAtUTC=$source.CompletedAtUTC;$r.CollectedAtUTC=$source.CompletedAtUTC;$r.StartedAtUTC=$source.PublicResult.StartedAtUTC}
     $a=New-WinSecFrameworkAnalysis $root $ctx.LocalDeviceId SYNTHETIC SECTION SystemSecurity nist-csf $sources $reports
     $ctx|Add-Member FrameworkFindings $a;$ctx|Add-Member FrameworkSourcesStamp (Get-WinSecWorkflowSourceStamp $sources)
+    $ctx|Add-Member FrameworkSourcePreference LATEST_ATTEMPT
     $null=Invoke-WinSecNavigationAction $state ShowFindings -SectionCount 5
     $counts=Get-WinSecCLINavigationCounts $state $ctx
     Assert-WorkflowUI ($counts.FindingCount -eq $a.Rows.Count -and $a.Rows.Count -gt 1)
@@ -111,12 +119,53 @@ Test-WorkflowUI 'Findings remain interactive and Esc restores the previous scree
     }
     $null=Invoke-WinSecNavigationAction $state Back;Assert-WorkflowUI ($state.Screen -ceq 'MainMenu')
 }
+Test-WorkflowUI 'P handles Esc before publication without replacing the selected view or reading Windows' {
+    $ctx=New-WorkflowUIContext;$state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='MainMenu'
+    $sources=@(Get-WinSecWorkflowSources $state $ctx)
+    $a=New-WinSecFrameworkAnalysis $root $ctx.LocalDeviceId SYNTHETIC SECTION SystemSecurity nist-csf $sources
+    $ctx|Add-Member FrameworkFindings $a;$ctx|Add-Member FrameworkSourcesStamp (Get-WinSecWorkflowSourceStamp $sources)
+    $ctx|Add-Member FrameworkSourcePreference LATEST_ATTEMPT
+    $state.Screen='Findings';$state.FindingsScope='Section';$state.FindingsOffset=1
+    function Read-WinSecPendingKey {[pscustomobject]@{KeyDown=$true;ControlKeyState=0;VirtualKeyCode=27}}
+    function Show-WinSecExportFrameworkSelection {throw 'P must not prompt for a framework.'}
+    function Open-WinSecDeviceInventoryStore {throw 'Cancelled P must not open storage.'}
+    $result=Invoke-WinSecCLIFindingsExport $state $ctx -ShowProgress
+    Assert-WorkflowUI ($null -eq $result -and [object]::ReferenceEquals($a,$ctx.FrameworkFindings) -and $state.FindingsOffset -eq 1 -and
+        $state.Screen -ceq 'Findings' -and $ctx.LastExportMessage -ceq 'Export cancelled. Existing reports were preserved.')
+}
 foreach($size in @(@{W=1;H=1},@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})) {
     Test-WorkflowUI ('Progress fits the terminal without fabricated counts '+$size.W+'x'+$size.H) {
         $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=[Math]::Max(1,$size.W-1);Height=$size.H}
         Show-WinSecFrameworkProgress ([pscustomobject]@{Completed=2;Total=4})
         Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt [Math]::Max(1,$size.W-1)}).Count -eq 0 -and $script:lines.Count -lt $size.H)
         if($size.W -ge 40 -and $size.H -ge 12){Assert-WorkflowUI (($script:lines -join '|').Contains('50%'))}
+    }
+}
+foreach($size in @(@{W=40;H=12},@{W=80;H=25},@{W=120;H=55})){
+    Test-WorkflowUI ('Export progress shows publication steps and commit status '+$size.W+'x'+$size.H) {
+        $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=($size.W-1);Height=$size.H}
+        foreach($done in @(2,4)){
+            Show-WinSecFrameworkProgress ([pscustomobject]@{Activity='EXPORT';Phase='Publishing report';Completed=$done;Total=4;CanCancel=($done -lt 4)})
+            Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt ($size.W-1)}).Count -eq 0 -and $script:lines.Count -lt $size.H -and
+                ($script:lines -join '|').Contains('Publication steps: '+$done+'/4'))
+            if($done -eq 4){Assert-WorkflowUI (($script:lines -join '|').Contains('Report saved.') -and ($script:lines -join '|') -notmatch '\[Esc\] Cancel')}
+        }
+    }
+    Test-WorkflowUI ('Projected frozen Findings redraw without analysis or file reads '+$size.W+'x'+$size.H) {
+        $ctx=New-WorkflowUIContext;$f=New-WinSecFrameworkWorkflowFixture WSA-SYS-003 projected-ui
+        $p=New-WinSecProjectionSnapshot $f.Report
+        $review=New-WinSecProjectionFrameworkAnalysis $root $f.Session.DeviceId SYNTHETIC CONTROL WSA-SYS-003 nist-csf @($f.Source) @($f.Report) @($p.Snapshot)
+        $ctx|Add-Member FrameworkFindings $review.Analysis
+        $state=New-WinSecNavigationState;$state.SelectedDeviceId=$ctx.LocalDeviceId;$state.Screen='Section';$state.ControlIndex=2
+        $null=Set-WinSecNavigationScreen $state Findings;$state.FindingsScope='Control';$state.FindingsOffset=1
+        function New-WinSecProjectionFrameworkAnalysis {throw 'Redraw must not analyze.'}
+        function Read-WinSecProjectionFrameworkSource {throw 'Redraw must not read files.'}
+        function New-WinSecFrameworkAnalysis {throw 'Redraw must not evaluate rules.'}
+        $script:terminal=[pscustomobject]@{Width=$size.W;ContentWidth=($size.W-1);Height=$size.H}
+        $id=$ctx.FrameworkFindings.AnalysisId;Show-WinSecCLICurrentScreen $state $ctx
+        Assert-WorkflowUI (@($script:lines|Where-Object {$_.Length -gt ($size.W-1)}).Count -eq 0 -and $script:lines.Count -lt $size.H -and $ctx.FrameworkFindings.AnalysisId -ceq $id -and $state.FindingsOffset -eq 1)
+        if($size.W -eq 120){Assert-WorkflowUI (($script:lines -join '|').Contains('Saved fields:'))}
+        $null=Invoke-WinSecNavigationAction $state Back;Assert-WorkflowUI ($state.Screen -ceq 'Section')
     }
 }
 [Console]::WriteLine(('Framework workflow UI: {0} passed, {1} failed.' -f $script:passed,$script:failed))

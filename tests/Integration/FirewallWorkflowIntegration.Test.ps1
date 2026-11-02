@@ -4,7 +4,7 @@
 $ErrorActionPreference='Stop'
 $sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('WinSec-Firewall-'+[guid]::NewGuid().ToString('N'))))
+$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('wfw-'+[guid]::NewGuid().ToString('N').Substring(0,12))))
 $null=[IO.Directory]::CreateDirectory($sandbox)
 $savedHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-FW'
 $checksHash=(Get-FileHash -LiteralPath (Join-Path $sourceRoot 'config/checks.json')).Hash
@@ -47,17 +47,17 @@ try {
     $c=New-WinSecScanCoordinator $sandbox;$target=New-WinSecLocalTarget
     $c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
     $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
-    Test-FWIntegration 'Production registry enables only the eight individually validated controls' {
+    Test-FWIntegration 'Production registry enables only the eleven individually validated controls' {
         $registry=Get-WinSecCheckRegistry $sandbox
         $ready=@(Get-WinSecExecutableChecks -Registry $registry)
-        Assert-FWIntegration ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($registry.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6 -and $FirewallCalls.Count -eq 0)
+        Assert-FWIntegration ((($ready.CheckId|Sort-Object) -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($registry.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3 -and $FirewallCalls.Count -eq 0)
     }
     Test-FWIntegration 'Device confirmation lists all eight enabled controls and cancellation makes no queries' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId 'cancelled-device' -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($request)
             Assert-FWIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
         Assert-FWIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $PortsCalls.Count -eq 0)
@@ -135,7 +135,7 @@ try {
     $env:COMPUTERNAME=$savedHostname
     Assert-FWIntegration ((Get-FileHash -LiteralPath (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Firewall-[a-f0-9]{32}\z'){throw 'Unsafe Firewall fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awfw-[a-f0-9]{12}\z'){throw 'Unsafe Firewall fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 Write-Host ('Firewall integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Firewall integration tests failed.'}

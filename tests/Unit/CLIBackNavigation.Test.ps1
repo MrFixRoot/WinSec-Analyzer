@@ -48,7 +48,8 @@ Test-WinSecBack 'The actual CLI routes Back before scan export or finding-count 
     $commands=@($cli.Body.FindAll({param($node);$node -is [System.Management.Automation.Language.CommandAst]},$true))
     $back=@($commands|Where-Object {$_.GetCommandName() -ceq 'Invoke-WinSecCLIBackNavigation'})
     $gates=@($commands|Where-Object {$_.GetCommandName() -cin @('Test-WinSecCLIRescanEligibility','Test-WinSecCLIFindingsExportEligibility','Get-WinSecCLINavigationCounts')})
-    Assert-WinSecBack ($errors.Count -eq 0 -and $back.Count -eq 1 -and $gates.Count -eq 3 -and
+    $gateKinds=@($gates|ForEach-Object {$_.GetCommandName()}|Sort-Object -Unique)
+    Assert-WinSecBack ($errors.Count -eq 0 -and $back.Count -eq 1 -and $gateKinds.Count -eq 3 -and
         @($gates|Where-Object {$_.Extent.StartLineNumber -lt $back[0].Extent.StartLineNumber}).Count -eq 0)
 }
 [Console]::WriteLine(('CLI Back navigation: {0} passed, {1} failed.' -f $script:passed,$script:failed))

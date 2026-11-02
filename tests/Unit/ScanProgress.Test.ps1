@@ -153,5 +153,13 @@ Test-WinSecProgress 'Firewall stages advance within the control and repeated hea
     Show-WinSecScanProgress $script:display $event
     Assert-WinSecProgress (@($script:lines|Where-Object {$_.Length -gt 15}).Count -eq 0 -and $script:display.LastProgress.CompletedSteps -eq 7)
 }
+foreach($id in @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')){Test-WinSecProgress ('IAM real stages, Esc hint and resized terminal: '+$id) {
+    $event=New-WinSecProgressEvent;$event.SchemaVersion='2.0.0';$event.CheckId=$id;$event.TotalChecks=1
+    $event|Add-Member Stage 'NORMALIZING';$event|Add-Member CompletedSteps 2;$event|Add-Member TotalSteps 4
+    Show-WinSecScanProgress $script:display $event
+    Assert-WinSecProgress (($script:lines -join '|') -match '50%' -and ($script:lines -join '|') -match 'Esc: cancel identity')
+    $script:terminal=[pscustomobject]@{Width=16;ContentWidth=15;Height=5};Show-WinSecScanProgress $script:display $event
+    Assert-WinSecProgress (@($script:lines|Where-Object {$_.Length -gt 15}).Count -eq 0 -and $script:display.LastProgress.CompletedSteps -eq 2)
+}}
 Write-Host ('Scan progress: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if ($script:failed) { throw 'Scan progress unit tests failed.' }

@@ -8,8 +8,11 @@ function Show-WinSecFrameworkProgress {
     $bar=([string][char]0x2588)*$filled+([string][char]0x2591)*($barWidth-$filled)
     Clear-WinSecScreen
     $phase=if($null -ne $Progress.Phase){$Progress.Phase}else{'Comparing saved readings'}
-    $lines=@('WINSEC - FRAMEWORK REVIEW',$phase,('['+$bar+'] '+$percent+'%'),
-        ('Saved readings / sources: '+$Progress.Completed+'/'+$Progress.Total),'No Windows queries. [Esc] Cancel')
+    $export=$null -ne $Progress.PSObject.Properties['Activity'] -and $Progress.Activity -ceq 'EXPORT'
+    $title=if($export){'WINSEC - EXPORT FINDINGS'}else{'WINSEC - FRAMEWORK REVIEW'}
+    $label=if($export){'Publication steps: '}else{'Saved readings / sources: '}
+    $hint=if($export -and $Progress.CanCancel -ceq $false){'Report saved. No Windows queries.'}else{'No Windows queries. [Esc] Cancel'}
+    $lines=@($title,$phase,('['+$bar+'] '+$percent+'%'),($label+$Progress.Completed+'/'+$Progress.Total),$hint)
     foreach($line in @($lines|Select-Object -First ([Math]::Max(0,[int]$terminal.Height-1)))) {
         Write-WinSecText -Text $line.Substring(0,[Math]::Min($width,$line.Length)) -Color Cyan
     }
@@ -36,7 +39,8 @@ function Show-WinSecFrameworkFindings {
     param($State,$Context)
     $scope=Get-WinSecCLIViewScope $State
     $a=Assert-WinSecFrameworkAnalysis (Get-WinSecCLIValue $Context FrameworkFindings) $State.SelectedDeviceId $scope.ScopeType $scope.ScopeKey
-    $layout=Get-WinSecLayout -Screen Findings -ReservedRows 16
+    $reserved=if($a.SchemaVersion -ceq '1.1.0'){18}else{16}
+    $layout=Get-WinSecLayout -Screen Findings -ReservedRows $reserved
     Clear-WinSecScreen
     if($layout.IsTooSmall){Write-WinSecText -Text 'Resize the terminal. [Esc] Back' -Color Yellow;return}
     if($layout.BannerRows -gt 2) {
@@ -49,11 +53,21 @@ function Show-WinSecFrameworkFindings {
     Write-WinSecText -Text ('DEVICE: '+$a.DeviceName+' | '+$a.ScopeType+' / '+$a.ScopeKey) -Color Gray
     $coverageColor=if($a.UnknownReadingCount -gt 0){'Yellow'}else{'Gray'}
     Write-WinSecText -Text ('Readings reviewed: '+$a.ReadingCount+' | Unknown/unavailable: '+$a.UnknownReadingCount+' | Warnings: '+$a.Rows.Count) -Color $coverageColor
-    if($a.MissingTechnicalCheckIds.Count){Write-WinSecText -Text ('Detailed records unavailable: '+($a.MissingTechnicalCheckIds -join ', ')+'. Only verified historical findings are available.') -Color Yellow}
+    if($a.SchemaVersion -ceq '1.1.0'){
+        $c=$a.ReadingReview.Treatments
+        Write-WinSecText -Text ('Saved fields: '+$a.ReadingReview.ReadingCount+' | Evaluated: '+$c.EVALUATED+' | No rule: '+$c.INFORMATIVE_NO_RULE+' | Unresolved: '+($c.UNKNOWN+$c.ERROR+$c.UNRESOLVED_RULE)) -Color Yellow
+        $unobserved=@($a.ReadingReview.Sources|Where-Object ApplicabilityBasis -CNE OBSERVED_WINDOWS11_CONTEXT).Count
+        Write-WinSecText -Text ('Not collected: '+$c.NOT_COLLECTED+' | Not applicable: '+$c.NOT_APPLICABLE+' | Not configured: '+$c.NOT_CONFIGURED+' | Unresolved OS: '+$unobserved) -Color Gray
+    }
+    if($a.MissingTechnicalCheckIds.Count){
+        $limit=if($a.SchemaVersion -ceq '1.1.0'){'. No new warnings were evaluated for these controls.'}else{'. Only verified historical findings are available.'}
+        Write-WinSecText -Text ('Detailed records unavailable: '+($a.MissingTechnicalCheckIds -join ', ')+$limit) -Color Yellow
+    }
     $expected=@(Get-WinSecTechnicalScopeChecks $a.ScopeType $a.ScopeKey)
     $unscanned=@($expected|Where-Object {$_ -cnotin @($a.Sources.CheckId)})
     if($unscanned.Count){Write-WinSecText -Text ('Controls without a saved scan: '+($unscanned -join ', ')) -Color Yellow}
-    if($a.ScopeType -ceq 'SECTION' -and $a.ScopeKey -ceq 'NetworkSecurity'){Write-WinSecText -Text 'Coverage: saved Firewall / SMBv1 / RDP readings only. Open Ports and Network Configuration remain pending.' -Color Yellow}
+    $preference=Get-WinSecCLIValue $Context FrameworkSourcePreference
+    if($preference){Write-WinSecText -Text ('Sources: '+$preference+'. Original scan identities and scopes are preserved.') -Color Gray}
     Write-WinSecText -Text 'Review context; not a compliance verdict or evidence of an attack.' -Color DarkGray
     $rows=@($a.Rows|ForEach-Object {[pscustomobject]@{Id=$_.Id;Control=$_.CheckId+' / '+$_.CriterionId;Title=$_.Title;State=$_.State}})
     $index=if($rows.Count){[Math]::Max(0,[Math]::Min([int]$State.FindingsOffset,$rows.Count-1))}else{-1}

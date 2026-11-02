@@ -154,6 +154,9 @@ function Get-WinSecMainMenuSections {
             -ConfigurationAssessment $configuration|Where-Object Key -CEQ $view.SectionKey)[0]
     }
     if ($SystemControlViews.Count -gt 0) {
+        if ($null -eq (Get-Command Get-WinSecLatestSystemSecuritySummary -CommandType Function -ErrorAction SilentlyContinue)) {
+            . (Join-Path $PSScriptRoot 'Results.ps1')
+        }
         $summary=Get-WinSecLatestSystemSecuritySummary -NavigationState ([pscustomobject]@{SelectedDeviceId=$DeviceId}) `
             -ControlViews $SystemControlViews
         $sourceRows['SystemSecurity']=[pscustomobject]@{Id='01';Key='SystemSecurity';Name='System Security';

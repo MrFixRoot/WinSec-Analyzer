@@ -190,6 +190,11 @@ function Restore-WinSecPublicHistory {
     $lease=Open-WinSecDeviceInventoryStore $Context.ProjectRoot
     try{
         $records=@(Read-WinSecPublicHistoryArtifacts -ProjectRoot $Context.ProjectRoot -Devices @($Context.Devices))
+        $newReferences=@{}
+        if((Get-WinSecTargetField $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){
+            $newHistory=Read-WinSecTransitionSessions $Context.ProjectRoot @($Context.Devices)
+            $records+=@($newHistory.Records);$newReferences=$newHistory.References
+        }
         $validated=@(foreach($record in $records){ConvertFrom-WinSecPublicHistoryRecord $record})
         foreach($item in @($validated|Sort-Object {$_.PublicResult.CompletedAtUTC},{$_.Record.ScanId})){
             $r=$item.Record
@@ -207,6 +212,7 @@ function Restore-WinSecPublicHistory {
             $scopes[$scopeIndex]=$r.ScanId
         }
         $Context.ScanCoordinator.Sessions=$sessions;$Context.PublicScans=$publics
+        if((Get-WinSecTargetField $Context.ScanCoordinator NewTechnicalStorageEnabled) -ceq $true){$Context.ScanCoordinator.TechnicalLocations=$newReferences}
         $Context.ActiveScanByDevice=$devices;$Context.ActiveScanByScope=$scopes
         $Context | Add-Member -NotePropertyName HistoryReady -NotePropertyValue $true -Force
     }finally{$lease.Lock.Dispose()}

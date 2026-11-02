@@ -173,6 +173,7 @@ Test-WinSecPublication 'Cancellation preserves the existing public and navigatio
     # field, including navigation, prior public results and active sessions.
     $expected=ConvertFrom-Json $before
     $expected.Context.LastScanMessage='Scan cancelled. Previous results were preserved.'
+    $expected.Context|Add-Member -NotePropertyName LastScanMessageContext -NotePropertyValue ([pscustomobject]@{DeviceId='local:PUBLICATION';ScopeType='DEVICE';ScopeKey='ALL'})
     $expected.Context|Add-Member -NotePropertyName LastDeviceMessage -NotePropertyValue $expected.Context.LastScanMessage -Force
     $response=Invoke-WinSecCLILocalRescan -State $fixture.State -Context $fixture.Context
     Assert-WinSecPublication ($null -eq $response -and

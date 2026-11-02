@@ -49,7 +49,7 @@ Test-WinSecSystemInfo 'Localized edition captions and trailing spaces do not sel
 }
 foreach ($case in @(
     @{Caption='Microsoft Windows 10 Pro'}, @{Caption='Microsoft Windows Server 2025'},
-    @{Caption='Microsoft Windows 12 Pro'}, @{Caption="Microsoft Windows 11 Pro`e[0m"},
+    @{Caption='Microsoft Windows 12 Pro'}, @{Caption=('Microsoft Windows 11 Pro'+[char]27+'[0m')},
     @{Caption=@('Microsoft Windows 11 Pro')}, @{ProductType=3}, @{ProductType=2},
     @{ProductType='1'}, @{ProductType=$true}, @{Version='10.0.19045';BuildNumber='19045'},
     @{Version='10.0.26100';BuildNumber='22631'}, @{Version='10.0.26100.1234'},

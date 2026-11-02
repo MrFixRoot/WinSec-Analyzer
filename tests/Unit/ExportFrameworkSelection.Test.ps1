@@ -96,5 +96,24 @@ Test-WinSecExportChoice 'Unsafe identity and calculated properties fail before d
     $rejected=$false;try {$null=Show-WinSecExportFrameworkSelection $script:selection}catch {$rejected=$true}
     Assert-WinSecExportChoice ($rejected -and $script:getterCalls -eq 0)
 }
+foreach($width in @(40,80,120)) {
+    foreach($choice in @('PREFER_COMPLETE','LATEST_ATTEMPT','CANCEL')) {
+        Test-WinSecExportChoice ('Saved-source choice supports arrows, Enter and Esc at width '+$width+': '+$choice) {
+            $script:selection|Add-Member SourceCount 2
+            $script:terminal=[pscustomobject]@{Width=$width;ContentWidth=($width-1);Height=65}
+            if($choice -ceq 'LATEST_ATTEMPT'){$script:keys.Enqueue((New-WinSecExportChoiceKey 40))}
+            $code=if($choice -ceq 'CANCEL'){27}else{13};$script:keys.Enqueue((New-WinSecExportChoiceKey $code))
+            $answer=Show-WinSecFindingsSourceSelection $script:selection
+            Assert-WinSecExportChoice ($answer.Confirmed -eq ($choice -cne 'CANCEL') -and ($choice -ceq 'CANCEL' -or $answer.SourcePreference -ceq $choice) -and
+                @($script:lines|Where-Object {$_.Length -gt ($width-1)}).Count -eq 0)
+        }
+    }
+}
+Test-WinSecExportChoice 'Too-small source selection ignores Enter and remains safely cancelable' {
+    $script:selection|Add-Member SourceCount 2;$script:terminal=[pscustomobject]@{Width=40;ContentWidth=39;Height=6}
+    $script:keys.Enqueue((New-WinSecExportChoiceKey 13));$script:keys.Enqueue((New-WinSecExportChoiceKey 27))
+    $answer=Show-WinSecFindingsSourceSelection $script:selection
+    Assert-WinSecExportChoice (-not $answer.Confirmed -and $null -eq $answer.SourcePreference -and $script:keys.Count -eq 0)
+}
 Write-Host ('Export framework: {0} passed, {1} failed.' -f $script:passed,$script:failed)
 if($script:failed){throw 'Export framework selection tests failed.'}

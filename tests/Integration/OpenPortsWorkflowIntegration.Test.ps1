@@ -3,7 +3,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=Join-Path $tempParent ('WinSec-Ports-'+[guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($sandbox)
+$sandbox=Join-Path $tempParent ('wpt-'+[guid]::NewGuid().ToString('N').Substring(0,12));$null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-PORTS';$passed=0;$failed=0
 function Assert-PortsIntegration {param([bool]$Value);if(-not $Value){throw 'Open Ports integration assertion failed.'}}
@@ -32,8 +32,8 @@ try {
     Test-PortsIntegration 'Production enables Open Ports after native validation and leaves six controls disabled' {
         $check=Get-WinSecRegisteredCheck $production WSA-NET-004
         Assert-PortsIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6)
+            (($production.Checks|Where-Object ExecutionReady|Sort-Object CheckId).CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3)
     }
     Initialize-WinSecNetworkConfigurationFixture;Initialize-WinSecOpenPortsFixture;Initialize-WinSecRdpFixture;Initialize-WinSecSmbFixture;Initialize-WinSecFirewallFixture
     $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
@@ -44,11 +44,11 @@ try {
         Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq $ids)
         $true
     }
-    Test-PortsIntegration 'Device confirmation lists exactly eight validated controls and cancels without provider calls' {
+    Test-PortsIntegration 'Device confirmation lists exactly eleven validated controls and cancels without provider calls' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($preview)
             Assert-PortsIntegration ($preview.ReadOnly -and (($preview.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
         Assert-PortsIntegration ($null -eq $r -and $c.Sessions.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0)
@@ -122,7 +122,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-PortsIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Ports-[a-f0-9]{32}\z'){throw 'Unsafe fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awpt-[a-f0-9]{12}\z'){throw 'Unsafe fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('Open Ports integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'Open Ports integration failed.'}

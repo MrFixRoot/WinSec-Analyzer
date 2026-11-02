@@ -1,0 +1,205 @@
+# Real production execution permissions, synthetic providers and disposable internal storage only.
+[CmdletBinding()]param([switch]$NewStorage,[switch]$TraceFailures)
+$ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+$tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
+$sandbox=Join-Path $tempParent ('wsi-'+[guid]::NewGuid().ToString('N').Substring(0,12));$null=[IO.Directory]::CreateDirectory($sandbox)
+$checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash;$oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-IDENTITY';$passed=0;$failed=0
+function Assert-IdentityIntegration {param([bool]$Value);if(-not $Value){throw 'IdentityAccess integration assertion failed.'}}
+function Test-IdentityIntegration {param($Name,[scriptblock]$Action);try{$null=& $Action;$script:passed++;[Console]::WriteLine('[PASS] '+$Name)}catch{$script:failed++;[Console]::WriteLine('[FAIL] '+$Name+': '+$_.Exception.Message);[Console]::WriteLine($_.ScriptStackTrace);if($TraceFailures){$Error|Select-Object -First 4|ForEach-Object {[Console]::WriteLine($_.Exception.Message+' '+$_.ScriptStackTrace)}}}}
+try {
+    foreach($directory in @('src','config')){Copy-Item -LiteralPath (Join-Path $sourceRoot $directory) -Destination (Join-Path $sandbox $directory) -Recurse}
+    foreach($file in @('src/Core/ScanCoordinator.ps1','src/CLI/Invoke-WinSecCLI.ps1','src/UI/Core/NavigationController.ps1','src/UI/Screens/MainMenu.ps1',
+        'src/UI/Screens/Results.ps1','src/CLI/FrameworkWorkflow.ps1','src/UI/Core/TerminalRenderer.ps1','src/UI/Screens/ScanProgress.ps1')){. (Join-Path $sandbox $file)}
+    . (Join-Path $sourceRoot 'tests/Fixtures/IdentityAccessMemory.ps1')
+    function Get-WinSecIdentityFixtureHardware {'local:hw1-'+('b'*64)}
+    function Get-CimInstance {throw 'Unmocked Windows query prohibited.'}
+    Set-Alias Get-WinSecLocalHardwareDeviceId Get-WinSecIdentityFixtureHardware -Scope Script
+    Set-Alias Invoke-WinSecIdentityAccessQuery Invoke-WinSecIdentityFixtureQuery -Scope Script
+    Initialize-WinSecIdentityFixture
+    $production=Get-WinSecCheckRegistry $sandbox
+    Test-IdentityIntegration 'Production enables exactly eleven validated checks including all three IAM controls' {
+        $ready=@($production.Checks|Where-Object ExecutionReady)
+        Assert-IdentityIntegration (($ready.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003' -and
+            @($ready|Where-Object {$_.ImplementationStatus -cne 'VALIDATED' -or -not $_.ExecutionEnabled}).Count -eq 0 -and @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3)
+    }
+    $null=Register-WinSecLocalDevice $sandbox;$target=New-WinSecLocalTarget
+    $c=New-WinSecScanCoordinator $sandbox;$c.Registry=[pscustomobject]@{schemaVersion='1.0.0';targets=@($target)}
+    $c.AssessmentEnabled=$true;$c.PublicHistoryEnabled=$true;$c.TechnicalReportsEnabled=$true
+    $c.NewTechnicalStorageEnabled=[bool]$NewStorage
+    $technicalRoot=if($NewStorage){'reports'}else{'reports/exports'}
+    Test-IdentityIntegration 'Cancelled DEVICE confirmation includes eleven checks without querying any provider' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
+            param($preview);Assert-IdentityIntegration ($preview.ReadOnly -and ($preview.Checks.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003');$false
+        }
+        Assert-IdentityIntegration ($null -eq $r -and $IdentityCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
+    }
+    Test-IdentityIntegration 'Cancelled section confirmation performs no queries and publishes no session' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-confirmation -ScopeType SECTION -ScopeKey IdentityAccess -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction {
+            param($preview);Assert-IdentityIntegration ($preview.ReadOnly -and ($preview.Checks.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003' -and $preview.EvaluationProfile.Policies.Count -eq 3);$false
+        }
+        Assert-IdentityIntegration ($null -eq $r -and $IdentityCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
+    }
+    foreach($id in @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')){Test-IdentityIntegration ('Confirmed CONTROL saves exactly its own immutable Markdown: '+$id){
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId ('control-'+$id) -ScopeType CONTROL -ScopeKey $id -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction {
+            param($preview);Assert-IdentityIntegration ($preview.ReadOnly -and $preview.Checks.Count -eq 1 -and $preview.Checks[0].CheckId -ceq $id);$true
+        }
+        if($r.ExecutionStatus -cne 'COMPLETED' -or $c.LastTechnicalReports.Status -cne 'SAVED'){
+            $entry=$c.Sessions[(Get-WinSecScanSessionKey $target.DeviceId ('control-'+$id))].Session
+            foreach($record in @($entry.ControlResults|Where-Object CheckId -CEQ $id)){[Console]::WriteLine('Synthetic diagnostic: '+$record.ErrorMessage)}
+            throw ('Unexpected synthetic execution: '+$r.ExecutionStatus+'; technical '+$c.LastTechnicalReports.Status+'; controls '+(($r.ControlResults|ForEach-Object {$_.CheckId+':'+$_.Status}) -join ','))
+        }
+        Assert-IdentityIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $null -eq $r.OverallScore -and $null -eq $r.ConfigurationAssessment -and
+            $c.LastTechnicalReports.Status -ceq 'SAVED' -and $c.LastTechnicalReports.Files.Count -eq 1 -and $c.LastTechnicalReports.Files[0].CheckId -ceq $id)
+    }}
+    Test-IdentityIntegration 'Esc during section rescan preserves previous sessions and files' {
+        $before=$c.Sessions.Count;$files=@(Get-ChildItem (Join-Path $sandbox $technicalRoot) -Recurse -File).Count;$script:IdentityCalls.Clear()
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-running -ScopeType SECTION -ScopeKey IdentityAccess -ConfirmAction {$true} -CancellationAction {$IdentityCalls.Count -ge 1}
+        Assert-IdentityIntegration ($null -eq $r -and $c.Sessions.Count -eq $before -and @(Get-ChildItem (Join-Path $sandbox $technicalRoot) -Recurse -File).Count -eq $files)
+    }
+    Test-IdentityIntegration 'Confirmed SECTION uses one Windows context and writes three distinct technical snapshots' {
+        $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId identity-section -ScopeType SECTION -ScopeKey IdentityAccess -AssessmentProfile WSA-W11-23H2-PRO-DEF-BASE -ConfirmAction {$true}
+        Assert-IdentityIntegration ($r.ExecutionStatus -ceq 'COMPLETED' -and $c.LastTechnicalReports.Files.Count -eq 3 -and ($c.LastTechnicalReports.Files.CheckId -join '|') -ceq 'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003')
+        foreach($id in @('WSA-IAM-001','WSA-IAM-002','WSA-IAM-003')){$report=if($NewStorage){Read-WinSecTransitionReport $c $target.DeviceId identity-section $id}else{Read-WinSecTechnicalReport $sandbox $target.DeviceId identity-section $id};Assert-IdentityIntegration ($report.ScopeKey -ceq 'IdentityAccess' -and $report.ScanId -ceq 'identity-section')}
+    }
+    foreach($review in @(@{Index=0;Id='WSA-IAM-001';Framework='nist-csf';Rows=1},@{Index=1;Id='WSA-IAM-002';Framework='cis-controls';Rows=1},@{Index=2;Id='WSA-IAM-003';Framework='mitre-attack';Rows=2})){
+    Test-IdentityIntegration ('Restored F/P preserves its selected control, framework and saved readings: '+$review.Id) {
+        $restored=New-WinSecScanCoordinator $sandbox;$restored.Registry=$c.Registry
+        $restored.NewTechnicalStorageEnabled=[bool]$NewStorage
+        $state=New-WinSecNavigationState;$state.Screen='Section';$state.SelectedDeviceId=$target.DeviceId
+        $sections=@(Get-WinSecMainMenuSections);for($i=0;$i -lt $sections.Count;$i++){if($sections[$i].Key -ceq 'IdentityAccess'){$state.SectionIndex=$i}}
+        $state.ControlIndex=$review.Index
+        $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@([pscustomobject]@{DeviceId=$target.DeviceId;Hostname='SYNTHETIC-IDENTITY';DisplayName='SYNTHETIC-IDENTITY'});
+            PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LocalDeviceId=$target.DeviceId;FrameworkWorkflowEnabled=$true;LastExportMessage=''}
+        $null=Restore-WinSecPublicHistory $ctx;$before=$IdentityCalls.Count
+        function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId=$review.Framework}}
+        Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+        if($NewStorage){
+            $view=$ctx.FrameworkFindings;$provenance=$view.ReadingReview.Sources[0]
+            $reference=$restored.TechnicalLocations[((Get-WinSecScanSessionKey $target.DeviceId $provenance.ScanId)+'|'+$review.Id)]
+            Assert-IdentityIntegration ($view.SchemaVersion -ceq '1.1.0' -and $provenance.Identity.SnapshotId -ceq $reference.Identity.SnapshotId -and
+                $view.ReadingReview.ReadingCount -ge $view.ReadingCount -and $provenance.SnapshotSchemaVersion -ceq '2.1.0')
+        }
+        $analysis=$ctx.FrameworkFindings.AnalysisId;$state.Screen='Findings';$state.FindingsScope='Control';$artifact=Export-WinSecCLIFrameworkFindings $state $ctx
+        Assert-IdentityIntegration ($artifact.Path.EndsWith('.md') -and $ctx.FrameworkFindings.Rows.Count -eq $review.Rows -and $ctx.FrameworkFindings.AnalysisId -ceq $analysis -and
+            $ctx.FrameworkFindings.FrameworkId -ceq $review.Framework -and $ctx.FrameworkFindings.Sources[0].CheckId -ceq $review.Id -and
+            $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS' -and $IdentityCalls.Count -eq $before)
+        if($NewStorage){
+            $text=Get-Content -LiteralPath $artifact.Path -Raw -Encoding UTF8
+            Assert-IdentityIntegration ($text.Contains('Saved reading coverage') -and $text.Contains($provenance.Identity.SnapshotId) -and $text.Contains($view.ReadingReview.LedgerSha256))
+        }
+    }
+    }
+    if($NewStorage){
+        Test-IdentityIntegration 'A pending session index blocks restoration until explicit verified recovery' {
+            $layout=Get-WinSecTransitionSessionLayout $sandbox $target.DeviceId identity-section
+            $bytes=[IO.File]::ReadAllBytes($layout.Path)
+            [IO.File]::Move($layout.Path,($layout.Path+'.tmp'))
+            $blocked=$false;try{$null=Read-WinSecTransitionSessions $sandbox @($target)}catch{$blocked=$true}
+            Assert-IdentityIntegration ($blocked -and -not [IO.File]::Exists($layout.Path))
+            $result=Repair-WinSecTransitionSessionIndex $sandbox $target.DeviceId identity-section
+            Assert-IdentityIntegration ($result.Status -ceq 'COMMITTED' -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($layout.Path)) -ceq [Convert]::ToBase64String($bytes))
+            $null=Repair-WinSecTransitionSessionIndex $sandbox $target.DeviceId identity-section
+        }
+        Test-IdentityIntegration 'New committed history is excluded from legacy cleanup and new payloads remain linked to their public source' {
+            $plan=Get-WinSecLegacyCleanupPlan $sandbox
+            Assert-IdentityIntegration (@($plan.Files|Where-Object Kind -CEQ LEGACY_PUBLIC_SESSION).Count -eq 0)
+            $key=(Get-WinSecScanSessionKey $target.DeviceId identity-section)+'|WSA-IAM-001'
+            $saved=Copy-WinSecResultData $c.TechnicalLocations[$key]
+            try {$c.TechnicalLocations[$key].Identity.DeviceId='local:hw1-'+('c'*64);$rejected=$false;try{$null=Read-WinSecTransitionReport $c $target.DeviceId identity-section WSA-IAM-001}catch{$rejected=$true};Assert-IdentityIntegration $rejected}
+            finally{$c.TechnicalLocations[$key]=$saved}
+        }
+    }
+    if($NewStorage){
+        Test-IdentityIntegration 'Projected SECTION F freezes all source identities and exports without provider calls' {
+            $restored=New-WinSecScanCoordinator $sandbox;$restored.NewTechnicalStorageEnabled=$true
+            $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@($target);LocalDeviceId=$target.DeviceId;PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastExportMessage=''}
+            Restore-WinSecPublicHistory $ctx
+            $state=New-WinSecNavigationState;$state.SelectedDeviceId=$target.DeviceId;$state.Screen='MainMenu'
+            $state.SectionIndex=[array]::IndexOf(@((Get-WinSecMainMenuSections).Key),'IdentityAccess')
+            function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+            $before=$IdentityCalls.Count;Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+            $view=$ctx.FrameworkFindings;$digest=$view.ContentSha256
+            Assert-IdentityIntegration ($view.ScopeType -ceq 'SECTION' -and $view.ReadingReview.Sources.Count -eq 3 -and @($view.ReadingReview.Sources.Identity.SnapshotId|Sort-Object -Unique).Count -eq 3)
+            $state.Screen='Findings';$state.FindingsScope='Section';$file=Export-WinSecCLIFrameworkFindings $state $ctx
+            $text=Get-Content -LiteralPath $file.Path -Raw -Encoding UTF8
+            foreach($row in $view.Rows){Assert-IdentityIntegration ($text.Contains($row.Title) -and $text.Contains($row.ScanId))}
+            Assert-IdentityIntegration ($ctx.FrameworkFindings.ContentSha256 -ceq $digest -and $IdentityCalls.Count -eq $before)
+        }
+        Test-IdentityIntegration 'Cancelling projected F during saved-source loading preserves the previous frozen view' {
+            $restored=New-WinSecScanCoordinator $sandbox;$restored.NewTechnicalStorageEnabled=$true
+            $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@($target);LocalDeviceId=$target.DeviceId;PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastExportMessage=''}
+            Restore-WinSecPublicHistory $ctx
+            $state=New-WinSecNavigationState;$state.SelectedDeviceId=$target.DeviceId;$state.Screen='MainMenu'
+            $state.SectionIndex=[array]::IndexOf(@((Get-WinSecMainMenuSections).Key),'IdentityAccess')
+            function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+            Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+            $previous=$ctx.FrameworkFindings;$stamp=$ctx.FrameworkSourcesStamp;$before=$IdentityCalls.Count
+            function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='mitre-attack'}}
+            function Show-WinSecFrameworkProgress {param($Progress)}
+            function Read-WinSecPendingKey {[pscustomobject]@{KeyDown=$true;ControlKeyState=0;VirtualKeyCode=27}}
+            try{Assert-IdentityIntegration (-not (Invoke-WinSecCLIFrameworkFindings $state $ctx -ShowProgress))}
+            finally{Remove-Item Function:Read-WinSecPendingKey;Remove-Item Function:Show-WinSecFrameworkProgress}
+            Assert-IdentityIntegration ([object]::ReferenceEquals($previous,$ctx.FrameworkFindings) -and $stamp -ceq $ctx.FrameworkSourcesStamp -and $IdentityCalls.Count -eq $before)
+        }
+        Test-IdentityIntegration 'Cancellation reaches the paired reader without publishing a replacement source' {
+            $before=Get-WinSecPublicHistoryJson $c.TechnicalLocations;$cancelled=$false
+            try{$null=Read-WinSecTransitionReport $c $target.DeviceId identity-section WSA-IAM-001 -CancellationAction {$true}}
+            catch [OperationCanceledException]{$cancelled=$true}
+            Assert-IdentityIntegration ($cancelled -and (Get-WinSecPublicHistoryJson $c.TechnicalLocations) -ceq $before)
+        }
+        $script:IdentityFailure='Guest'
+        try{$partial=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId identity-partial -ScopeType CONTROL -ScopeKey WSA-IAM-002 -ConfirmAction {$true}}
+        finally{$script:IdentityFailure=''}
+        Assert-IdentityIntegration ($partial.ExecutionStatus -ceq 'COMPLETED_WITH_ERRORS')
+        foreach($preference in @('PREFER_COMPLETE','LATEST_ATTEMPT')){
+            Test-IdentityIntegration ('Restored partial/completed JSON sources remain selectable and exportable: '+$preference) {
+                $script:IdentitySelectedSource=$preference
+                $restored=New-WinSecScanCoordinator $sandbox;$restored.NewTechnicalStorageEnabled=$true
+                $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@($target);LocalDeviceId=$target.DeviceId;
+                    PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastExportMessage=''}
+                Restore-WinSecPublicHistory $ctx
+                $state=New-WinSecNavigationState;$state.SelectedDeviceId=$target.DeviceId;$state.Screen='Section';$state.ControlIndex=1
+                $state.SectionIndex=[array]::IndexOf(@((Get-WinSecMainMenuSections).Key),'IdentityAccess')
+                function Show-WinSecFindingsSourceSelection {param($Selection);[pscustomobject]@{Confirmed=$true;SourcePreference=$script:IdentitySelectedSource}}
+                function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+                $before=$IdentityCalls.Count
+                Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+                Assert-IdentityIntegration ($ctx.FrameworkSourcePreference -ceq $preference -and $ctx.FrameworkFindings.Sources[0].Origin -ceq 'RECORDS')
+                Assert-IdentityIntegration ($ctx.FrameworkFindings.SchemaVersion -ceq '1.1.0' -and $ctx.FrameworkFindings.ReadingReview.Sources[0].Identity.ScanId -ceq $ctx.FrameworkFindings.Sources[0].ScanId)
+                $selected=$ctx.FrameworkFindings.Sources[0].ScanId
+                Assert-IdentityIntegration (($preference -ceq 'LATEST_ATTEMPT' -and $selected -ceq 'identity-partial') -or
+                    ($preference -ceq 'PREFER_COMPLETE' -and $selected -cne 'identity-partial'))
+                $state.Screen='Findings';$state.FindingsScope='Control';$file=Export-WinSecCLIFrameworkFindings $state $ctx
+                Assert-IdentityIntegration ([IO.File]::Exists($file.Path) -and $IdentityCalls.Count -eq $before)
+            }
+        }
+        Test-IdentityIntegration 'Projected SECTION preserves mixed original ScanIds and a partial control source' {
+            $script:IdentitySelectedSource='LATEST_ATTEMPT'
+            $restored=New-WinSecScanCoordinator $sandbox;$restored.NewTechnicalStorageEnabled=$true
+            $ctx=[pscustomobject]@{ProjectRoot=$sandbox;ScanCoordinator=$restored;Devices=@($target);LocalDeviceId=$target.DeviceId;PublicScans=@{};ActiveScanByDevice=@{};ActiveScanByScope=@{};LastExportMessage=''}
+            Restore-WinSecPublicHistory $ctx
+            $state=New-WinSecNavigationState;$state.SelectedDeviceId=$target.DeviceId;$state.Screen='MainMenu'
+            $state.SectionIndex=[array]::IndexOf(@((Get-WinSecMainMenuSections).Key),'IdentityAccess')
+            function Show-WinSecFindingsSourceSelection {param($Selection);[pscustomobject]@{Confirmed=$true;SourcePreference='LATEST_ATTEMPT'}}
+            function Show-WinSecExportFrameworkSelection {param($Selection,[switch]$ForFindings);[pscustomobject]@{Confirmed=$true;FrameworkId='nist-csf'}}
+            $before=$IdentityCalls.Count;Assert-IdentityIntegration (Invoke-WinSecCLIFrameworkFindings $state $ctx)
+            $view=$ctx.FrameworkFindings;$sources=$view.ReadingReview.Sources
+            Assert-IdentityIntegration ($view.SchemaVersion -ceq '1.1.0' -and $view.ScopeType -ceq 'SECTION' -and $sources.Count -eq 3 -and
+                @($sources.ScanId|Sort-Object -Unique).Count -eq 2 -and @($sources|Where-Object {$_.CheckId -ceq 'WSA-IAM-002' -and $_.ScanId -ceq 'identity-partial' -and $_.ScopeType -ceq 'CONTROL'}).Count -eq 1 -and
+                $view.ReadingReview.Treatments.UNKNOWN -gt 0 -and @($view.Rows|Where-Object CheckId -CEQ WSA-IAM-002).Count -eq 0)
+            $state.Screen='Findings';$state.FindingsScope='Section';$file=Export-WinSecCLIFrameworkFindings $state $ctx
+            Assert-IdentityIntegration ([IO.File]::Exists($file.Path) -and $IdentityCalls.Count -eq $before)
+        }
+    }
+    Test-IdentityIntegration 'Confirmed Delete Device recognizes IAM technical Markdown and Findings artifacts' {
+        $devices=@((Import-WinSecDeviceInventory $sandbox).targets);$directory=Join-Path $sandbox ($technicalRoot+'/'+(Get-WinSecEvidenceHash $target.DeviceId))
+        $result=Remove-WinSecManagedDevice -ProjectRoot $sandbox -DeviceId $target.DeviceId -Coordinator $c -Devices $devices -ConfirmAction {$false};Assert-IdentityIntegration ($null -eq $result -and (Test-Path $directory))
+        $result=Remove-WinSecManagedDevice -ProjectRoot $sandbox -DeviceId $target.DeviceId -Coordinator $c -Devices $devices -ConfirmAction {$true};Assert-IdentityIntegration ($result.Status -ceq 'REMOVED' -and -not (Test-Path $directory))
+    }
+}finally{
+    $env:COMPUTERNAME=$oldHostname;Assert-IdentityIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
+    $absolute=[IO.Path]::GetFullPath($sandbox)
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\A(?:WinSec-Identity-[a-f0-9]{32}|wsi-[a-f0-9]{12})\z'){throw 'Unsafe fixture cleanup.'}
+    Remove-Item -LiteralPath $absolute -Recurse -Force
+}
+[Console]::WriteLine('IdentityAccess integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'IdentityAccess integration failed.'}

@@ -3,7 +3,7 @@
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop';$sourceRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $tempParent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
-$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('WinSec-Smb-'+[guid]::NewGuid().ToString('N'))))
+$sandbox=[IO.Path]::GetFullPath((Join-Path $tempParent ('wsm-'+[guid]::NewGuid().ToString('N').Substring(0,12))))
 $null=[IO.Directory]::CreateDirectory($sandbox)
 $checksHash=(Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash
 $oldHostname=$env:COMPUTERNAME;$env:COMPUTERNAME='SYNTHETIC-SMB'
@@ -36,10 +36,10 @@ try {
     Set-Alias Invoke-WinSecOpenPortsQuery Invoke-WinSecOpenPortsFixtureQuery -Scope Script
     Set-Alias Invoke-WinSecNetworkConfigurationQuery Invoke-WinSecNetworkConfigurationFixtureQuery -Scope Script
     $production=Get-WinSecCheckRegistry $sandbox
-    Test-SmbIntegration 'Production registry enables SMB after native validation and keeps six checks disabled' {
+    Test-SmbIntegration 'Production registry enables SMB after native validation and keeps three checks disabled' {
         $check=@($production.Checks|Where-Object CheckId -CEQ WSA-NET-002)[0]
         Assert-SmbIntegration ($check.ExecutionEnabled -and $check.ExecutionReady -and $check.ImplementationStatus -ceq 'VALIDATED' -and
-            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 6)
+            @($production.Checks|Where-Object {-not $_.ExecutionEnabled}).Count -eq 3)
     }
     Initialize-WinSecSmbFixture
     Initialize-WinSecFirewallFixture
@@ -57,11 +57,11 @@ try {
             $request.TechnicalReports.SchemaVersion -ceq $schema)
         $true
     }
-    Test-SmbIntegration 'Device confirmation lists exactly eight validated controls and cancels without providers' {
+    Test-SmbIntegration 'Device confirmation lists exactly eleven validated controls and cancels without providers' {
         $r=Invoke-WinSecCoordinatedScan $c -DeviceId $target.DeviceId -ScanId cancelled-device -ScopeType DEVICE -ScopeKey ALL -ConfirmAction {
             param($request)
             Assert-SmbIntegration ($request.ReadOnly -and (($request.Checks.CheckId|Sort-Object) -join '|') -ceq
-                'WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
+                'WSA-IAM-001|WSA-IAM-002|WSA-IAM-003|WSA-NET-001|WSA-NET-002|WSA-NET-003|WSA-NET-004|WSA-NET-005|WSA-SYS-001|WSA-SYS-002|WSA-SYS-003')
             $false
         }
         Assert-SmbIntegration ($null -eq $r -and $SmbCalls.Count -eq 0 -and $FirewallCalls.Count -eq 0 -and $RdpCalls.Count -eq 0 -and $PortsCalls.Count -eq 0 -and $c.Sessions.Count -eq 0)
@@ -131,7 +131,7 @@ try {
     $env:COMPUTERNAME=$oldHostname
     Assert-SmbIntegration ((Get-FileHash (Join-Path $sourceRoot 'config/checks.json')).Hash -ceq $checksHash)
     $absolute=[IO.Path]::GetFullPath($sandbox)
-    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\AWinSec-Smb-[a-f0-9]{32}\z'){throw 'Unsafe SMB fixture cleanup.'}
+    if([IO.Path]::GetDirectoryName($absolute) -cne $tempParent -or [IO.Path]::GetFileName($absolute) -cnotmatch '\Awsm-[a-f0-9]{12}\z'){throw 'Unsafe SMB fixture cleanup.'}
     Remove-Item -LiteralPath $absolute -Recurse -Force
 }
 [Console]::WriteLine('SMB integration: '+$passed+' passed; '+$failed+' failed.');if($failed){throw 'SMB integration tests failed.'}

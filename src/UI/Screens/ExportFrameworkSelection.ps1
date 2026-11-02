@@ -11,13 +11,18 @@ function Get-WinSecExportFrameworkOptions {
 
 function Show-WinSecExportFrameworkSelection {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Selection,[switch]$ForFindings)
+    param([Parameter(Mandatory)][object]$Selection,[switch]$ForFindings,[switch]$SourceSelection)
     $copy = Copy-WinSecResultData $Selection
     if ($copy -isnot [pscustomobject] -or -not (Test-WinSecTargetIdentifier $copy.DeviceId) -or
         -not (Test-WinSecTargetIdentifier $copy.ScanId)) { throw 'Invalid export selection identity.' }
     Assert-WinSecResultScope $copy.ScopeType $copy.ScopeKey
     if ($copy.ScopeType -cnotin @('SECTION','CONTROL')) { throw 'Invalid export selection scope.' }
     $options = @(Get-WinSecExportFrameworkOptions)
+    if($SourceSelection){
+        $options=@(
+            [pscustomobject]@{Id='PREFER_COMPLETE';Name='Last complete readings';Benefit='Use the latest complete source per control. Keep partial data only where no complete source exists.'},
+            [pscustomobject]@{Id='LATEST_ATTEMPT';Name='Latest attempts (includes partial)';Benefit='Review the newest saved attempt per control, including collection errors and unavailable readings.'})
+    }
     $display = [pscustomobject]@{Index=0;CanChoose=$false}
     $render = {
         param($UnusedState)
@@ -26,6 +31,7 @@ function Show-WinSecExportFrameworkSelection {
         $width = [Math]::Max(1,[int]$terminal.ContentWidth)
         Clear-WinSecScreen
         $heading=if($ForFindings){'WINSEC ANALYZER - FINDINGS FRAMEWORK'}else{'WINSEC ANALYZER - EXPORT FRAMEWORK'}
+        if($SourceSelection){$heading='WINSEC ANALYZER - FINDINGS SOURCE'}
         $sourceLabel=if($ForFindings){'Saved control sources: '+$copy.SourceCount}else{'Scan: '+$copy.ScanId}
         $lines = @($heading,
             ('Device: ' + $copy.DeviceId),$sourceLabel,
@@ -38,7 +44,7 @@ function Show-WinSecExportFrameworkSelection {
         $lines += 'Benefit: ' + $options[$display.Index].Benefit
         $lines += 'Only reviewed mappings can identify a reference control. Missing mappings remain PENDING.'
         $lines += 'Original scan recommendations are retained. References do not certify compliance.'
-        $lines += if($ForFindings){'[Up / Down] Framework | [Enter] Analyze saved data | [Esc] Cancel'}else{'[Up / Down] Framework | [Enter] Export | [Esc] Cancel'}
+        $lines += if($SourceSelection){'[Up / Down] Source | [Enter] Select | [Esc] Cancel'}elseif($ForFindings){'[Up / Down] Framework | [Enter] Analyze saved data | [Esc] Cancel'}else{'[Up / Down] Framework | [Enter] Export | [Esc] Cancel'}
         $wrapped = @(foreach ($line in $lines) {
             if ($line.Length -eq 0) { ''; continue }
             for ($offset=0;$offset -lt $line.Length;$offset+=$width) {
@@ -62,6 +68,7 @@ function Show-WinSecExportFrameworkSelection {
         $null = Invoke-WinSecResizeHandler -ResizeState $resizeState -RenderAction $render
         if ($null -eq $key -or $key.KeyDown -ceq $false -or ([int]$key.ControlKeyState -band 0x0F) -ne 0) { continue }
         if ($key.VirtualKeyCode -eq 27) {
+            if($SourceSelection){return [pscustomobject]@{Confirmed=$false;SourcePreference=$null}}
             return [pscustomobject]@{Confirmed=$false;FrameworkId=$null}
         }
         if ($key.VirtualKeyCode -in @(38,40)) {
@@ -70,7 +77,14 @@ function Show-WinSecExportFrameworkSelection {
             $null = & $render $null
         }
         elseif ($display.CanChoose -and $key.VirtualKeyCode -eq 13) {
+            if($SourceSelection){return [pscustomobject]@{Confirmed=$true;SourcePreference=$options[$display.Index].Id}}
             return [pscustomobject]@{Confirmed=$true;FrameworkId=$options[$display.Index].Id}
         }
     }
+}
+
+function Show-WinSecFindingsSourceSelection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Selection)
+    Show-WinSecExportFrameworkSelection -Selection $Selection -ForFindings -SourceSelection
 }

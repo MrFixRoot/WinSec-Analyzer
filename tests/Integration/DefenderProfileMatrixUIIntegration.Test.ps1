@@ -143,7 +143,7 @@ Test-WinSecMatrixUI 'Operating systems are alphabetical while collection only re
     foreach($name in $editionNames){
         Add-WinSecMatrixUIKey 40
         $expected=$name
-        Add-WinSecMatrixUIKey 0 -Hook ({param($Lines);Assert-WinSecMatrixUI (($Lines -join '|').Contains('Selected: Windows 11 / '+$expected))}.GetNewClosure())
+        Add-WinSecMatrixUIKey 0 -Hook ({param($Lines);if(-not ($Lines -join '|').Contains('Selected: Windows 11 / '+$expected)){throw 'Operating system selection is not alphabetical.'}}.GetNewClosure())
     }
     Add-WinSecMatrixUIKey 27
     Assert-WinSecMatrixUI (-not(Show-WinSecAssessmentProfileSelection $request $profiles).Confirmed)

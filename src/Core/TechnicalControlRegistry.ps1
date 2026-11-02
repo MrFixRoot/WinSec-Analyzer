@@ -9,6 +9,9 @@ function Get-WinSecTechnicalControls {
         [pscustomobject]@{CheckId='WSA-NET-003';SectionKey='NetworkSecurity';Name='Remote Desktop'}
         [pscustomobject]@{CheckId='WSA-NET-004';SectionKey='NetworkSecurity';Name='Open Ports'}
         [pscustomobject]@{CheckId='WSA-NET-005';SectionKey='NetworkSecurity';Name='Network Configuration'}
+        [pscustomobject]@{CheckId='WSA-IAM-001';SectionKey='IdentityAccess';Name='Local Administrators'}
+        [pscustomobject]@{CheckId='WSA-IAM-002';SectionKey='IdentityAccess';Name='Guest Account'}
+        [pscustomobject]@{CheckId='WSA-IAM-003';SectionKey='IdentityAccess';Name='Password Policies'}
     )
 }
 function Get-WinSecTechnicalControl {

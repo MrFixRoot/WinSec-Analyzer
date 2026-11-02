@@ -31,6 +31,13 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# Local fallback must never read the test machine's hardware.
+function Get-CimInstance {
+    [CmdletBinding()]param($Namespace,$ClassName,$Property,$OperationTimeoutSec)
+    if($ClassName -cne 'Win32_ComputerSystemProduct'){throw 'Unexpected native query in TargetRegistry fixture.'}
+    [pscustomobject]@{UUID='12345678-1234-4567-89ab-123456789abc'}
+}
+
 $script:Passed = 0
 $script:Failed = 0
 
