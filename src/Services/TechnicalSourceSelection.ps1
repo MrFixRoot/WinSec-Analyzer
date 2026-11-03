@@ -24,11 +24,12 @@ function Select-WinSecTechnicalSource {
         $ordered=New-Object 'Collections.Generic.SortedDictionary[string,object]' ([StringComparer]::Ordinal)
         $snapshots=@{};$scans=New-Object 'Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
         $retainedBytes=0;$clock=[Diagnostics.Stopwatch]::StartNew()
-        foreach($entry in $frozen.Sessions){
-            $owner=$entry.Session.Identity;$scopeStamp=$owner.ScopeType+'|'+$owner.ScopeKey
+        foreach($entry in @(Get-WinSecTechnicalIndexEntries $frozen)){
+            $view=Get-WinSecTechnicalIndexEntryView $entry
+            $owner=$view.Identity;$scopeStamp=$owner.ScopeType+'|'+$owner.ScopeKey
             if($scans.ContainsKey($owner.ScanId) -and $scans[$owner.ScanId] -cne $scopeStamp){throw 'Scan identity reused across contradictory scopes.'}
             $scans[$owner.ScanId]=$scopeStamp
-            foreach($source in $entry.Session.Sources){
+            foreach($source in $view.Sources){
                 $ref=$source.Reference;$identity=$ref.Identity
                 if($snapshots.ContainsKey($identity.SnapshotId)){throw 'Duplicate technical snapshot identity.'}
                 $snapshots[$identity.SnapshotId]=$true
@@ -40,7 +41,7 @@ function Select-WinSecTechnicalSource {
                     (($identity.ScopeType -ceq 'SECTION' -and $identity.ScopeKey -ceq $control.SectionKey) -or
                      ($identity.ScopeType -ceq 'DEVICE' -and $identity.ScopeKey -ceq 'ALL'))){$scopeMatches=$true}
                 $eligibility=if(-not $scopeMatches){'OUT_OF_SCOPE'}elseif($resolution.Family -cne $Family){'OTHER_FAMILY'}else{'ELIGIBLE'}
-                $row=[pscustomobject]@{SessionIdentity=$owner.PSObject.Copy();SessionContentSha256=$entry.Session.ContentSha256;
+                $row=[pscustomobject]@{SessionIdentity=$owner.PSObject.Copy();SessionContentSha256=$view.ContentSha256;
                     FileSha256=$entry.FileSha256;Source=$source;Family=$resolution.Family;Eligibility=$eligibility;Verification='REFERENCE_ONLY'}
                 $retainedBytes+=[Text.Encoding]::UTF8.GetByteCount((Get-WinSecPublicHistoryJson $row))
                 if($retainedBytes -gt 33554432){throw 'Technical selection metadata budget exceeded.'}

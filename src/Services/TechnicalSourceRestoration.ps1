@@ -71,6 +71,7 @@ function Assert-WinSecTechnicalRestoreIndexes {
             throw 'Technical restore owner or manifest changed.'
         }
         $index=Copy-WinSecTechnicalIndexMetadata $ProjectRoot $Indexes[$device.DeviceId] $device.DeviceId INDEX $CancellationAction
+        if($index.SchemaVersion -cne '1.0.0'){throw 'Automatic stored-index restoration is not connected.'}
         foreach($entry in $index.Sessions){$null=Read-WinSecTechnicalIndexEntry $ProjectRoot $entry $CancellationAction}
         # Membership check only, not another discovery/parser. Detect added/removed publications since
         # preparation while the public restorer now holds the inventory lease; no callbacks afterwards.
@@ -134,7 +135,9 @@ function New-WinSecTechnicalPublicationCacheStamp {
     $present=$map.ContainsKey($owner.DeviceId);$previous=$null;$digest=$null
     if($present){
         $previous=$map[$owner.DeviceId]
-        $digest=(Copy-WinSecTechnicalIndexMetadata $root $previous $owner.DeviceId INDEX $null).ContentSha256
+        $validated=Copy-WinSecTechnicalIndexMetadata $root $previous $owner.DeviceId INDEX $null
+        if($validated.SchemaVersion -cne '1.0.0'){throw 'Stored-index publication lifecycle is not connected.'}
+        $digest=$validated.ContentSha256
     }
     [pscustomobject]@{Coordinator=$Coordinator;ProjectRoot=$root;Identity=$owner;Map=$map;HadIndex=$present;Previous=$previous;PreviousSha256=$digest}
 }
