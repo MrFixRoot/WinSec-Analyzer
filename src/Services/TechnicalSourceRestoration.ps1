@@ -192,3 +192,36 @@ function Restore-WinSecTechnicalCacheAfterPublication {
         throw 'Technical session committed; technical cache reload failed and its device entry was invalidated.'
     }finally{if($lease){$lease.Lock.Dispose()}}
 }
+
+function Confirm-WinSecStoredSessionCachePublication {
+    # Internal notification from the StoredSession 1.0 writer, under its inventory lease.
+    # Do not reload technical-sessions/: that discovery cannot represent StoredSession.
+    param([object]$Stamp,[object]$Envelope,[string]$Path,[string]$FileSha256)
+    Assert-WinSecTechnicalPublicationCacheStamp $Stamp -Invalidated
+    $validated=Assert-WinSecTransitionSession $Envelope
+    foreach($field in @('DeviceId','ScanId','ScopeType','ScopeKey')){
+        if($validated.Record.$field -cne $Stamp.Identity.$field){throw 'Foreign stored publication notification.'}
+    }
+    $layout=Get-WinSecTransitionSessionLayout $Stamp.ProjectRoot $Stamp.Identity.DeviceId $Stamp.Identity.ScanId
+    if($Path -cne $layout.Path -or $FileSha256 -cnotmatch '\A[A-F0-9]{64}\z'){throw 'Invalid stored publication pin.'}
+    $header=$null;$sources=$null
+    try{
+        $header=[WinSec.SnapshotIO3]::Read($Path)
+        $bytes=Read-WinSecSnapshotBytes $Path 2097152
+        if((Get-WinSecSnapshotByteHash $bytes) -cne $FileSha256 -or
+            (Get-WinSecSnapshotByteHash ([Text.Encoding]::UTF8.GetBytes((Get-WinSecPublicHistoryJson $Envelope)))) -cne $FileSha256){
+            throw 'Stored publication differs from its verified commit.'
+        }
+        # Reuse source leases/readers with the original three-field projection references.
+        # This local adapter is not a new session, candidate reference or persisted artifact.
+        $pins=[pscustomobject]@{Sources=@(foreach($ref in $Envelope.Sources){[pscustomobject]@{Reference=$ref}})}
+        $sources=Open-WinSecTechnicalSessionSourceLeases $Stamp.ProjectRoot $pins
+        foreach($ref in $Envelope.Sources){
+            $source=Read-WinSecVersionedTechnicalSource $Stamp.ProjectRoot $ref $ref.Identity
+            if($source.Resolution.Family -cne 'REVIEWED_PROJECTION' -or $source.Resolution.SnapshotSchemaVersion -cne '2.1.0'){
+                throw 'Stored publication is not a supported production projection.'
+            }
+        }
+        Assert-WinSecTechnicalPublicationCacheStamp $Stamp -Invalidated
+    }finally{if($sources){foreach($handle in $sources){$handle.Dispose()}};if($header){$header.Dispose()}}
+}

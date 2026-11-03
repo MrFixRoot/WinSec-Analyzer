@@ -61,7 +61,13 @@ function Write-WinSecTransitionSession {
     $hashable=Copy-WinSecResultData $envelope;$hashable.PSObject.Properties.Remove('ContentSha256');$envelope.ContentSha256=Get-WinSecReportTextHash (Get-WinSecPublicHistoryJson $hashable)
     $null=Assert-WinSecTransitionSession $envelope
     $layout=Get-WinSecTransitionSessionLayout $Coordinator.ProjectRoot $Session.DeviceId $Session.ScanId
-    $held=$null;$lease=$null
+    $cacheStamp=$null
+    if($null -ne $Coordinator.PSObject.Properties['TechnicalSourceIndexes']){
+        . (Join-Path $PSScriptRoot 'TechnicalSourceRestoration.ps1')
+        $owner=[pscustomobject]@{DeviceId=$record.DeviceId;ScanId=$record.ScanId;ScopeType=$record.ScopeType;ScopeKey=$record.ScopeKey}
+        $cacheStamp=New-WinSecTechnicalPublicationCacheStamp $Coordinator $Coordinator.ProjectRoot $owner
+    }
+    $held=$null;$lease=$null;$renamed=$false
     try {
         $lease=Open-WinSecDeviceInventoryStore $Coordinator.ProjectRoot
         $inventory=Import-WinSecDeviceInventory $Coordinator.ProjectRoot
@@ -75,10 +81,21 @@ function Write-WinSecTransitionSession {
         $check=Read-WinSecSnapshotBytes $temporary 2097152
         if((Get-WinSecSnapshotByteHash $check) -cne (Get-WinSecSnapshotByteHash $bytes)){throw 'Session temporary verification failed.'}
         $null=Assert-WinSecTransitionSession (ConvertFrom-WinSecTransitionJson ([Text.Encoding]::UTF8.GetString($check)))
+        if($cacheStamp){Assert-WinSecTechnicalPublicationCacheStamp $cacheStamp}
         [WinSec.SnapshotIO3]::MoveExclusive($temporary,$layout.Path)
+        $renamed=$true
         $check=Read-WinSecSnapshotBytes $layout.Path 2097152
         if((Get-WinSecSnapshotByteHash $check) -cne (Get-WinSecSnapshotByteHash $bytes)){throw 'Session publication verification failed.'}
-    }finally{if($held){foreach($h in $held){$h.Dispose()}};if($lease){$lease.Lock.Dispose()}}
+        if($cacheStamp){
+            $cacheStamp.Map.Remove($record.DeviceId)
+            Confirm-WinSecStoredSessionCachePublication $cacheStamp $envelope $layout.Path (Get-WinSecSnapshotByteHash $check)
+        }
+    }finally{
+        # A rename is durable even if verification/notification fails afterwards. Never
+        # leave this device's old technical index advertised as current after that point.
+        try{if($renamed -and $cacheStamp){$cacheStamp.Map.Remove($record.DeviceId)}}
+        finally{if($held){foreach($h in $held){$h.Dispose()}};if($lease){$lease.Lock.Dispose()}}
+    }
     foreach($ref in $envelope.Sources){$Coordinator.TechnicalLocations[(Get-WinSecScanSessionKey $record.DeviceId $record.ScanId)+'|'+$ref.Identity.CheckId]=$ref}
 }
 
