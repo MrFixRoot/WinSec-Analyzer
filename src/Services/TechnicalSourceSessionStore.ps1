@@ -140,8 +140,14 @@ function Read-WinSecTechnicalSourceSession {
 
 function Write-WinSecTechnicalSourceSession {
     [CmdletBinding()]
-    param([string]$ProjectRoot,[object]$Session,[object]$ExpectedIdentity,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback)
+    param([string]$ProjectRoot,[object]$Session,[object]$ExpectedIdentity,[scriptblock]$CancellationAction,[scriptblock]$ProgressCallback,
+        [object]$TechnicalCacheCoordinator=$null)
     $owner=Copy-WinSecTechnicalSessionIdentity $ExpectedIdentity
+    $cacheStamp=$null
+    if($null -ne $TechnicalCacheCoordinator){
+        . (Join-Path $PSScriptRoot 'TechnicalSourceRestoration.ps1')
+        $cacheStamp=New-WinSecTechnicalPublicationCacheStamp $TechnicalCacheCoordinator $ProjectRoot $owner
+    }
     $json=ConvertTo-WinSecTechnicalSourceSessionJson $Session $owner
     $frozen=ConvertFrom-WinSecTechnicalSourceSessionJson $json $owner
     $null=Resolve-WinSecTechnicalSessionStorageFormat $frozen.ArtifactType $frozen.SchemaVersion
@@ -159,18 +165,26 @@ function Write-WinSecTechnicalSourceSession {
         if($opened.FileSha256 -cne (Get-WinSecSnapshotByteHash $bytes)){throw 'Staged technical session differs from its frozen input.'}
         Assert-WinSecSnapshotValidationBudget $clock $null
         Assert-WinSecTechnicalSessionOwnerUnchanged $lease
+        if($cacheStamp){Assert-WinSecTechnicalPublicationCacheStamp $cacheStamp}
+        Assert-WinSecSnapshotValidationBudget $clock $null
         # Exclusive rename is the single-file commit. No caller callbacks between verification and rename.
         $opened.FileLease.Dispose();$opened.FileLease=$null
         [WinSec.SnapshotIO3]::MoveExclusive($layout.Temporary,$layout.Path)
         $opened.FileLease=[WinSec.SnapshotIO3]::Read($layout.Path)
         $saved=Read-WinSecSnapshotBytes $layout.Path 16384
         if((Get-WinSecSnapshotByteHash $saved) -cne $opened.FileSha256){throw 'Published technical session verification failed.'}
-        if($ProgressCallback){try{$null=& $ProgressCallback ([pscustomobject]@{Activity='TECHNICAL_SESSION_STORAGE';Phase='COMMITTED';Completed=3;Total=3;CanCancel=$false})}catch{}}
-        [pscustomobject]@{PublicationStatus='COMMITTED';Path=$layout.Path;Session=$opened.Session;FileSha256=$opened.FileSha256}
+        if($cacheStamp){$cacheStamp.Map.Remove($owner.DeviceId)}
+        $published=[pscustomobject]@{PublicationStatus='COMMITTED';Path=$layout.Path;Session=$opened.Session;FileSha256=$opened.FileSha256}
+        if(-not $cacheStamp -and $ProgressCallback){try{$null=& $ProgressCallback ([pscustomobject]@{Activity='TECHNICAL_SESSION_STORAGE';Phase='COMMITTED';Completed=3;Total=3;CanCancel=$false})}catch{}}
     }finally{
         # Preserve staged bytes on failure/cancel/crash. Only explicit digest-pinned recovery may publish them.
         Close-WinSecStoredTechnicalSession $opened;if($held){foreach($h in $held){$h.Dispose()}};if($lease){$lease.Lock.Dispose()}
     }
+    if($cacheStamp){
+        Restore-WinSecTechnicalCacheAfterPublication $cacheStamp $published $CancellationAction
+        if($ProgressCallback){try{$null=& $ProgressCallback ([pscustomobject]@{Activity='TECHNICAL_SESSION_STORAGE';Phase='COMMITTED';Completed=3;Total=3;CanCancel=$false})}catch{}}
+    }
+    return $published
 }
 
 function Repair-WinSecTechnicalSourceSession {

@@ -118,3 +118,77 @@ function Select-WinSecRestoredTechnicalSource {
         throw 'Restored technical source rejected; no legacy fallback was performed.'
     }
 }
+
+function New-WinSecTechnicalPublicationCacheStamp {
+    # Explicit writer opt-in only. The coordinator and restored context keep one shared map.
+    param([object]$Coordinator,[string]$ProjectRoot,[object]$Identity)
+    if($null -eq $Coordinator -or $Coordinator.GetType() -ne [Management.Automation.PSCustomObject]){throw 'Invalid technical cache coordinator.'}
+    foreach($name in @('ProjectRoot','TechnicalSourceIndexes')){
+        $p=$Coordinator.PSObject.Properties[$name]
+        if($null -eq $p -or $p.MemberType -ne [Management.Automation.PSMemberTypes]::NoteProperty){throw 'Missing or unsafe technical cache binding.'}
+    }
+    $root=Get-WinSecReportInstallation $ProjectRoot
+    if(-not [string]::Equals($root,(Get-WinSecReportInstallation $Coordinator.ProjectRoot),[StringComparison]::OrdinalIgnoreCase) -or
+        $Coordinator.TechnicalSourceIndexes -isnot [hashtable]){throw 'Foreign technical cache installation.'}
+    $owner=Copy-WinSecTechnicalSessionIdentity $Identity;$map=$Coordinator.TechnicalSourceIndexes
+    $present=$map.ContainsKey($owner.DeviceId);$previous=$null;$digest=$null
+    if($present){
+        $previous=$map[$owner.DeviceId]
+        $digest=(Copy-WinSecTechnicalIndexMetadata $root $previous $owner.DeviceId INDEX $null).ContentSha256
+    }
+    [pscustomobject]@{Coordinator=$Coordinator;ProjectRoot=$root;Identity=$owner;Map=$map;HadIndex=$present;Previous=$previous;PreviousSha256=$digest}
+}
+
+function Assert-WinSecTechnicalPublicationCacheStamp {
+    param([object]$Stamp,[switch]$Invalidated)
+    $current=New-WinSecTechnicalPublicationCacheStamp $Stamp.Coordinator $Stamp.ProjectRoot $Stamp.Identity
+    if(-not [object]::ReferenceEquals($current.Map,$Stamp.Map)){throw 'Technical publication cache binding changed.'}
+    if($Invalidated){if($current.HadIndex){throw 'Technical cache changed during reload.'}}
+    elseif($current.HadIndex -ne $Stamp.HadIndex -or -not [object]::ReferenceEquals($current.Previous,$Stamp.Previous) -or
+        $current.PreviousSha256 -cne $Stamp.PreviousSha256){throw 'Technical cache changed before publication.'}
+}
+
+function Restore-WinSecTechnicalCacheAfterPublication {
+    # Called only after the writer verified its exclusive commit and invalidated this DeviceId.
+    # A reload failure leaves that entry unavailable; persisted history is never rolled back.
+    param([object]$Stamp,[object]$Publication,[scriptblock]$CancellationAction)
+    # Reject out-of-order calls before entering cleanup: only the verified writer may
+    # invalidate a previously available entry. A malformed notification cannot evict it.
+    Assert-WinSecTechnicalPublicationCacheStamp $Stamp -Invalidated
+    $lease=$null
+    try{
+        Assert-WinSecSnapshotFields $Publication @('PublicationStatus','Path','Session','FileSha256')
+        $owner=$Stamp.Identity;$root=$Stamp.ProjectRoot;$id=$owner.DeviceId
+        $layout=Get-WinSecTechnicalSessionStorageLayout $root $owner
+        if($Publication.PublicationStatus -isnot [string] -or $Publication.PublicationStatus -cne 'COMMITTED' -or
+            $Publication.Path -isnot [string] -or $Publication.Path -cne $layout.Path -or
+            $Publication.FileSha256 -isnot [string] -or $Publication.FileSha256 -cnotmatch '\A[A-F0-9]{64}\z'){
+            throw 'Unverified technical cache publication.'
+        }
+        Assert-WinSecTechnicalSourceSession $Publication.Session $owner
+        $devices=@([pscustomobject]@{DeviceId=$id})
+        $prepared=Read-WinSecTechnicalRestoreIndexes $root $devices $CancellationAction
+        $match=@($prepared[$id].Sessions|Where-Object Path -CEQ $layout.Path)
+        if($match.Count -ne 1 -or $match[0].FileSha256 -cne $Publication.FileSha256 -or
+            (Get-WinSecPublicHistoryJson $match[0].Session) -cne (Get-WinSecPublicHistoryJson $Publication.Session)){
+            throw 'Committed technical source was not restored exactly.'
+        }
+        # Existing final gate holds one inventory lease, revalidates physical pins and membership,
+        # then publishes one entry without callbacks. No nested owner lease or replacement cache.
+        $lease=Open-WinSecDeviceInventoryStore $root
+        Assert-WinSecTechnicalRestoreIndexes $root $prepared $devices $CancellationAction
+        Assert-WinSecTechnicalPublicationCacheStamp $Stamp -Invalidated
+        $bytes=0
+        foreach($key in @($Stamp.Map.Keys)+@($id)){
+            $value=if($key -ceq $id){$prepared[$id]}else{$Stamp.Map[$key]}
+            $copy=Copy-WinSecTechnicalIndexMetadata $root $value $key INDEX $null
+            foreach($entry in $copy.Sessions){$bytes+=[Text.Encoding]::UTF8.GetByteCount((Get-WinSecPublicHistoryJson $entry))}
+            if($bytes -gt 33554432){throw 'Restored technical cache budget exceeded.'}
+        }
+        $Stamp.Map[$id]=$prepared[$id]
+    }catch{
+        $Stamp.Map.Remove($Stamp.Identity.DeviceId)
+        if($_.Exception -is [OperationCanceledException]){throw}
+        throw 'Technical session committed; technical cache reload failed and its device entry was invalidated.'
+    }finally{if($lease){$lease.Lock.Dispose()}}
+}
