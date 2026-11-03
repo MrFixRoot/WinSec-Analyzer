@@ -46,13 +46,14 @@ function Assert-WinSecTechnicalRestoreStamp {
 }
 
 function Read-WinSecTechnicalRestoreIndexes {
-    param([string]$ProjectRoot,[object[]]$Devices,[scriptblock]$CancellationAction)
+    param([string]$ProjectRoot,[object[]]$Devices,[scriptblock]$CancellationAction,[switch]$IncludeStoredSessions)
     $indexes=@{};$total=0;$clock=[Diagnostics.Stopwatch]::StartNew()
     Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
     foreach($device in @(Get-WinSecTechnicalRestoreDevices $Devices)){
-        $discovery=Read-WinSecTechnicalSourceSessions $ProjectRoot $device.DeviceId -CancellationAction $CancellationAction
+        $discovery=if($IncludeStoredSessions){Read-WinSecTechnicalIndexDiscovery $ProjectRoot $device.DeviceId -CancellationAction $CancellationAction}
+            else{Read-WinSecTechnicalSourceSessions $ProjectRoot $device.DeviceId -CancellationAction $CancellationAction}
         $index=Restore-WinSecTechnicalSourceIndex $ProjectRoot $discovery $device.DeviceId -CancellationAction $CancellationAction
-        foreach($entry in $index.Sessions){$total+=[Text.Encoding]::UTF8.GetByteCount((Get-WinSecPublicHistoryJson $entry));if($total -gt 33554432){throw 'Restored technical cache budget exceeded.'}}
+        foreach($entry in @(Get-WinSecTechnicalIndexEntries $index)){$total+=[Text.Encoding]::UTF8.GetByteCount((Get-WinSecPublicHistoryJson $entry));if($total -gt 33554432){throw 'Restored technical cache budget exceeded.'}}
         $indexes[$device.DeviceId]=$index
     }
     return $indexes

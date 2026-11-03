@@ -80,3 +80,116 @@ function Read-WinSecTechnicalSourceSessions {
         throw 'Technical session discovery rejected; no discovery result was published.'
     }finally{if($held){foreach($handle in $held){$handle.Dispose()}};if($lease){$lease.Lock.Dispose()}}
 }
+
+function Assert-WinSecTechnicalDiscoveryNamespace {
+    # Internal membership gate; caller holds the managed-device inventory lease and directory handles.
+    param([string]$ProjectRoot,[string]$DeviceId,[ValidateSet('sessions','technical-sessions')][string]$Namespace,[object[]]$Entries)
+    $key=Get-WinSecSnapshotDeviceKey $DeviceId
+    $probe=Assert-WinSecSnapshotStoragePath $ProjectRoot ('scans/'+$key+'/'+$Namespace+'/probe.json') -AllowExistingArtifact
+    $directory=[IO.Path]::GetDirectoryName($probe);$known=@{};$seen=@{};$clock=[Diagnostics.Stopwatch]::StartNew()
+    foreach($entry in $Entries){
+        if($known.ContainsKey($entry.Path)){throw 'Duplicate discovery namespace path.'};$known[$entry.Path]=$true
+    }
+    if(-not [IO.Directory]::Exists($directory)){
+        if($known.Count -or (Test-Path -LiteralPath $directory -ErrorAction Stop)){throw 'Discovery namespace disappeared.'};return
+    }
+    foreach($path in [IO.Directory]::EnumerateFileSystemEntries($directory)){
+        Assert-WinSecSnapshotValidationBudget $clock $null
+        $relative=$path.Substring([IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\').Length+1)
+        $null=Assert-WinSecSnapshotStoragePath $ProjectRoot $relative -AllowExistingArtifact
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if($item.Name -ceq '.gitkeep' -and -not $item.PSIsContainer){continue}
+        if($item.PSIsContainer -or $item.Name -cnotmatch '\A[a-f0-9]{64}\.json\z' -or
+            -not $known.ContainsKey($path) -or $seen.ContainsKey($path)){throw 'Discovery namespace changed or contains an unrecognized publication.'}
+        $seen[$path]=$true
+    }
+    if($seen.Count -ne $known.Count){throw 'Discovery namespace membership changed.'}
+}
+
+function Read-WinSecTechnicalIndexDiscovery {
+    [CmdletBinding()]
+    param([string]$ProjectRoot,[string]$DeviceId,[scriptblock]$CancellationAction)
+    # Explicit pilot only. Reuse historical discovery and physical readers; no cache publication.
+    . (Join-Path $PSScriptRoot 'StoredTechnicalIndexEntry.ps1')
+    $clock=[Diagnostics.Stopwatch]::StartNew();Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
+    $technical=Read-WinSecTechnicalSourceSessions $ProjectRoot $DeviceId -CancellationAction $CancellationAction
+    $lease=$null;$held=New-Object 'Collections.Generic.List[IDisposable]'
+    $stored=New-Object 'Collections.Generic.List[object]';$pinned=New-Object 'Collections.Generic.List[object]';$totalBytes=0
+    try{
+        $lease=Open-WinSecTechnicalSessionOwner $ProjectRoot ([pscustomobject]@{DeviceId=$DeviceId})
+        $key=Get-WinSecSnapshotDeviceKey $DeviceId
+        # Reacquiring the owner lease cannot hide a publication between the two phases: final
+        # membership checks compare both namespaces with the exact manifest prepared here.
+        foreach($namespace in @('technical-sessions','sessions')){
+            $probe=Assert-WinSecSnapshotStoragePath $ProjectRoot ('scans/'+$key+'/'+$namespace+'/probe.json') -AllowExistingArtifact
+            $directory=[IO.Path]::GetDirectoryName($probe)
+            if([IO.Directory]::Exists($directory)){
+                foreach($handle in (Open-WinSecTechnicalSessionDirectories $ProjectRoot ([pscustomobject]@{DeviceKey=$key;Directory=$namespace}))){$held.Add($handle)}
+            }elseif(Test-Path -LiteralPath $directory -ErrorAction Stop){throw 'Invalid combined discovery namespace.'}
+            if($namespace -cne 'sessions' -or -not [IO.Directory]::Exists($directory)){continue}
+            foreach($path in [IO.Directory]::EnumerateFileSystemEntries($directory)){
+                $header=$null;$opened=$null;$clock=[Diagnostics.Stopwatch]::StartNew()
+                Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
+                $relative=$path.Substring([IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\').Length+1)
+                $null=Assert-WinSecSnapshotStoragePath $ProjectRoot $relative -AllowExistingArtifact
+                $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+                if($item.Name -ceq '.gitkeep' -and -not $item.PSIsContainer){continue}
+                if($item.PSIsContainer -or $item.Name -cnotmatch '\A[a-f0-9]{64}\.json\z'){throw 'Unknown or incomplete stored discovery artifact.'}
+                try{
+                    $header=[WinSec.SnapshotIO3]::Read($path)
+                    $bytes=Read-WinSecSnapshotBytes $path 2097152 $CancellationAction;$totalBytes+=$bytes.Length
+                    if($totalBytes -gt 33554432){throw 'Combined discovery metadata budget exceeded.'}
+                    $utf8=New-Object Text.UTF8Encoding($false,$true)
+                    $envelope=ConvertFrom-WinSecTransitionJson ($utf8.GetString($bytes))
+                    $validated=Assert-WinSecTransitionSession $envelope
+                    $record=$validated.Record
+                    $owner=Copy-WinSecTechnicalSessionIdentity ([pscustomobject]@{DeviceId=$record.DeviceId;ScanId=$record.ScanId;ScopeType=$record.ScopeType;ScopeKey=$record.ScopeKey})
+                    $expected=Get-WinSecTransitionSessionLayout $ProjectRoot $DeviceId $owner.ScanId
+                    if($owner.DeviceId -cne $DeviceId -or $expected.Path -cne $path){throw 'Foreign stored discovery artifact.'}
+                    # Do not select only the pilot from an otherwise valid multi-control session.
+                    if($envelope.Sources.Count -gt 1){throw [NotSupportedException]::new('MULTI_CONTROL_SESSION_NOT_SUPPORTED')}
+                    if($envelope.Sources.Count -ne 1 -or $envelope.Sources[0].Identity.CheckId -cne 'WSA-SYS-001'){
+                        throw [NotSupportedException]::new('STORED_CONTROL_NOT_SUPPORTED')
+                    }
+                    $opened=Open-WinSecStoredTechnicalIndexEntry $ProjectRoot $owner (Get-WinSecSnapshotByteHash $bytes) $envelope.ContentSha256 $CancellationAction
+                    $stored.Add($opened.Entry)
+                    Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
+                }finally{Close-WinSecStoredTechnicalIndexEntry $opened;if($header){$header.Dispose()}}
+            }
+        }
+        foreach($entry in $technical.Sessions){
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            $bytes=Read-WinSecSnapshotBytes $entry.Path 16384 $CancellationAction;$totalBytes+=$bytes.Length
+            if($totalBytes -gt 33554432 -or (Get-WinSecSnapshotByteHash $bytes) -cne $entry.FileSha256){throw 'Combined discovery metadata changed or exceeds its budget.'}
+            Assert-WinSecSnapshotValidationBudget $clock $null
+        }
+        # Hold the final source bodies and metadata until both namespace gates finish. Later
+        # callbacks cannot alter an earlier source after its physical validation.
+        foreach($entry in @($technical.Sessions)+@($stored.ToArray())){
+            $opened=$null;$isStored=($null -ne $entry.PSObject.Properties['ArtifactType'])
+            try{
+                if($isStored){
+                    $opened=Open-WinSecStoredTechnicalIndexEntry $ProjectRoot $entry.Identity $entry.FileSha256 $entry.ContentSha256 $CancellationAction
+                    if((Get-WinSecPublicHistoryJson $opened.Entry) -cne (Get-WinSecPublicHistoryJson $entry)){throw 'Stored discovery sources changed.'}
+                }else{
+                    $opened=Open-WinSecStoredTechnicalSession $ProjectRoot $entry.Path $entry.Session.Identity $entry.Session.ContentSha256 $CancellationAction
+                    if($opened.FileSha256 -cne $entry.FileSha256){throw 'Technical discovery publication changed.'}
+                }
+                $pinned.Add([pscustomobject]@{Stored=$isStored;Opened=$opened});$opened=$null
+            }finally{if($opened){if($isStored){Close-WinSecStoredTechnicalIndexEntry $opened}else{Close-WinSecStoredTechnicalSession $opened}}}
+        }
+        # No caller callbacks after this final namespace check.
+        Assert-WinSecTechnicalDiscoveryNamespace $ProjectRoot $DeviceId technical-sessions $technical.Sessions
+        Assert-WinSecTechnicalDiscoveryNamespace $ProjectRoot $DeviceId sessions $stored.ToArray()
+        Assert-WinSecTechnicalSessionOwnerUnchanged $lease
+        [pscustomobject]@{ArtifactType='WinSec.TechnicalSourceDiscovery';SchemaVersion='1.1.0';DeviceId=$DeviceId;
+            Sessions=$technical.Sessions;StoredSessions=@($stored.ToArray()|Sort-Object Path -CaseSensitive)}
+    }catch{
+        if($_.Exception -is [OperationCanceledException]){throw}
+        if($_.Exception -is [NotSupportedException] -and $_.Exception.Message -cin @('MULTI_CONTROL_SESSION_NOT_SUPPORTED','STORED_CONTROL_NOT_SUPPORTED')){throw}
+        throw 'Combined technical discovery rejected; no partial discovery or fallback was published.'
+    }finally{
+        foreach($pin in $pinned){if($pin.Stored){Close-WinSecStoredTechnicalIndexEntry $pin.Opened}else{Close-WinSecStoredTechnicalSession $pin.Opened}}
+        foreach($handle in $held){$handle.Dispose()};if($lease){$lease.Lock.Dispose()}
+    }
+}
