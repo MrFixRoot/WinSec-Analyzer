@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "framework": "CIS Benchmarks",
+  "benchmark": {
+    "name": "PLACEHOLDER: Microsoft Windows 11 ...",
+    "version": "REPLACE",
+    "targetOS": "Windows11",
+    "edition": "REPLACE_WITH_VERIFIED_TARGET_EDITION",
+    "profile": "REPLACE_WITH_VERIFIED_PROFILE",
+    "source": "https://www.cisecurity.org/benchmark/microsoft_windows_desktop"
+  },
+  "verified": false,
+  "note": "This is NOT an official benchmark and has no active controls. Never claim compliance from it. Copy to config/benchmarks/local/ after licensing and verification.",
+  "rules": []
+}

@@ -1,60 +1,39 @@
+# ==========================================
+# AGENT INSTRUCTIONS - PRIVATE
+# ==========================================
 
-# ============================================================
-# WinSec Analyzer - Git Ignore
-# ============================================================
+AGENTS.md
+*.agent.md
+*.instructions.md
+.github/instructions/
+.claude/
+.codex/
+.cursor/
 
-# ------------------------------------------------------------
-# Generated reports and logs
-# ------------------------------------------------------------
+# ==========================================
+# INTERNAL DOCUMENTATION
+# ==========================================
 
-reports/*
-!reports/.gitkeep
-!/reports/exports/
-/reports/exports/*
-!/reports/exports/.gitkeep
+/docs/
 
-logs/*
-!logs/.gitkeep
+# ==========================================
+# AUDIT DATA - PRIVATE
+# ==========================================
 
-# ------------------------------------------------------------
-# Codex - Private Development Instructions
-# ------------------------------------------------------------
+/device/
+/devices/
+/scans/
+/snapshots/
+/evidence/
+/reports/
+/logs/
+/output/
 
-/AGENTS.md
-/agents.md
+# ==========================================
+# LOCAL CONFIGURATION
+# ==========================================
 
-# Internal project documentation
-/docs/DECISIONS.md
-/docs/decisions.md
-/docs/STATUS.md
-/docs/status.md
-
-# Private architecture documentation
-/docs/.codex/
-
-# ------------------------------------------------------------
-# Local Device Inventory and Scan History
-# ------------------------------------------------------------
-
-# Exclude local data; preserve only the data and scans folder placeholders.
-# Already tracked inventory files must also be removed from the Git index.
-/data/*
-!/data/.gitkeep
-!/data/scans/
-/data/scans/*
-!/data/scans/.gitkeep
-
-# Future technical snapshots: keep contents local, allow only the folder placeholder.
-/scans/*
-!/scans/.gitkeep
-
-# ------------------------------------------------------------
-# Temporary files
-# ------------------------------------------------------------
-
-*.tmp
-*.bak
-*.log
-
-# Local development notes
-/README.local.md
+.env
+.env.*
+config/local/
+config/private/

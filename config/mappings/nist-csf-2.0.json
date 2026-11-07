@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1",
+  "framework": "NIST CSF 2.0",
+  "assessmentType": "Evidence mapping only; NOT a NIST compliance assessment",
+  "source": "https://www.nist.gov/cyberframework",
+  "mappings": [
+    {
+      "category": "PR.PS",
+      "name": "Platform Security",
+      "collectors": [
+        "WindowsDefender",
+        "WindowsFirewall",
+        "SecureBoot",
+        "UAC",
+        "CredentialGuard",
+        "SmartScreen",
+        "SMB",
+        "Services",
+        "SystemHardening",
+        "WindowsFeatures",
+        "PowerShellPolicy",
+        "WindowsUpdate"
+      ],
+      "note": "Los ajustes locales aportan evidencia de configuracion de plataformas."
+    },
+    {
+      "category": "PR.DS",
+      "name": "Data Security",
+      "collectors": [
+        "BitLocker",
+        "TPM"
+      ],
+      "note": "Datos del cifrado y el hardware; no cubren todas las obligaciones de proteccion de datos."
+    },
+    {
+      "category": "PR.AA",
+      "name": "Identity Management, Authentication, and Access Control",
+      "collectors": [
+        "LocalUsers",
+        "LocalGroups",
+        "LocalAdministrators",
+        "GuestAccount",
+        "PasswordPolicy",
+        "PrivilegeRights",
+        "RDP"
+      ],
+      "note": "Solo identidades y accesos visibles localmente."
+    },
+    {
+      "category": "DE.CM",
+      "name": "Continuous Monitoring",
+      "collectors": [
+        "AuditPolicy",
+        "PowerShellLogging",
+        "EventLogConfiguration",
+        "WindowsDefender"
+      ],
+      "note": "Disponibilidad de telemetria, no comprueba un SOC ni una supervision real."
+    },
+    {
+      "category": "ID.AM",
+      "name": "Asset Management",
+      "collectors": [
+        "NetworkAdapters",
+        "TCPListeners",
+        "InstalledSoftware",
+        "Services",
+        "WindowsFeatures"
+      ],
+      "note": "Inventario parcial del endpoint; no inventario organizacional."
+    },
+    {
+      "category": "ID.RA",
+      "name": "Risk Assessment",
+      "collectors": [
+        "SystemHardening",
+        "SMB",
+        "RDP",
+        "WinRM",
+        "PendingReboot",
+        "InstalledHotfixes"
+      ],
+      "note": "Evidencia tecnica util, no demuestra proceso formal de gestion de riesgos."
+    }
+  ]
+}
