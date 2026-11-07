@@ -81,14 +81,14 @@ $p=Select-WinSecTechnicalSource $Root $m[$DeviceId] $DeviceId REVIEWED_PROJECTIO
         }
     }
     foreach($scope in @('SECTION','DEVICE')){
-        Test-CD ('A valid multi-control '+$scope+' session blocks the entire combined discovery without filtering or rewriting history') {
+        Test-CD ('A supported multi-control '+$scope+' session retains every original source without filtering or rewriting history') {
             $dir=New-CD;$s=Save-WinSecStoredDiscoveryFixture $dir -ScopeType $scope -CheckIds @('WSA-SYS-001','WSA-SYS-002')
             $null=Save-WinSecCandidateDiscoveryFixture $dir;. (Join-Path $dir 'src/Services/TechnicalSourceRestoration.ps1')
             $hash=(Get-FileHash $s.Layout.Path).Hash;$envelope=ConvertFrom-WinSecTransitionJson ([IO.File]::ReadAllText($s.Layout.Path))
-            $null=Assert-WinSecTransitionSession $envelope;$caught=$false
-            try{$null=Read-WinSecTechnicalIndexDiscovery $dir $id}catch [NotSupportedException]{$caught=($_.Exception.Message -ceq 'MULTI_CONTROL_SESSION_NOT_SUPPORTED')}
+            $null=Assert-WinSecTransitionSession $envelope;$discovery=Read-WinSecTechnicalIndexDiscovery $dir $id
             $historical=Read-WinSecTransitionSessions $dir @([pscustomobject]@{DeviceId=$id})
-            Assert-CD ($caught -and $envelope.Sources.Count -eq 2 -and $historical.Records.Count -eq 1 -and (Get-FileHash $s.Layout.Path).Hash -ceq $hash)
+            Assert-CD ($discovery.StoredSessions.Count -eq 1 -and $discovery.StoredSessions[0].Sources.Count -eq 2 -and
+                $envelope.Sources.Count -eq 2 -and $historical.Records.Count -eq 1 -and (Get-FileHash $s.Layout.Path).Hash -ceq $hash)
         }
     }
     foreach($damage in @('StoredBytes','StoredVersion','ForeignPath','PartialPublication','SourceBody')){
@@ -116,7 +116,7 @@ $p=Select-WinSecTechnicalSource $Root $m[$DeviceId] $DeviceId REVIEWED_PROJECTIO
         Assert-CD ((Read-WinSecTechnicalIndexDiscovery $dir $id).StoredSessions.Count -eq 1 -and [IO.File]::ReadAllText($path) -ceq 'INVALID')
     }
     Test-CD 'A non-pilot single-control StoredSession is not silently skipped or relabelled as Defender' {
-        $dir=New-CD;$s=Save-WinSecStoredDiscoveryFixture $dir -ScopeType SECTION -CheckIds @('WSA-SYS-002')
+        $dir=New-CD;$s=Save-WinSecStoredDiscoveryFixture $dir -ScopeType SECTION -CheckIds @('WSA-NET-002')
         . (Join-Path $dir 'src/Services/TechnicalSourceRestoration.ps1');$caught=$false
         try{$null=Read-WinSecTechnicalIndexDiscovery $dir $id}catch [NotSupportedException]{$caught=($_.Exception.Message -ceq 'STORED_CONTROL_NOT_SUPPORTED')}
         Assert-CD ($caught -and [IO.File]::Exists($s.Layout.Path))

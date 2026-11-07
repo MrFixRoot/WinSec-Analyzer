@@ -1,11 +1,21 @@
 # Stage 3 preparation only: explicit metadata, no files, collectors, index mutation or activation.
 . (Join-Path $PSScriptRoot 'TechnicalSnapshotContract.ps1')
 
+function Get-WinSecProductiveTechnicalSourceSpecification {
+    param([object]$CheckId)
+    # Closed reviewed transport matrix, not a collector permission or candidate adapter.
+    if($CheckId -isnot [string] -or $CheckId -cnotin @('WSA-SYS-001','WSA-SYS-002','WSA-SYS-003')){
+        throw 'Unsupported productive technical control.'
+    }
+    [pscustomobject]@{SnapshotSchemaVersion='2.1.0';CatalogId=('WinSec.Reviewed.'+$CheckId);
+        CatalogSchemaVersion='1.1.0';CatalogVersion='1.0.0';CollectorVersion='0.9.0'}
+}
+
 function Resolve-WinSecTechnicalSourceVersion {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object]$Reference,[Parameter(Mandatory)][object]$ExpectedIdentity)
     Assert-WinSecSnapshotIdentity $ExpectedIdentity
-    if($ExpectedIdentity.CheckId -cne 'WSA-SYS-001'){throw 'Technical source pilot supports Defender only.'}
+    $productive=Get-WinSecProductiveTechnicalSourceSpecification $ExpectedIdentity.CheckId
     # The historical stored-session reference has exactly three fields and means reviewed projection.
     # It is never used to discover or guess a candidate catalog from files or a hash.
     $legacy=($null -ne $Reference -and $Reference.GetType() -eq [Management.Automation.PSCustomObject] -and @($Reference.PSObject.Properties).Count -eq 3)
@@ -27,15 +37,15 @@ function Resolve-WinSecTechnicalSourceVersion {
     }
     $null=ConvertTo-WinSecSnapshotUtc $Reference.CollectedAtUTC
     $schema=if($legacy){'2.1.0'}else{$Reference.SnapshotSchemaVersion}
-    $catalog=if($legacy){'WinSec.Reviewed.WSA-SYS-001'}else{$Reference.CatalogId}
+    $catalog=if($legacy){$productive.CatalogId}else{$Reference.CatalogId}
     $catalogSchema=if($legacy){'1.1.0'}else{$Reference.CatalogSchemaVersion}
     $catalogVersion=if($legacy){'1.0.0'}else{$Reference.CatalogVersion}
     $collector=if($legacy){'0.9.0'}else{$Reference.CollectorVersion}
     $family=$null
-    if($schema -ceq '2.1.0' -and $catalog -ceq 'WinSec.Reviewed.WSA-SYS-001' -and $catalogSchema -ceq '1.1.0' -and
-        $catalogVersion -ceq '1.0.0' -and $collector -ceq '0.9.0'){
+    if($schema -ceq $productive.SnapshotSchemaVersion -and $catalog -ceq $productive.CatalogId -and $catalogSchema -ceq $productive.CatalogSchemaVersion -and
+        $catalogVersion -ceq $productive.CatalogVersion -and $collector -ceq $productive.CollectorVersion){
         $family='REVIEWED_PROJECTION'
-    }elseif($schema -ceq '2.0.0' -and $catalog -ceq 'WinSec.Defender.Candidate' -and $catalogSchema -ceq '1.0.0' -and
+    }elseif($ExpectedIdentity.CheckId -ceq 'WSA-SYS-001' -and $schema -ceq '2.0.0' -and $catalog -ceq 'WinSec.Defender.Candidate' -and $catalogSchema -ceq '1.0.0' -and
         (($catalogVersion -ceq '1.0.0' -and $collector -cin @('1.0.0','1.1.0','1.2.0','1.3.0')) -or
          ($catalogVersion -ceq '1.1.0' -and $collector -ceq '1.3.0'))){
         $family='DEFENDER_CANDIDATE'

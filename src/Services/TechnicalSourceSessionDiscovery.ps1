@@ -114,7 +114,7 @@ function Read-WinSecTechnicalIndexDiscovery {
     $clock=[Diagnostics.Stopwatch]::StartNew();Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
     $technical=Read-WinSecTechnicalSourceSessions $ProjectRoot $DeviceId -CancellationAction $CancellationAction
     $lease=$null;$held=New-Object 'Collections.Generic.List[IDisposable]'
-    $stored=New-Object 'Collections.Generic.List[object]';$pinned=New-Object 'Collections.Generic.List[object]';$totalBytes=0
+    $stored=New-Object 'Collections.Generic.List[object]';$pinned=New-Object 'Collections.Generic.List[object]';$storedPins=@{};$totalBytes=0
     try{
         $lease=Open-WinSecTechnicalSessionOwner $ProjectRoot ([pscustomobject]@{DeviceId=$DeviceId})
         $key=Get-WinSecSnapshotDeviceKey $DeviceId
@@ -146,13 +146,21 @@ function Read-WinSecTechnicalIndexDiscovery {
                     $owner=Copy-WinSecTechnicalSessionIdentity ([pscustomobject]@{DeviceId=$record.DeviceId;ScanId=$record.ScanId;ScopeType=$record.ScopeType;ScopeKey=$record.ScopeKey})
                     $expected=Get-WinSecTransitionSessionLayout $ProjectRoot $DeviceId $owner.ScanId
                     if($owner.DeviceId -cne $DeviceId -or $expected.Path -cne $path){throw 'Foreign stored discovery artifact.'}
-                    # Do not select only the pilot from an otherwise valid multi-control session.
-                    if($envelope.Sources.Count -gt 1){throw [NotSupportedException]::new('MULTI_CONTROL_SESSION_NOT_SUPPORTED')}
-                    if($envelope.Sources.Count -ne 1 -or $envelope.Sources[0].Identity.CheckId -cne 'WSA-SYS-001'){
-                        throw [NotSupportedException]::new('STORED_CONTROL_NOT_SUPPORTED')
+                    # Every original source must have reviewed support; never filter the session.
+                    foreach($reference in $envelope.Sources){
+                        try{$null=Get-WinSecProductiveTechnicalSourceSpecification $reference.Identity.CheckId}
+                        catch{throw [NotSupportedException]::new('STORED_CONTROL_NOT_SUPPORTED')}
                     }
+                    # Header work and each source package have independent bounded validation
+                    # steps. Do not charge three complete package readers to one header clock.
+                    Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
                     $opened=Open-WinSecStoredTechnicalIndexEntry $ProjectRoot $owner (Get-WinSecSnapshotByteHash $bytes) $envelope.ContentSha256 $CancellationAction
+                    $clock=[Diagnostics.Stopwatch]::StartNew()
                     $stored.Add($opened.Entry)
+                    # Keep the verified bodies, rather than closing and parsing every source again.
+                    $pin=Get-WinSecSnapshotByteHash ([Text.Encoding]::UTF8.GetBytes((Get-WinSecPublicHistoryJson $opened.Entry)))
+                    if($storedPins.ContainsKey($opened.Entry.Path)){throw 'Duplicate stored discovery path.'};$storedPins[$opened.Entry.Path]=$pin
+                    $pinned.Add([pscustomobject]@{Stored=$true;Opened=$opened});$opened=$null
                     Assert-WinSecSnapshotValidationBudget $clock $CancellationAction
                 }finally{Close-WinSecStoredTechnicalIndexEntry $opened;if($header){$header.Dispose()}}
             }
@@ -169,13 +177,14 @@ function Read-WinSecTechnicalIndexDiscovery {
             $opened=$null;$isStored=($null -ne $entry.PSObject.Properties['ArtifactType'])
             try{
                 if($isStored){
-                    $opened=Open-WinSecStoredTechnicalIndexEntry $ProjectRoot $entry.Identity $entry.FileSha256 $entry.ContentSha256 $CancellationAction
-                    if((Get-WinSecPublicHistoryJson $opened.Entry) -cne (Get-WinSecPublicHistoryJson $entry)){throw 'Stored discovery sources changed.'}
+                    # These handles have remained open since the first validation. Check the
+                    # detached descriptor against its frozen pin after all earlier callbacks.
+                    if(-not $storedPins.ContainsKey($entry.Path) -or (Get-WinSecSnapshotByteHash ([Text.Encoding]::UTF8.GetBytes((Get-WinSecPublicHistoryJson $entry)))) -cne $storedPins[$entry.Path]){throw 'Stored discovery metadata changed.'}
                 }else{
                     $opened=Open-WinSecStoredTechnicalSession $ProjectRoot $entry.Path $entry.Session.Identity $entry.Session.ContentSha256 $CancellationAction
                     if($opened.FileSha256 -cne $entry.FileSha256){throw 'Technical discovery publication changed.'}
+                    $pinned.Add([pscustomobject]@{Stored=$false;Opened=$opened});$opened=$null
                 }
-                $pinned.Add([pscustomobject]@{Stored=$isStored;Opened=$opened});$opened=$null
             }finally{if($opened){if($isStored){Close-WinSecStoredTechnicalIndexEntry $opened}else{Close-WinSecStoredTechnicalSession $opened}}}
         }
         # No caller callbacks after this final namespace check.

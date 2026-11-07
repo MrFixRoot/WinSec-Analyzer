@@ -2,7 +2,7 @@
 . (Join-Path $PSScriptRoot 'TechnicalSourceMemory.ps1')
 
 function Save-WinSecStoredDiscoveryFixture {
-    param([string]$ProjectRoot,[string]$ScopeType='CONTROL',[string[]]$CheckIds=@('WSA-SYS-001'),[int]$Day=0,[switch]$Partial)
+    param([string]$ProjectRoot,[string]$ScopeType='CONTROL',[string[]]$CheckIds=@('WSA-SYS-001'),[int]$Day=0,[switch]$Partial,[string[]]$PartialCheckIds=@())
     . (Join-Path $ProjectRoot 'src/Core/ScanCoordinator.ps1')
     . (Join-Path $ProjectRoot 'src/Services/TechnicalSourceRestoration.ps1')
     $f=New-WinSecTechnicalSourceFixture -Family PROJECTION -ScopeType $ScopeType
@@ -12,12 +12,14 @@ function Save-WinSecStoredDiscoveryFixture {
     }
     if($Partial){$report.CollectorStatus='ERROR'}
     $prototype=New-WinSecProjectionSnapshot $report;$id=$prototype.Identity;$s=$prototype.Snapshot
+    $scopeKey=switch($ScopeType){CONTROL {$CheckIds[0]};SECTION {(Get-WinSecSnapshotControl $CheckIds[0]).SectionKey};DEVICE {'ALL'}}
     $controls=@(foreach($check in $CheckIds){
-        [pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;CheckId=$check;SectionKey='SystemSecurity';Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL';
-            TimestampUTC=$s.CollectedAtUTC;Evidence=[pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;CheckId=$check;CollectedAtUTC=$s.CollectedAtUTC}}
+        [pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;CheckId=$check;SectionKey=(Get-WinSecSnapshotControl $check).SectionKey;Status='INFORMATIONAL';ObservedStatus='INFORMATIONAL';
+            TimestampUTC=$s.CollectedAtUTC;Evidence=[pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;CheckId=$check;CollectedAtUTC=$s.CollectedAtUTC;
+                CollectionSuccessful=$true;CollectionComplete=($check -cnotin $PartialCheckIds)}}
     })
     $session=New-WinSecResultSession -DeviceId $id.DeviceId -ScanId $scan -CatalogVersion '1.0.0' -ExpectedCheckIds $CheckIds -ControlResults $controls `
-        -StartedAtUTC $s.StartedAtUTC -CompletedAtUTC $s.CompletedAtUTC -ExecutionStatus $(if($Partial){'COMPLETED_WITH_ERRORS'}else{'COMPLETED'}) -ScopeType $ScopeType -ScopeKey $id.ScopeKey
+        -StartedAtUTC $s.StartedAtUTC -CompletedAtUTC $s.CompletedAtUTC -ExecutionStatus $(if($Partial -or $PartialCheckIds.Count){'COMPLETED_WITH_ERRORS'}else{'COMPLETED'}) -ScopeType $ScopeType -ScopeKey $scopeKey
     $files=@(foreach($check in $CheckIds){
         $package=if($check -ceq 'WSA-SYS-001'){$prototype}else{
             $other=New-WinSecTechnicalReport $session $check SYNTHETIC SYNTHETIC;New-WinSecProjectionSnapshot $other
@@ -26,9 +28,9 @@ function Save-WinSecStoredDiscoveryFixture {
         [pscustomobject]@{Reference=[pscustomobject]@{Identity=$package.Identity;CollectedAtUTC=$package.Snapshot.CollectedAtUTC;CatalogSha256=$package.CatalogSha256}}
     })
     Write-WinSecTransitionSession ([pscustomobject]@{ProjectRoot=$ProjectRoot;TechnicalLocations=@{}}) $session ([pscustomobject]@{Status='SAVED';Files=$files})
-    [pscustomobject]@{Identity=[pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;ScopeType=$ScopeType;ScopeKey=$id.ScopeKey};
+    [pscustomobject]@{Identity=[pscustomobject]@{DeviceId=$id.DeviceId;ScanId=$scan;ScopeType=$ScopeType;ScopeKey=$scopeKey};
         Layout=(Get-WinSecTransitionSessionLayout $ProjectRoot $id.DeviceId $scan);Sources=@($files|ForEach-Object Reference);
-        Pair=(Get-WinSecSnapshotPairLayout $ProjectRoot $prototype.Identity $s.CollectedAtUTC)}
+        Pair=(Get-WinSecSnapshotPairLayout $ProjectRoot $files[0].Reference.Identity $files[0].Reference.CollectedAtUTC)}
 }
 
 function Save-WinSecCandidateDiscoveryFixture {

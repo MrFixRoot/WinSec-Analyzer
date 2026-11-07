@@ -7,7 +7,7 @@ function Get-WinSecTechnicalSourcePackageStamp {
     # Offline preparation, not proof that a corresponding pair has been committed.
     $clock=[Diagnostics.Stopwatch]::StartNew()
     Assert-WinSecSnapshotIdentity $ExpectedIdentity
-    if($ExpectedIdentity.CheckId -cne 'WSA-SYS-001'){throw 'Technical source emission pilot supports Defender only.'}
+    $null=Get-WinSecProductiveTechnicalSourceSpecification $ExpectedIdentity.CheckId
     $owner=$ExpectedIdentity.PSObject.Copy()
     Assert-WinSecSnapshotFields $Package @('Snapshot','Catalog','CatalogSha256','Identity')
     Assert-WinSecSnapshotIdentity $Package.Identity

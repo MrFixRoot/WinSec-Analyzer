@@ -10,9 +10,10 @@ function Select-WinSecTechnicalSource {
     try{
         if($PolicyVersion -isnot [string] -or $PolicyVersion -cne '1.0.0' -or
             $SourcePreference -cnotin @('PREFER_COMPLETE','LATEST_ATTEMPT') -or
-            $Family -cnotin @('REVIEWED_PROJECTION','DEFENDER_CANDIDATE') -or $CheckId -cne 'WSA-SYS-001'){
+            $Family -cnotin @('REVIEWED_PROJECTION','DEFENDER_CANDIDATE') -or ($Family -ceq 'DEFENDER_CANDIDATE' -and $CheckId -cne 'WSA-SYS-001')){
             throw 'Unsupported technical source policy, family or control.'
         }
+        $null=Get-WinSecProductiveTechnicalSourceSpecification $CheckId
         $control=Get-WinSecSnapshotControl $CheckId
         switch -CaseSensitive ($ScopeType){
             CONTROL {if($ScopeKey -cne $CheckId){throw 'Invalid control selection scope.'}}
@@ -40,7 +41,7 @@ function Select-WinSecTechnicalSource {
                 if($ScopeType -ceq 'CONTROL' -and
                     (($identity.ScopeType -ceq 'SECTION' -and $identity.ScopeKey -ceq $control.SectionKey) -or
                      ($identity.ScopeType -ceq 'DEVICE' -and $identity.ScopeKey -ceq 'ALL'))){$scopeMatches=$true}
-                $eligibility=if(-not $scopeMatches){'OUT_OF_SCOPE'}elseif($resolution.Family -cne $Family){'OTHER_FAMILY'}else{'ELIGIBLE'}
+                $eligibility=if($identity.CheckId -cne $CheckId){'OTHER_CONTROL'}elseif(-not $scopeMatches){'OUT_OF_SCOPE'}elseif($resolution.Family -cne $Family){'OTHER_FAMILY'}else{'ELIGIBLE'}
                 $row=[pscustomobject]@{SessionIdentity=$owner.PSObject.Copy();SessionContentSha256=$view.ContentSha256;
                     FileSha256=$entry.FileSha256;Source=$source;Family=$resolution.Family;Eligibility=$eligibility;Verification='REFERENCE_ONLY'}
                 $retainedBytes+=[Text.Encoding]::UTF8.GetByteCount((Get-WinSecPublicHistoryJson $row))

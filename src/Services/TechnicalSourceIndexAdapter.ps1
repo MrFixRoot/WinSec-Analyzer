@@ -145,7 +145,6 @@ function Read-WinSecIndexedTechnicalSession {
     try{
         $owner=Copy-WinSecTechnicalSessionIdentity $ExpectedIdentity
         $indexCopy=Copy-WinSecTechnicalIndexMetadata $ProjectRoot $Index $owner.DeviceId INDEX $CancellationAction
-        $null=Get-WinSecTechnicalSessionStorageLayout $ProjectRoot $owner
         $matches=@(foreach($entry in @(Get-WinSecTechnicalIndexEntries $indexCopy)){
             $view=Get-WinSecTechnicalIndexEntryView $entry;$equal=$true
             foreach($field in @('DeviceId','ScanId','ScopeType','ScopeKey')){if($view.Identity.$field -cne $owner.$field){$equal=$false}}

@@ -14,6 +14,7 @@ function Copy-WinSecTechnicalSessionReference {
     Assert-WinSecSnapshotFields $Reference @('ArtifactType','SchemaVersion','Identity','CollectedAtUTC','SnapshotSchemaVersion',
         'CatalogId','CatalogSchemaVersion','CatalogVersion','CatalogSha256','CollectorVersion')
     $resolved=Resolve-WinSecTechnicalSourceVersion $Reference $Reference.Identity
+    if($resolved.Identity.CheckId -cne 'WSA-SYS-001'){throw 'TechnicalSourceSession 1.0 remains a Defender-only container.'}
     foreach($field in @('DeviceId','ScanId','ScopeType','ScopeKey')){
         if($resolved.Identity.$field -cne $Identity.$field){throw 'Foreign technical session reference.'}
     }
