@@ -15,15 +15,16 @@ function Move-WinSecCursor {
 }
 
 function Read-WinSecInput {
-    param([string[]]$Hints=@(),[string]$Shortcuts='')
+    param([string[]]$Hints=@(),[string]$Shortcuts='',[string[]]$Actions=@(),[string]$Footer='[Esc] Back/Cancel | [F1] Help | [Q] Exit')
+    $guidance=@($Hints)+@('',$Footer)
     Write-Host ''
     Write-Host '  > ' -NoNewline
     Write-Host ''
     $width=80
     try { $width=[math]::Max(1,$Host.UI.RawUI.BufferSize.Width) } catch { }
     $hintRows=0
-    foreach ($hint in $Hints) { $hintRows+=[math]::Max(1,[math]::Ceiling((2+$hint.Length)/$width)) }
-    foreach ($hint in $Hints) { Write-Host ('  '+$hint) -ForegroundColor DarkGray }
+    foreach ($hint in $guidance) { $hintRows+=[math]::Max(1,[math]::Ceiling((2+$hint.Length)/$width)) }
+    foreach ($hint in $guidance) { Write-Host ('  '+$hint) -ForegroundColor DarkGray }
     $endPosition=Get-WinSecCursor
     if ($null -ne $endPosition) {
         # Calculate from the final position: printing hints may have scrolled the buffer.
@@ -37,7 +38,18 @@ function Read-WinSecInput {
         if ($key.VirtualKeyCode -eq 27) {
             Move-WinSecCursor $endPosition
             Write-Host ''
-            return [pscustomobject]@{ Cancelled=$true; Text='' }
+            return [pscustomobject]@{ Cancelled=$true; HelpRequested=$false; Action=''; Text='' }
+        }
+        if ($key.VirtualKeyCode -eq 112) {
+            Move-WinSecCursor $endPosition
+            Write-Host ''
+            return [pscustomobject]@{ Cancelled=$false; HelpRequested=$true; Action=''; Text='' }
+        }
+        $keys=@{113='Rename';46='Delete';38='Up';40='Down'}
+        if ($buffer.Length -eq 0 -and $keys.ContainsKey([int]$key.VirtualKeyCode) -and $keys[[int]$key.VirtualKeyCode] -in $Actions) {
+            Move-WinSecCursor $endPosition
+            Write-Host ''
+            return [pscustomobject]@{ Cancelled=$false; HelpRequested=$false; Action=$keys[[int]$key.VirtualKeyCode]; Text='' }
         }
         if ($key.VirtualKeyCode -eq 13) { break }
         if ($key.VirtualKeyCode -eq 8) {
@@ -59,7 +71,7 @@ function Read-WinSecInput {
     }
     Move-WinSecCursor $endPosition
     Write-Host ''
-    return [pscustomobject]@{ Cancelled=$false; Text=$buffer.ToString().Trim() }
+    return [pscustomobject]@{ Cancelled=$false; HelpRequested=$false; Action=''; Text=$buffer.ToString().Trim() }
 }
 
 function ConvertFrom-WinSecInputCommand {
@@ -77,9 +89,9 @@ function ConvertFrom-WinSecInputCommand {
     if ($command -isnot [System.Management.Automation.Language.CommandAst] -or
         $command.InvocationOperator -ne [System.Management.Automation.Language.TokenKind]::Unknown -or
         $command.Redirections.Count -gt 0 -or $command.GetCommandName() -ne 'winsec') {
-        throw 'Escribe winsec seguido de sus opciones, o help para consultar la ayuda.'
+        throw 'Escribe winsec seguido de sus opciones, o pulsa F1 para consultar la ayuda.'
     }
-    $switches=@{s='Scan';scan='Scan';n='Nist';nist='Nist';c='Cis';cis='Cis';deep='Deep';list='List';report='Report';nobanner='NoBanner';h='Help';help='Help'}
+    $switches=@{s='Scan';scan='Scan';n='Nist';nist='Nist';c='Cis';cis='Cis';r='Correlate';correlate='Correlate';deep='Deep';list='List';report='Report';nobanner='NoBanner'}
     $values=@{a='Analyze';analyze='Analyze';domain='Domain';collector='Collector';snapshot='Snapshot';outputroot='OutputRoot';correlation='Correlation'}
     $parameters=@{}
     $elements=$command.CommandElements
@@ -98,8 +110,9 @@ function ConvertFrom-WinSecInputCommand {
                     throw ('Falta un valor literal para -'+$name+'.')
                 }
                 $value=$elements[$i].Value
-            } else { throw ('Opcion desconocida: -'+$name+'. Escribe help.') }
-        } elseif ($element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+            } else { throw ('Opcion desconocida: -'+$name+'. Pulsa F1 para consultar la ayuda.') }
+        } elseif ($element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+            ($element -is [System.Management.Automation.Language.ConstantExpressionAst] -and $element.Value -is [int])) {
             $parameter='Domain'; $value=$element.Value
         } else { throw 'No se admiten variables, expresiones ni ejecucion de PowerShell en este menu.' }
         if ($parameters.ContainsKey($parameter)) { throw ('Opcion repetida: '+$parameter+'.') }

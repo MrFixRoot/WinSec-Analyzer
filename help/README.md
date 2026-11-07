@@ -1,34 +1,30 @@
-# Ayuda de WinSec-Analyzer
-
-Escribe el numero de una seccion o un comando winsec.
-Q / q: salir de la sesion. Esc: cancelar la entrada o volver atras.
-Las teclas de menu se activan sin Enter; los comandos requieren Enter.
+# Ayuda de secciones
 
 Escanear todas las secciones:
     winsec -s
 
-Escanear una seccion:
-    winsec -s system
-    winsec -s network
-    winsec -s identity
-    winsec -s services
-    winsec -s logging
-    winsec -s patch
+Escanear secciones individuales (elige una):
+    winsec -s [system|network|identity|servicesHardening|login|patch]
 
-Analizar un control o una seccion, un framework por comando:
-    winsec -a WindowsDefender -c
-    winsec -a WindowsDefender -n
+Marcos de referencia:
+    -a [A]nalizar
+    -c [C]IS Benchmarks
+    -n [N]IST CSF 2.0
+
+Seccion:
     winsec -a network -n
-    winsec -a all -c
+    winsec -a network -c
 
-Correlacion es una opcion PLUS [7]; no es una septima seccion:
-    winsec -Correlation 1
-    winsec -Correlation 5
+Correlacion PLUS [+]:
+    -r co[r]relation
 
-Ayuda: escribe help dentro de cualquier seccion.
-CIS requiere un pack local verificado; NIST solo mapea evidencia.
-
-La sesion interactiva usa una carpeta UTC y un manifest compartido.
-Cada collector conserva su JSON; repetir el escaneo reutiliza lo guardado.
-Para volver a consultar collectors ya guardados, sal con Q y abre otra sesion.
-Los comandos ejecutados fuera del menu crean una captura por invocacion.
+Correlacion 1: Network Security + Services & Hardening
+    winsec -r 1
+Correlacion 2: Identity & Access + Logging & Auditing
+    winsec -r 2
+Correlacion 3: Network Security + Identity & Access
+    winsec -r 3
+Correlacion 4: System Security + Logging & Auditing
+    winsec -r 4
+Correlacion 5: Ejecuta las correlaciones 1, 2, 3 y 4
+    winsec -r

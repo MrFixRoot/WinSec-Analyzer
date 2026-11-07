@@ -12,12 +12,19 @@ POWERSHELL = shutil.which("powershell.exe") if os.name == "nt" else None
 class UiSessionTests(unittest.TestCase):
     @unittest.skipUnless(POWERSHELL, "Windows PowerShell 5.1 is required")
     def test_synthetic_ui_and_session_regressions(self):
+        self._check_powershell_script("UiSession.Tests.ps1")
+
+    @unittest.skipUnless(POWERSHELL, "Windows PowerShell 5.1 is required")
+    def test_synthetic_device_inventory_regressions(self):
+        self._check_powershell_script("Devices.Tests.ps1")
+
+    def _check_powershell_script(self, name):
         # A Python child of pwsh otherwise inherits PowerShell 7 module paths.
         environment = {key: value for key, value in os.environ.items()
                        if key.upper() != "PSMODULEPATH"}
         result = subprocess.run(
             [POWERSHELL, "-NoProfile", "-NonInteractive", "-File",
-             str(ROOT / "tests/UiSession.Tests.ps1")],
+             str(ROOT / "tests" / name)],
             cwd=ROOT, env=environment, capture_output=True, timeout=90,
         )
         output = (result.stdout + result.stderr).decode(errors="replace")
@@ -30,7 +37,9 @@ class UiSessionTests(unittest.TestCase):
         for agent in catalog["collectors"]:
             with self.subTest(control=agent["id"]):
                 help_text = (ROOT / "help" / (agent["domain"] + ".md")).read_text(encoding="utf8")
-                self.assertIn(agent["id"], help_text)
-                self.assertIn("Esc", help_text)
-                self.assertIn("-c", help_text)
-                self.assertIn("-n", help_text)
+                self.assertIn(agent["id"].casefold(), help_text.casefold())
+                self.assertNotIn("Esc:", help_text)
+                self.assertNotIn("Q / q", help_text)
+                for framework in ("n", "c"):
+                    command = f"winsec -a {agent['id']} -{framework}"
+                    self.assertIn(command.casefold(), help_text.casefold())

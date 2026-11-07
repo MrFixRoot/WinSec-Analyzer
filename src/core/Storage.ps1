@@ -3,6 +3,9 @@
     if ($OutputRoot) {
         $requested=[System.IO.Path]::GetFullPath($OutputRoot)
         $project=[System.IO.Path]::GetFullPath($script:WinSecRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+        if ($requested.TrimEnd([IO.Path]::DirectorySeparatorChar) -eq $project.TrimEnd([IO.Path]::DirectorySeparatorChar)) {
+            throw 'OutputRoot no puede ser la raiz del repositorio.'
+        }
         if ($requested.StartsWith($project,[StringComparison]::OrdinalIgnoreCase)) {
             $relative=$requested.Substring($project.Length)
             $first=($relative -split '[\\/]')[0].ToLowerInvariant()
@@ -25,10 +28,22 @@ function Save-WinSecJson {
     try {
         [System.IO.File]::WriteAllText($temp, $json + [Environment]::NewLine, $utf8)
         [void](Get-Content -LiteralPath $temp -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop)
-        if (Test-Path -LiteralPath $Path) {
-            [System.IO.File]::Replace($temp, $Path, [NullString]::Value)
-        } else {
-            [System.IO.File]::Move($temp, $Path)
+        for ($attempt=0; ; $attempt++) {
+            try {
+                if (Test-Path -LiteralPath $Path) {
+                    [System.IO.File]::Replace($temp, $Path, [NullString]::Value)
+                } else {
+                    [System.IO.File]::Move($temp, $Path)
+                }
+                break
+            } catch {
+                $cause=$_.Exception.GetBaseException()
+                $code=$cause.HResult -band 0xffff
+                # Windows readers can briefly block replacement. Keep the validated
+                # temporary JSON and retry only sharing/locking/replace conflicts.
+                if ($attempt -ge 3 -or $cause -isnot [IO.IOException] -or $code -notin @(32,33,1175) -or -not (Test-Path -LiteralPath $temp)) { throw }
+                Start-Sleep -Milliseconds (25*[math]::Pow(2,$attempt))
+            }
         }
     } finally {
         if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }

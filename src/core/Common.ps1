@@ -37,6 +37,22 @@ function ConvertTo-WinSecSafeName {
     return ([regex]::Replace($Value, '[^a-zA-Z0-9._-]', '_'))
 }
 
+function ConvertTo-WinSecControlName {
+    param([string]$Name)
+    $prefix=[regex]::Match($Name,'^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]')
+    if ($prefix.Success) { return $prefix.Value.ToLowerInvariant()+$Name.Substring($prefix.Length) }
+    return $Name
+}
+
+function Format-WinSecSnapshotPath {
+    param([Parameter(Mandatory)][string]$Snapshot)
+    $path=[IO.Path]::GetFullPath($Snapshot)
+    if (Test-Path -LiteralPath $path -PathType Container) { $path=Join-Path $path 'manifest.json' }
+    $run=[IO.Path]::GetDirectoryName($path)
+    $device=[IO.Path]::GetDirectoryName($run)
+    return ('../'+[IO.Path]::GetFileName($device)+'\'+[IO.Path]::GetFileName($run)+'\'+[IO.Path]::GetFileName($path))
+}
+
 function Select-WinSecProperties {
     param($InputObject, [string[]]$Names)
     $out=[ordered]@{}
@@ -97,7 +113,7 @@ function Resolve-WinSecDomain {
         { $_ -in @('network','networksecurity','networkingsecurity','2') } { return 'NetworkSecurity' }
         { $_ -in @('identity','identityaccess','3') } { return 'IdentityAccess' }
         { $_ -in @('services','serviceshardening','hardening','4') } { return 'ServicesHardening' }
-        { $_ -in @('logging','loggingauditing','5') } { return 'LoggingAuditing' }
+        { $_ -in @('logging','login','loggingauditing','5') } { return 'LoggingAuditing' }
         { $_ -in @('patch','patchmanagement','update','6') } { return 'PatchManagement' }
         default { throw "Dominio no reconocido: $Name" }
     }

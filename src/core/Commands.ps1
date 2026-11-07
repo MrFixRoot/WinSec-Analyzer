@@ -9,7 +9,7 @@
     if ($Framework) {
         if ($Framework -eq 'cis') { $data=Invoke-WinSecCISAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
         else { $data=Invoke-WinSecNISTAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
-        [void](Save-WinSecAnalysis -Context $context -Name $Framework -Data $data)
+        [void](Save-WinSecAnalysis -Context $context -Name $Framework -Data $data -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter)
         Write-Host ('  [{0}] {1}' -f $data.status,$Framework.ToUpperInvariant()) -ForegroundColor Yellow
         if ($Framework -eq 'cis') {
             foreach ($finding in @($data.findings)) {
@@ -27,7 +27,7 @@
     }
     if ($Correlation -gt 0) {
         $data=Invoke-WinSecCorrelation -Context $context -Id $Correlation
-        [void](Save-WinSecAnalysis -Context $context -Name 'correlations' -Data $data)
+        [void](Save-WinSecCorrelations -Context $context -Data $data)
         foreach ($item in $data.correlations) {
             Write-Host ('  [{0}] {1}' -f $item.status,$item.title) -ForegroundColor Cyan
             if (@($item.missing).Count -gt 0) { Write-Host ('    Missing: '+(@($item.missing) -join ', ')) -ForegroundColor Yellow }
@@ -39,14 +39,14 @@
     }
 }
 
-function Resolve-WinSecAnalysisTarget {
+function Resolve-WinSecTarget {
     param([string]$Target)
     $agents=@(Get-WinSecCatalog | Where-Object { $_.id -eq $Target })
     if ($agents.Count -eq 1) {
         return [pscustomobject]@{ Collector=$agents[0].id; Domain=$agents[0].domain }
     }
     try { $domain=Resolve-WinSecDomain $Target }
-    catch { throw "Control o seccion no reconocido: $Target. Escribe help para ver los nombres." }
+    catch { throw "Control o seccion no reconocido: $Target. Consulta la ayuda de comandos." }
     return [pscustomobject]@{ Collector=$null; Domain=$domain }
 }
 
@@ -57,6 +57,7 @@ function winsec {
         [Alias('a')][string]$Analyze,
         [Alias('n')][switch]$Nist,
         [Alias('c')][switch]$Cis,
+        [Alias('r')][switch]$Correlate,
         [ValidateRange(1,5)][int]$Correlation,
         [Parameter(Position=0)][string]$Domain='all',
         [string]$Collector,
@@ -70,12 +71,28 @@ function winsec {
         [Parameter(DontShow=$true)]$Session
     )
     if ($Nist -and $Cis) { throw 'Selecciona un solo framework: -n para NIST CSF o -c para CIS.' }
-    if ($Analyze -and -not ($Nist -or $Cis)) { throw 'Usa winsec -a <control|seccion|all> -n o -c; un solo framework por comando.' }
-    if (($Nist -or $Cis) -and -not $Analyze) { throw 'Indica el objetivo con -a <control|seccion|all>.' }
+    if ($Analyze -and -not ($Nist -or $Cis)) { throw 'Usa winsec -a <control|seccion> -n o -c; un solo framework por comando.' }
+    if (($Nist -or $Cis) -and -not $Analyze) { throw 'Indica el objetivo con -a <control|seccion>.' }
+    if ($Correlate) {
+        if ($PSBoundParameters.ContainsKey('Correlation')) { throw 'Usa -r o -Correlation, sin combinarlos.' }
+        if ($Scan -or $Analyze -or $Collector) { throw 'Ejecuta la correlacion en un comando separado: winsec -r [1-4].' }
+        if ($Domain -eq 'all') { $Correlation=5 }
+        elseif ($Domain -match '^[1-4]$') { $Correlation=[int]$Domain }
+        else { throw 'Usa winsec -r para todas las correlaciones, o winsec -r 1, 2, 3 o 4.' }
+        $Domain='all'
+    }
     $target=$null
     if ($Analyze) {
-        $target=Resolve-WinSecAnalysisTarget -Target $Analyze
+        $target=Resolve-WinSecTarget -Target $Analyze
         if ($Collector -or $Domain -ne 'all') { throw 'El objetivo del analisis se indica solamente despues de -a.' }
+    }
+    if ($Scan) {
+        $scanTarget=Resolve-WinSecTarget -Target $Domain
+        if ($scanTarget.Collector) {
+            if ($Collector) { throw 'Indica un solo control: winsec -s <control>.' }
+            $Collector=$scanTarget.Collector
+        }
+        $Domain=$scanTarget.Domain
     }
     if ($null -ne $Session) {
         if ($OutputRoot -and (Get-WinSecOutputRoot $OutputRoot) -ne $Session.OutputRoot) {
@@ -83,7 +100,11 @@ function winsec {
         }
         $OutputRoot=$Session.OutputRoot
     }
-    if ($Help) { Show-WinSecHelp -Domain $Domain; return }
+    if ($Help) {
+        $helpTarget=Resolve-WinSecTarget -Target $(if ($Collector) {$Collector} else {$Domain})
+        Show-WinSecHelp -Domain $helpTarget.Domain -Collector $helpTarget.Collector
+        return
+    }
     if (-not $NoBanner -and ($Scan -or $Analyze -or $Correlation -or $List -or $Report)) { Show-WinSecBanner }
     if ($List) {
         $base=Get-WinSecOutputRoot -OutputRoot $OutputRoot
@@ -97,7 +118,10 @@ function winsec {
         $Snapshot=Invoke-WinSecCollection -Domain $Domain -Collector $Collector -OutputRoot $OutputRoot -Deep:$Deep -Session $Session
     }
     if ($Analyze -or $Correlation -gt 0 -or $Report) {
-        if (-not $Snapshot -and $null -ne $Session) { $Snapshot=Get-WinSecSessionSnapshot $Session }
+        if (-not $Snapshot -and $null -ne $Session) {
+            if ($Analyze) { $Snapshot=Get-WinSecSessionSnapshot -Session $Session -Collector $target.Collector -Domain $target.Domain }
+            else { $Snapshot=Get-WinSecSessionSnapshot $Session }
+        }
     }
     if ($Analyze) {
         $framework=if ($Cis) {'cis'} else {'nist'}
@@ -119,7 +143,7 @@ function Invoke-WinSecAgentAlias {
     $parameters=@{ Scan=$Scan; Nist=$Nist; Cis=$Cis; NoBanner=$true; Deep=$Deep; Help=$Help }
     if ($Analyze) { $parameters.Analyze=$Target }
     else {
-        $selection=Resolve-WinSecAnalysisTarget $Target
+        $selection=Resolve-WinSecTarget $Target
         $parameters.Domain=$selection.Domain
         if ($selection.Collector) { $parameters.Collector=$selection.Collector }
     }
@@ -173,5 +197,5 @@ function win-logging {
 function win-services {
     [CmdletBinding()]
     param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
-    Invoke-WinSecAgentAlias -Target 'services' @PSBoundParameters
+    Invoke-WinSecAgentAlias -Target 'ServicesHardening' @PSBoundParameters
 }

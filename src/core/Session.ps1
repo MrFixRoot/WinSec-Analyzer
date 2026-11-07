@@ -3,11 +3,27 @@ function New-WinSecSession {
     return [pscustomobject]@{
         OutputRoot=(Get-WinSecOutputRoot -OutputRoot $OutputRoot)
         Snapshot=$Snapshot; RunId=$null; Context=$null; Closed=$false; HintIndex=0
+        DeviceId=$null; DeviceName=$null; Notice=$null
+        SavedContexts=@()
+    }
+}
+
+function Get-WinSecSessionContexts {
+    param($Session)
+    if ($null -ne $Session.Context) { $Session.Context }
+    foreach ($context in $Session.SavedContexts) {
+        if ($context.Path -ne $Session.Snapshot) { $context }
     }
 }
 
 function Get-WinSecSessionSnapshot {
-    param($Session)
+    param($Session,[string]$Collector,[string]$Domain)
+    if ($Collector -or ($Domain -and $Domain -ne 'all')) {
+        $ids=if ($Collector) {@($Collector)} else {@(Get-WinSecCatalog | Where-Object {$_.domain -eq $Domain} | ForEach-Object {$_.id})}
+        foreach ($context in @(Get-WinSecSessionContexts $Session)) {
+            if (@($context.Manifest.collectors | Where-Object {$_.id -in $ids}).Count -gt 0) { return [string]$context.Path }
+        }
+    }
     if (-not $Session.Snapshot) {
         throw 'No hay evidencia en esta sesion. Escribe winsec -s o winsec -s <seccion>.'
     }
