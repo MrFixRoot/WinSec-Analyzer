@@ -3,8 +3,11 @@ Set-StrictMode -Version 2.0
 $script:WinSecRoot = $PSScriptRoot
 . (Join-Path $PSScriptRoot 'src/core/Common.ps1')
 . (Join-Path $PSScriptRoot 'src/core/Storage.ps1')
+. (Join-Path $PSScriptRoot 'src/core/Session.ps1')
 . (Join-Path $PSScriptRoot 'src/core/Collection.ps1')
 . (Join-Path $PSScriptRoot 'src/core/Analysis.ps1')
+. (Join-Path $PSScriptRoot 'src/ui/Input.ps1')
+. (Join-Path $PSScriptRoot 'src/ui/Help.ps1')
 . (Join-Path $PSScriptRoot 'src/ui/Console.ps1')
 
 Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src/collectors') -Filter '*.ps1' -Recurse -File |

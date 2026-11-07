@@ -91,10 +91,10 @@ function Get-WinSecCatalog {
 
 function Resolve-WinSecDomain {
     param([string]$Name)
-    switch ($Name.ToLowerInvariant()) {
+    switch (([regex]::Replace($Name.ToLowerInvariant(), '[^a-z0-9*]', ''))) {
         { $_ -in @('all','*') } { return 'all' }
         { $_ -in @('system','systemsecurity','1') } { return 'SystemSecurity' }
-        { $_ -in @('network','networksecurity','2') } { return 'NetworkSecurity' }
+        { $_ -in @('network','networksecurity','networkingsecurity','2') } { return 'NetworkSecurity' }
         { $_ -in @('identity','identityaccess','3') } { return 'IdentityAccess' }
         { $_ -in @('services','serviceshardening','hardening','4') } { return 'ServicesHardening' }
         { $_ -in @('logging','loggingauditing','5') } { return 'LoggingAuditing' }

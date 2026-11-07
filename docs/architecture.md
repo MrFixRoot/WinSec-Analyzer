@@ -3,49 +3,67 @@
 ## Contrato
 
 `run.ps1` importa `WinSecAnalyzer.psm1`. El modulo carga Common, Storage,
-Collection, Analysis, UI y los 32 collectors registrados. `winsec` es la puerta
-unica de CLI y menu; `win-*` son alias/funciones de conveniencia.
+Session, Collection, Analysis, Input, Help, Console y los 32 collectors.
+`winsec` enruta CLI y menu; `win-*` ofrece objetivos predefinidos.
 
-- **Collect:** verifica que el equipo sea Windows 11 cliente, invoca cada collector
-  una vez, serializa datos permitidos y escribe `manifest.json` incremental.
-- **Store:** un snapshot por ejecucion, con UUID, fecha UTC, OS, host, estado por
-  collector y SHA-256 de todos los archivos. Escritura a fichero temporal y renombre.
-- **Analyze:** lee UN snapshot; verifica integridad y que sea Windows 11; aplica
-  rules packs CIS en `config/benchmarks/local` o mappings NIST. Nunca vuelve a
-  consultar el equipo durante el analisis.
-- **Correlate:** une datos por IDs de collector dentro del mismo snapshot, marca
-  evidencia faltante y emite observaciones para revision tecnica.
-- **Report:** produce indice JSON de hallazgos y evidencias. HTML/CSV pendientes.
+- **Collect:** verifica Windows 11 cliente antes de consultar fuentes.
+  Un JSON por collector con runId, modo, UTC, datos permitidos y warnings.
+- **Session:** una apertura del menu crea una sesion en memoria. La carpeta
+  UTC se crea solo al primer escaneo. Los siguientes agregan collectors
+  al mismo manifest y runId. Nunca se reescribe evidencia guardada.
+- **Store:** el manifest se actualiza incrementalmente; cada evidencia
+  registra SHA-256. El temporal se valida antes del reemplazo del manifest.
+  Una ejecucion nueva utiliza GUID completo y creacion exclusiva.
+- **Analyze:** `-a <objetivo> -c` o `-n` lee JSON de una captura de Windows 11.
+  Un framework por llamada. No se consulta Windows para analizar.
+- **Correlate:** PLUS [7] o `-Correlation` reutiliza el mismo snapshot.
+  Propiedades requeridas ausentes producen INSUFFICIENT_EVIDENCE.
+- **Report:** indice JSON de evidencias y analisis; HTML/CSV pendientes.
 
-## Dominios
+## UI
 
-1. SystemSecurity
-2. NetworkSecurity
-3. IdentityAccess
-4. ServicesHardening
-5. LoggingAuditing
-6. PatchManagement
+Listado principal: System Security, Network Security, Identity & Access,
+Services & Hardening, Logging & Auditing y Patch Management.
+Correlacion y ayuda quedan en PLUS. Q/q sale; Esc cancela o vuelve.
+El lector de teclado admite comandos y atajos; nunca evalua codigo recibido.
+Clear-Host solo se usa al dibujar paginas del menu.
 
-## Estados
+Dentro de una seccion se muestran los controles. Scanned verde corresponde
+a COMPLETED; parcial amarillo, error rojo y Not yet sin recoleccion.
+Dentro de un control se presenta Analyze [A], seguido de CIS [C] o NIST [N].
+Los mapas de ayuda son archivos publicos en `help/`.
 
-- Collector: `COMPLETED`, `PARTIAL`, `ERROR`, `NOT_APPLICABLE`.
-- CIS: `PASS`, `FAIL`, `NOT_ASSESSED` (solo si hay pack valido), o `NOT_CONFIGURED`.
-- NIST: `EVIDENCE_MAPPING_ONLY`, `EVIDENCE_AVAILABLE`, `PARTIAL_EVIDENCE`,
-  `NO_EVIDENCE` (nunca score de compliance).
-- Correlacion: `REVIEW_REQUIRED`, `INSUFFICIENT_EVIDENCE`.
+## Ciclo de vida del snapshot
 
-## Limitaciones reales
+`device/Windows11_<Edition>_<Build>/<Host>/<UTC>_<runId>/` contiene un
+manifest compartido, JSON por dominio/collector y analisis posteriores.
 
-El snapshot registra las fuentes consultadas, no es una imagen forense completa.
-Un `COMPLETED` significa que ese collector obtuvo su dato, no que cubra todas
-las configuraciones CIS. `PARTIAL` puede significar ausencia de permisos,
-componentes no instalados o errores de API. Los objetos se normalizan con
-allowlists para impedir guardar secretos. Recolecciones enormes se manejaran
-con streaming en una etapa futura.
+`sessionState=OPEN` permite agregar collectors solo desde la instancia
+propietaria. Los ya guardados se reutilizan despues de verificar integridad;
+para recolocarlos hace falta una sesion nueva. `sessionState=CLOSED` y
+`finishedAtUtc` se guardan al salir, incluso si se utilizo Q en una subvista.
+Un error de consulta no significa una configuracion deshabilitada.
 
-## Restricciones de rendimiento
+Abrir una captura historica permite consultarla. El primer escaneo de esa
+apertura crea otra captura; nunca agrega evidencia al historial.
+Los escaneos CLI fuera del menu mantienen una captura por invocacion.
 
-Ejecucion secuencial inicial para seguridad y reproducibilidad. Un JSON por
-modulo. Consola muestra solo estado y progreso por collector. Los modulos
-Firewall/Services/Features pueden producir muchos objetos. Hay que medir coste
-en Windows 11 real antes de agregar paralelismo y limites de profundidad.
+## Estados y limites
+
+Collector: COMPLETED, PARTIAL, ERROR o NOT_APPLICABLE.
+CIS: PASS, FAIL, NOT_ASSESSED con reglas aplicables; sin pack NOT_CONFIGURED.
+NIST: EVIDENCE_MAPPING_ONLY y estados de disponibilidad, nunca score.
+Correlacion: REVIEW_REQUIRED o INSUFFICIENT_EVIDENCE; no inferir compromiso.
+
+Las secciones pueden recolectarse en momentos diferentes dentro de la misma
+sesion. Cada JSON conserva collectedAtUtc: no se afirma captura simultanea.
+Los hashes no autentican el origen y la normalizacion exhaustiva por fuente
+sigue pendiente. Deep conserva su estado de desarrollo; no garantiza mas datos.
+
+## Validacion
+
+`python -B -m unittest discover -s tests -v` ejecuta pruebas estructurales.
+En Windows incluye `tests/UiSession.Tests.ps1` bajo Windows PowerShell 5.1:
+teclado Q/Esc, parser seguro, estados, sesion compartida, hashes y analisis.
+Solo usa datos sinteticos y temporales externos que se eliminan al finalizar.
+La cobertura completa por edicion/permisos y mediciones de recursos sigue pendiente.

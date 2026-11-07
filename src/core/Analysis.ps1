@@ -132,16 +132,24 @@ function Invoke-WinSecCorrelation {
         $facts=@()
         foreach ($fact in $rule.facts) {
             $found=$null
+            $reason=$null
             try {
                 $ev=Get-WinSecEvidenceFile -Context $Context -CollectorId $fact.collector
-                if ($null -ne $ev) { $found=Resolve-WinSecJsonPath -Root $ev -Path $fact.path }
-            } catch { }
+                if ($null -ne $ev -and $ev.status -in @('COMPLETED','PARTIAL')) {
+                    $found=Resolve-WinSecJsonPath -Root $ev -Path $fact.path
+                }
+            } catch { $reason=$_.Exception.Message }
             $value=$null
-            if ($null -ne $found -and $found.found) {
-                if ($fact.display -eq 'count') { $value=@($found.value).Count }
+            $available=($null -ne $found -and $found.found -and $null -ne $found.value)
+            if ($available) {
+                $display=$fact.PSObject.Properties['display']
+                if ($null -ne $display -and $display.Value -eq 'count') { $value=@($found.value).Count }
                 else { $value=$found.value }
+            } else {
+                $missing+= $fact.collector+':'+$fact.path
+                if (-not $reason) { $reason='Propiedad requerida no disponible o evidencia no evaluable.' }
             }
-            $facts+= [ordered]@{ label=$fact.label; collector=$fact.collector; available=($null -ne $found -and $found.found); value=$value }
+            $facts+= [ordered]@{ label=$fact.label; collector=$fact.collector; available=$available; value=$value; reason=$reason }
         }
         $outStatus=if ($missing.Count -gt 0) {'INSUFFICIENT_EVIDENCE'} else {'REVIEW_REQUIRED'}
         $output+= [ordered]@{ id=$rule.id; title=$rule.title; status=$outStatus; required=$rule.required; missing=$missing; facts=$facts; note=$rule.interpretation }

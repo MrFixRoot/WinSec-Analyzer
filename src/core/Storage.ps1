@@ -25,8 +25,11 @@ function Save-WinSecJson {
     try {
         [System.IO.File]::WriteAllText($temp, $json + [Environment]::NewLine, $utf8)
         [void](Get-Content -LiteralPath $temp -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop)
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
-        Move-Item -LiteralPath $temp -Destination $Path -Force
+        if (Test-Path -LiteralPath $Path) {
+            [System.IO.File]::Replace($temp, $Path, [NullString]::Value)
+        } else {
+            [System.IO.File]::Move($temp, $Path)
+        }
     } finally {
         if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
     }
