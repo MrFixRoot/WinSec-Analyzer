@@ -1,165 +1,287 @@
-
-<div align="center">
-
 # WinSec-Analyzer
 
-**PowerShell-Based Windows Security Auditing & Configuration Assessment Toolkit**
+**Windows Security Auditor — Windows 11 Endpoint Configuration Evidence & Assessment**
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue)](https://github.com/MrFixRoot/WinSec-Analyzer)
-![Status](https://img.shields.io/badge/status-active%20development-orange)
-![Platform](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows)
-![PowerShell](https://img.shields.io/badge/PowerShell-7%20recommended-5391FE?logo=powershell&logoColor=white)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+> **Estado: EN DESARROLLO.** Este repositorio es un prototipo funcional a nivel
+> de codigo, **todavia no probado en un Windows 11 real en este entorno**. No
+> constituye un producto certificado, un escaner de vulnerabilidades ni una
+> auditoria oficial de cumplimiento CIS o NIST.
 
-**Developed by [mrRoot (MrFixRoot)](https://github.com/MrFixRoot)** · [LinkedIn](https://www.linkedin.com/in/normanlp/)
+WinSec-Analyzer es una herramienta en desarrollo, preparada para GitHub y desarrollada principalmente
+en **PowerShell** para recolectar configuraciones de seguridad de estaciones de
+trabajo **Windows 11**, almacenarlas en snapshots JSON trazables y analizarlas
+posteriormente utilizando **CIS Benchmarks** y **NIST CSF 2.0**. Los resultados
+pueden correlacionarse entre dominios sin volver a ejecutar consultas al equipo.
 
-</div>
+**Autor/alias:** mrRoot  
+**GitHub:** https://github.com/MrFixRoot/WinSec-Analyzer  
+**LinkedIn:** https://www.linkedin.com/in/normanlp/
 
-```text
-██╗    ██╗██╗███╗   ██╗███████╗███████╗ ██████╗
-██║    ██║██║████╗  ██║██╔════╝██╔════╝██╔════╝
-██║ █╗ ██║██║██╔██╗ ██║███████╗█████╗  ██║
-██║███╗██║██║██║╚██╗██║╚════██║██╔══╝  ██║
-╚███╔███╔╝██║██║ ╚████║███████║███████╗╚██████╗
- ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ ╚═════╝
+No se muestra ningun numero de version de la aplicacion en el banner.
 
-                  WinSec-Analyzer
-                Windows Security Auditor
-                         mrRoot
-```
+## Alcance y compatibilidad
 
-## Overview
+- **Unicamente Windows 11 de tipo cliente:** Home, Pro, Enterprise, Education
+  (algunas APIs solo estan presentes en determinadas ediciones).
+- **Excluye expresamente Windows Server y Windows 10.** Se valida ProductType=1
+  y build >= 22000 antes de permitir un escaneo.
+- **Solo el equipo local:** no hay sondeo de redes, ejecucion remota ni cambios de
+  configuracion.
+- **Windows PowerShell 5.1 (64 bits)** como referencia inicial; PowerShell 7
+  requiere pruebas adicionales de compatibilidad de modulos.
+- Algunas fuentes requieren una consola elevada; un fallo debe registrarse, no
+  interpretarse como PASS ni como configuracion deshabilitada.
+- Modo de recoleccion `STANDARD`; `-Deep` esta expuesto, pero la diferenciacion
+  completa por volumen/tipo de fuente sigue en desarrollo.
 
-WinSec Analyzer is a Windows command-line security assessment tool written primarily in PowerShell. It **collects local security configuration**, preserves safe records for each device and scan, and reviews those records against selected framework references. Findings include configuration warnings and manual recommendations with traceable sources.
+## Por que separar Scan y Analyze
 
-**Strictly read-only:** WinSec Analyzer is an assessment tool, **not a system-hardening or remediation utility**. It never applies recommended fixes to the audited Windows installation. Only the computer on which the application is running may be scanned.
+1. **Scan (`-s`)**: consulta Windows 11, recoge propiedades seguras de cada
+   fuente y guarda un JSON por collector mas un `manifest.json` con hashes.
+2. **Analyze (`-a cis|nist`)**: lee el snapshot y analiza las evidencias;
+   **no vuelve a consultar Windows**.
+3. **Correlate (`-c 1..5`)**: une configuraciones de distintas areas del MISMO
+   snapshot, registra evidencia faltante y produce observaciones para revision.
+4. **Report (`-Report`)**: crea un indice JSON de lo recolectado y analizado.
 
-## Security assessment areas
+Un collector **no asigna PASS/FAIL**. Ese estado es exclusivo de reglas de
+benchmark explicitas, verificadas y compatibles con la edicion/perfil.
 
-| Section | Intended checks |
-|---|---|
-| **System Security** | Microsoft Defender, BitLocker, Windows Update |
-| **Network Security** | Windows Firewall, SMBv1, Remote Desktop configuration, listening ports, network configuration |
-| **Identity & Access Security** | Local administrators, Guest account, password policy |
-| **Logging & Auditing** | PowerShell logging, Windows audit policy |
-| **Services & Hardening** | Windows services and hardening checks |
+## Seis dominios / 32 agentes de recoleccion
 
-These are catalogued **assessment targets**, not a promise that every check is enabled or fully implemented.
+| Dominio | Agentes incluidos | Fuentes y ejemplos |
+|---|---|---|
+| **System Security** (8) | WindowsDefender, WindowsFirewall, BitLocker, SecureBoot, TPM, UAC, CredentialGuard, SmartScreen | Antivirus y politicas; firmas; firewall perfiles/reglas/filtros; cifrado; UEFI, TPM, LSA, VBS, SmartScreen |
+| **Network Security** (6) | SMB, RDP, WinRM, TCPListeners, NetworkAdapters, DNSAndProxy | SMB cliente/servidor, NLA, WinRM, TCP/UDP, interfaces, IP, rutas, DNS, proxy flags |
+| **Identity & Access** (6) | LocalUsers, LocalGroups, LocalAdministrators, GuestAccount, PasswordPolicy, PrivilegeRights | Usuarios, membresia, Guest por SID, politicas de contrasena/bloqueo, derechos locales |
+| **Services & Hardening** (6) | Services, WindowsFeatures, StartupEntries, SystemHardening, PowerShellPolicy, InstalledSoftware | Servicios, caracteristicas Windows, inicio automatico, UAC/LSA, PowerShell, apps |
+| **Logging & Auditing** (3) | AuditPolicy, PowerShellLogging, EventLogConfiguration | `auditpol`, Script Block/Module Logging, transcripcion, canales y retencion |
+| **Patch Management** (3) | WindowsUpdate, InstalledHotfixes, PendingReboot | Politicas de WU, servicios, hotfixes visibles, reinicio pendiente |
 
-## Current capabilities and limitations
+**Total: 32 agentes con archivos individuales `.ps1` y ~99 familias de
+items de evidencia** en `catalog/evidence-inventory.json`. El inventario recoge
+**evidencias a recolectar**, no un total de recomendaciones oficiales CIS. La
+cobertura exhaustiva de todos los controles de todos los Benchmarks CIS todavia
+no esta implementada. Las propiedades disponibles varian segun permisos y
+edicion de Windows 11. Algunos collectors son deliberadamente parciales para
+proteger secretos o evitar costes excesivos.
 
-The CLI provides keyboard navigation, persistent hardware identity and editable device names, confirmed device/section/control scans, public scan history and interactive findings.
+## Estado del desarrollo
 
-**Microsoft Defender, BitLocker and Windows Update** are enabled for explicitly confirmed, read-only local scans. BitLocker inspects only the Windows volume. Windows Update reads local configuration and installed revision metadata; it does not search for, download or install updates. Other checks remain disabled pending individual validation.
+| Componente | Estado | Situacion real |
+|---|---|---|
+| Logo, banner, menu interactivo | **Codigo preparado** | Pendiente validacion visual en Windows 11 |
+| 32 agentes por dominios | **Implementacion inicial** | Consultas y normalizacion creadas; por probar en Home/Pro/Enterprise |
+| Validacion solo Windows 11 | **Implementado en codigo** | Comprobacion de build y tipo de producto; requiere prueba en SO real |
+| JSON por agente + manifest + SHA-256 | **Implementado en codigo** | Persistencia y comprobacion de hashes; pendiente prueba integral |
+| CLI `winsec -s / -a / -c` y alias `win-*` | **Codigo preparado** | Pendiente pruebas completas en PS5.1 |
+| Correlaciones 1–4 entre dominios | **Base preparada** | Hechos y disponibilidad; interpretacion avanzada en desarrollo |
+| Mapeo NIST CSF 2.0 | **Inicial** | Categorias asociadas a evidencia; subcategorias y validacion pendientes |
+| Motor CIS Benchmarks | **Adaptador preparado** | **Sin rulepacks oficiales ni cumplimiento evaluable por defecto** |
+| Calificacion CIS | **Condicionada** | Solo si se cargan reglas verificadas y evaluables; no score global por defecto |
+| Reportes | **Indice JSON inicial** | HTML/CSV, graficas y comparaciones historicas en desarrollo |
+| Pruebas | **Estructurales** | Sin ejecucion del proyecto en Windows 11 dentro de este entorno |
+| Coleccion Deep | **En desarrollo** | Bandera existe; catalogos profundos adicionales pendientes |
+| Firma de evidencias / atestacion | **Pendiente** | Hashes no constituyen una firma digital confiable |
 
-Each completed scan automatically writes a separate, organized **technical Markdown snapshot per executed control**. These files retain the permitted detailed readings, including informative values and explicit unknown/unavailable states, for later manual analysis. They are separate from the selected framework findings report.
+## Requisitos
 
-Press **F** to choose **NIST CSF, CIS Controls or MITRE ATT&CK** and review saved data with a progress indicator. The analysis considers all available permitted readings and recorded deviations using reviewed warning rules. Readings without a reviewed rule remain informational; missing data is reported as a coverage limitation. Opening Findings never runs another Windows scan.
+Windows 11 cliente, PowerShell 5.1, acceso a cmdlets locales de Windows;
+permisos de administrador recomendados para auditar mas fuentes. No se
+requiere acceso a Internet para escanear ni analizar JSON ya guardado. Las
+reglas CIS deben obtenerse legitimamente por el operador cuando se habilite
+la funcion.
 
-Press **P** in Findings to export **the same selected framework view as Markdown** with warning details, reference controls, descriptions and manual recommendations. Original scan records remain unchanged. Earlier scans without detailed snapshots cannot reconstruct readings that were never saved.
+## Instalacion
 
-Historical comparisons and broader native compatibility coverage remain under development. Framework references provide context rather than a complete compliance audit.
-
-### Collection status and data origin
-
-| Label | Meaning | Color |
-| --- | --- | --- |
-| `PENDING` | No completed collection for the requested controls | Red |
-| `PARTIAL` | Some controls are missing or collection encountered errors | Yellow |
-| `COMPLETE` | The requested collection finished; warnings may still exist | Green |
-| `LIVE` | Results collected in this application session on the current device | Green |
-| `RECORDS` | Previously stored results, or a view containing historical sources | Navy blue |
-
-Completion describes the scan, not whether a device is secure. Framework findings retain the identity and date of each contributing scan.
-
-## Getting started
-
-### Requirements
-
-- Windows and PowerShell (compatibility target: **Windows PowerShell 5.1 and PowerShell 7.x**; validate both against your checkout).
-- A local copy of the repository.
-- Permission to read the relevant Windows security settings; some queries may be unavailable without appropriate privileges.
-
-### Launch
-
-From the repository root in PowerShell:
+Descargar/clonar el repositorio y abrir una terminal **Windows PowerShell
+x64** desde su directorio. No modificar ExecutionPolicy del equipo como paso
+automatico. Utilizar las politicas de ejecucion aprobadas en la organizacion.
 
 ```powershell
-.\Start-WinSec.ps1
+Import-Module .\WinSecAnalyzer.psm1 -Force
+.\run.ps1
 ```
 
-Select the current local device. Navigation and available actions depend on the screen and permission checks. A visible Scan/Rescan shortcut does **not** mean every catalog check is executable. Leave unvalidated checks disabled.
+## Uso
 
-## Assessment workflow
+### Menu numerico
 
-1. Load the locally stored device inventory and select the current computer.
-2. Choose the whole device, one security section, or one individual control.
-3. Display **Scan** if no valid assessment exists for that exact scope, otherwise **Rescan**.
-4. Show the actual enabled controls and request confirmation before executing.
-5. Collect read-only information, validate applicability, save safe public results and a technical `.md` per executed control.
-6. Press **F**, select a framework and review warnings from the saved readings with visible analysis progress. Use arrows to inspect findings and **Esc** to return or cancel.
-7. Press **P** to print the selected findings report as `.md`, including framework references and manual recommendations.
+```powershell
+.\run.ps1
+```
 
-Scan and deletion confirmations use arrows to select **Accept / Cancel**, **Enter** to execute the selection and **Esc** to cancel. No scan runs automatically when opening or resizing a screen.
+Opciones 1–6 dominios; 7 correlacion cruzada; 8 recoleccion completa; 9
+analisis de snapshots; 0 salir. El menu limpia pantalla solo entre vistas.
 
-## Framework references
+### Comandos del entrypoint
 
-The project's framework catalogues cover:
+```powershell
+.\run.ps1 -s                     # Todos los agentes
+.\run.ps1 -s system              # System Security
+.\run.ps1 -s network             # Network Security
+.\run.ps1 -s identity            # Identity & Access
+.\run.ps1 -s services            # Services & Hardening
+.\run.ps1 -s logging             # Logging & Auditing
+.\run.ps1 -s patch               # Patch Management
+.\run.ps1 -s -Collector WindowsDefender
+.\run.ps1 -s -OutputRoot 'D:\WinSec-Private-Evidence'
 
-- **CIS Controls** — prioritized security safeguards.
-- **NIST Cybersecurity Framework (CSF)** — risk-management context.
-- **MITRE ATT&CK** — adversary behavior and defensive context.
+.\run.ps1 -a cis                  # Requiere reglas CIS locales verificadas
+.\run.ps1 -a nist                 # Mapping NIST por evidencia, no compliance
+.\run.ps1 -a cis,nist
+.\run.ps1 -c 1                    # Network + Services
+.\run.ps1 -c 2                    # Identity + Logging
+.\run.ps1 -c 3                    # Network + Identity
+.\run.ps1 -c 4                    # System + Logging
+.\run.ps1 -c 5                    # Todas
+.\run.ps1 -List                  # Snapshots disponibles
+.\run.ps1 -Report                # Indice JSON de evidencia
+```
 
-Mappings provide **references and context**, not certification or a declaration of compliance. A warning may require checking applicability, an approved exception or replacement protection. It is not proof that an attack occurred. The report records framework/rule versions, source scans and available coverage without rewriting the historical results.
+### Comandos cortos del modulo
 
-## Repository layout
+```powershell
+winsec -s
+winsec -s system
+win-defender -s
+win-defender -a cis
+win-defender -a nist
+win-firewall -s
+win-bitlocker -s
+win-update -s
+win-network -s
+win-identity -s
+win-logging -s
+win-services -s
+```
+
+El comando `win-defender` debe existir en una sesion en la que se haya
+importado `WinSecAnalyzer.psm1`. Los alias `-s` y `-a` corresponden a `Scan`
+y `Analyze`. Sin `-Snapshot`, se busca el ultimo snapshot del equipo actual.
+Para analizar un equipo diferente o una captura antigua, especificar
+`-Snapshot` directamente.
+
+## CIS Benchmarks y NIST
+
+**Solo se utilizaran CIS Benchmarks y NIST CSF 2.0.**
+
+- **CIS Benchmarks:** criterios tecnicos verificables por producto, benchmark,
+  version, edicion y perfil. Sin packs oficiales incluidos. El motor devuelve
+  `NOT_CONFIGURED` hasta que exista un paquete local legitimo y verificado.
+  El porcentaje opcional PASS/(PASS+FAIL) es una metrica propia, no puntuacion
+  o certificacion CIS. Defender dispone de un benchmark independiente del de
+  Windows 11 en las versiones actuales de CIS.
+- **NIST CSF 2.0:** categorias y evidencias observables. `EVIDENCE_AVAILABLE`
+  NO significa cumplimiento del resultado organizacional. No se inventa
+  `NIST Score` ni `PASS` para CSF.
+
+Documentacion: [Marco CIS/NIST](docs/FRAMEWORKS.md),
+[CIS Windows Desktop](https://www.cisecurity.org/benchmark/microsoft_windows_desktop),
+[NIST CSF 2.0](https://www.nist.gov/cyberframework).
+
+## Correlaciones entre dominios
+
+| ID | Dominios | Hechos relacionados |
+|---|---|---|
+| 1 | Network Security + Services & Hardening | WinRM, servicios, puertos, SMB, hardening |
+| 2 | Identity & Access + Logging & Auditing | Administradores y disponibilidad de audit policy / logging |
+| 3 | Network Security + Identity & Access | RDP/NLA, miembros y reglas de firewall |
+| 4 | System Security + Logging & Auditing | Defender, firewall y registros habilitados |
+| 5 | Todas | Ejecuta los cuatro conjuntos anteriores |
+
+Las correlaciones unen datos del **mismo snapshot**, no cruzan datos de
+momentos diferentes. Si falta evidencia, aparece `INSUFFICIENT_EVIDENCE`.
+La presencia de un puerto local no demuestra exposicion desde Internet.
+
+## Estructura de proyecto
 
 ```text
 WinSec-Analyzer/
-├── Start-WinSec.ps1
-├── config/          # Checks, criteria and framework catalogues
+├── run.ps1                         # CLI / menu
+├── WinSecAnalyzer.psm1              # Modulo PowerShell
+├── AGENTS.md                        # Instrucciones para agentes de desarrollo
+├── catalog/
+│   ├── collectors.json             # Registry de 32 collectors
+│   └── evidence-inventory.json     # Familias de evidencia a recolectar
 ├── src/
-│   ├── CLI/         # Interactive application
-│   ├── Core/        # Coordination, validation and assessment models
-│   ├── Checks/      # Local Windows read-only queries
-│   ├── Services/    # Evidence, reporting and framework support
-│   └── UI/          # Keyboard navigation, screens and renderer
-├── data/            # Local inventory/session data (never commit)
-├── tests/
-│   ├── Unit/
-│   └── Integration/
-├── logs/            # Local logs (never commit)
-├── reports/         # Technical snapshots and requested findings reports (never commit)
-└── docs/            # Public technical documentation
+│   ├── core/                        # Validacion, almacenamiento, CLI, analisis
+│   ├── collectors/                  # Seis dominios, 32 archivos de agentes .ps1
+│   │   └── <Domain>/AGENTS.md       # Reglas especificas por dominio
+│   └── ui/                          # Banner/menu/estado
+├── config/
+│   ├── benchmarks/CIS/             # Ejemplo inactivo
+│   ├── benchmarks/local/           # Packs propios no versionados en Git
+│   ├── mappings/                   # NIST CSF 2.0
+│   └── correlation-rules/          # Cuatro correlaciones
+├── docs/                            # Especificaciones y riesgos
+├── tests/                           # Pruebas estructurales y Pester
+└── device/                          # Snapshots LOCALES ignorados por Git
 ```
 
-Internal Codex working files and local assessment data are intentionally excluded from the public repository.
+### Estructura de una ejecucion
 
-## Tests
+```text
+device/
+└── Windows11_Pro_26100/
+    └── DESKTOP-001/
+        └── 20261107T165500Z_<runId>/
+            ├── manifest.json
+            ├── SystemSecurity/WindowsDefender.json
+            ├── SystemSecurity/WindowsFirewall.json
+            ├── NetworkSecurity/SMB.json
+            ├── IdentityAccess/LocalUsers.json
+            ├── ServicesHardening/Services.json
+            ├── LoggingAuditing/AuditPolicy.json
+            ├── PatchManagement/WindowsUpdate.json
+            └── analysis/cis|nist|correlations/*.json
+```
 
-The project uses native PowerShell test scripts; **Pester is not required**. Test suites are located in `tests/Unit/` and `tests/Integration/`.
+La ubicacion, ejemplos y nombres son ilustrativos. Nunca subir JSON reales
+ni el directorio `device/` a repositorios publicos.
 
-Always inspect a test before running it and make sure the current configuration meets its safety prerequisites. A passing test does not by itself establish that every security control is production-ready.
+## Privacidad y seguridad
 
-## Safety and privacy
+Recopilar configuraciones no implica capturar secretos. Los agents utilizan
+listas de propiedades permitidas. Nunca se guardan contrasenas, keys de
+recuperacion BitLocker, hashes, tokens o registros de actividad del usuario.
+Algunos metadatos (SID, usuarios, direcciones IP, nombres de programas) son
+sensibles y requieren ACLs NTFS adecuadas. El `.gitignore` excluye `device/`,
+`scans/`, `snapshots/`, `evidence/`, `reports/`, `logs/` y ficheros sensibles,
+pero `git add -f` podria evadirlo. Revisar siempre staging.
 
-- No automatic remediation or changes to audited Windows configuration.
-- Every Scan/Rescan requires explicit confirmation of its device, scope and executable controls.
-- No automatic collection/execution at startup.
-- Raw evidence must never be stored or exported without separate authorization.
-- Local device inventories, scan histories, logs, exports and internal Codex documentation are not meant for publication.
-- Unknown/unavailable readings, unfinished collection and unselected checks are **not** failed security requirements or proof of compliance.
+En Windows, el programa **no cambia configuraciones de seguridad**. Hay una
+excepcion operativa de escritura local temporal: `PrivilegeRights` crea un
+INF con `secedit /export` y lo elimina; esto **no aplica ni modifica**
+politicas del equipo. Ninguna remediacion automatica esta incluida.
 
-## Project documents
+## Desarrollo, extensibilidad y pruebas
 
-- [Security checks](docs/SecurityChecks.md)
-- [Keyboard shortcuts](docs/KeyboardShortcuts.md)
-- [Framework mappings](docs/FrameworkMappings.md)
-- [License](LICENSE)
-- [Attribution and notices](NOTICE)
+- Catalogo: [`catalog/collectors.json`](catalog/collectors.json)
+- Instrucciones de agentes: [`AGENTS.md`](AGENTS.md) y `AGENTS.md` en cada dominio
+- Arquitectura: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- JSON: [`docs/DATA-FORMAT.md`](docs/DATA-FORMAT.md)
+- CLI: [`docs/CLI.md`](docs/CLI.md)
+- Seguridad: [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md)
+- Hoja de ruta: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Contribuciones: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
-The existing `README.md`, `LICENSE` and `NOTICE` remain public files. Review the license terms before redistributing modified versions.
+Pruebas estructurales independientes de Windows:
 
-## Development status
+```bash
+python -m unittest discover -s tests -v
+```
 
-WinSec Analyzer is under active development. New features must be backed by verified read-only behavior, tests, and clear provenance before they are documented as complete.
+Pruebas reales de PowerShell 5.1 sobre Windows 11, benchmark packs licenciados,
+tests de datos sintéticos y pruebas por edicion quedan pendientes.
+
+## Licencias y responsabilidad
+
+No se incluyen rulepacks de CIS ni material protegido con licencia. El uso y
+redistribucion de cualquier benchmark debera respetar sus terminos. NIST se
+utiliza como mapa de resultados y no como certificacion. La auditoria tiene
+alcance local y no garantiza que un endpoint sea seguro.
+
+**Proyecto en desarrollo; licencia del codigo pendiente de definir.** Se agradecen contribuciones que mejoren la
+calidad de la evidencia, validacion de fuentes, tests, documentacion y
+trazabilidad sin comprometer la privacidad de los equipos.

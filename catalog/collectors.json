@@ -1,0 +1,514 @@
+{
+  "schemaVersion": "1",
+  "targetOS": "Windows 11 client only",
+  "scope": "Configuration evidence, not full CIS coverage",
+  "collectors": [
+    {
+      "id": "WindowsDefender",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecWindowsDefenderEvidence",
+      "description": "Antivirus, preferencias de proteccion y configuracion de Defender",
+      "sources": [
+        "Get-MpComputerStatus",
+        "Get-MpPreference"
+      ],
+      "coverage": [
+        "Defender status",
+        "Antivirus signatures",
+        "Realtime protection",
+        "Cloud protection",
+        "PUA",
+        "ASR rules",
+        "Network protection",
+        "Ransomware controlled folders"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "WindowsFirewall",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecWindowsFirewallEvidence",
+      "description": "Perfiles, reglas y filtros de Windows Defender Firewall",
+      "sources": [
+        "Get-NetFirewallProfile",
+        "Get-NetFirewallRule",
+        "Get-NetFirewallPortFilter",
+        "Get-NetFirewallAddressFilter",
+        "Get-NetFirewallApplicationFilter",
+        "Get-NetFirewallServiceFilter"
+      ],
+      "coverage": [
+        "Firewall profiles",
+        "Inbound/outbound firewall rules",
+        "Network port/address filters",
+        "Application/service filters"
+      ],
+      "deepNote": "Las reglas y los filtros pueden ser numerosos; se mantienen sin truncamiento silencioso."
+    },
+    {
+      "id": "BitLocker",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecBitLockerEvidence",
+      "description": "Estado de cifrado de todas las unidades, sin protectores ni secretos",
+      "sources": [
+        "Get-BitLockerVolume"
+      ],
+      "coverage": [
+        "Volume encryption status",
+        "Encryption method",
+        "Protection state",
+        "Encryption percentage"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "SecureBoot",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecSecureBootEvidence",
+      "description": "Estado de Secure Boot y modo de firmware",
+      "sources": [
+        "Confirm-SecureBootUEFI",
+        "Get-ComputerInfo"
+      ],
+      "coverage": [
+        "Secure Boot",
+        "UEFI firmware"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "TPM",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecTPMEvidence",
+      "description": "Disponibilidad y estado operativo del TPM",
+      "sources": [
+        "Get-Tpm"
+      ],
+      "coverage": [
+        "TPM readiness",
+        "TPM enabled",
+        "TPM lockout",
+        "Manufacturer"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "UAC",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecUACEvidence",
+      "description": "Politicas de User Account Control",
+      "sources": [
+        "Registry:HKLM Policies System"
+      ],
+      "coverage": [
+        "UAC enabled",
+        "Elevation prompts",
+        "Secure desktop",
+        "Admin token filtering"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "CredentialGuard",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecCredentialGuardEvidence",
+      "description": "Virtualization-based security, Credential Guard y HVCI",
+      "sources": [
+        "Win32_DeviceGuard",
+        "Registry:DeviceGuard"
+      ],
+      "coverage": [
+        "VBS",
+        "Credential Guard",
+        "Memory integrity/HVCI",
+        "LSA protection"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "SmartScreen",
+      "domain": "SystemSecurity",
+      "function": "Get-WinSecSmartScreenEvidence",
+      "description": "Politicas SmartScreen, reputacion y proteccion de aplicaciones",
+      "sources": [
+        "Registry:Explorer",
+        "Registry:SmartScreen"
+      ],
+      "coverage": [
+        "SmartScreen shell policy",
+        "Browser SmartScreen policies"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "SMB",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecSMBEvidence",
+      "description": "Configuracion SMB cliente y servidor, incluido SMBv1",
+      "sources": [
+        "Get-SmbServerConfiguration",
+        "Get-SmbClientConfiguration",
+        "Get-WindowsOptionalFeature"
+      ],
+      "coverage": [
+        "SMBv1 client/server",
+        "SMB signing",
+        "SMB encryption",
+        "Insecure guest logons"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "RDP",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecRDPEvidence",
+      "description": "Configuracion local de Escritorio remoto y NLA",
+      "sources": [
+        "Registry:Terminal Server",
+        "Get-Service"
+      ],
+      "coverage": [
+        "RDP enabled",
+        "Network Level Authentication",
+        "RDP security level",
+        "RDP service"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "WinRM",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecWinRMEvidence",
+      "description": "Servicio y listeners locales de WinRM",
+      "sources": [
+        "Get-Service",
+        "WSMan:"
+      ],
+      "coverage": [
+        "WinRM service",
+        "Local WSMan listener presence",
+        "WinRM service policy"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "TCPListeners",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecTCPListenersEvidence",
+      "description": "Sockets TCP escuchando y puertos UDP locales",
+      "sources": [
+        "Get-NetTCPConnection",
+        "Get-NetUDPEndpoint"
+      ],
+      "coverage": [
+        "TCP listening sockets",
+        "UDP local endpoints",
+        "Owning process ID"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "NetworkAdapters",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecNetworkAdaptersEvidence",
+      "description": "Adaptadores, perfiles, direcciones y rutas de red",
+      "sources": [
+        "Get-NetAdapter",
+        "Get-NetIPAddress",
+        "Get-NetConnectionProfile",
+        "Get-NetRoute"
+      ],
+      "coverage": [
+        "Network profiles",
+        "Interfaces",
+        "IP addresses",
+        "Routing table"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "DNSAndProxy",
+      "domain": "NetworkSecurity",
+      "function": "Get-WinSecDNSAndProxyEvidence",
+      "description": "DNS cliente y politicas proxy sin credenciales",
+      "sources": [
+        "Get-DnsClientServerAddress",
+        "Get-DnsClient",
+        "Registry:Internet Settings"
+      ],
+      "coverage": [
+        "Configured DNS servers",
+        "DNS suffix configuration",
+        "Proxy enabled/disabled"
+      ],
+      "deepNote": "No captura URLs PAC ni secretos de proxy."
+    },
+    {
+      "id": "LocalUsers",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecLocalUsersEvidence",
+      "description": "Cuentas locales sin credenciales ni hashes",
+      "sources": [
+        "Get-LocalUser"
+      ],
+      "coverage": [
+        "Local account inventory",
+        "Account enabled",
+        "Password expiration metadata",
+        "Last logon"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "LocalGroups",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecLocalGroupsEvidence",
+      "description": "Inventario y membresia de grupos locales",
+      "sources": [
+        "Get-LocalGroup",
+        "Get-LocalGroupMember"
+      ],
+      "coverage": [
+        "Local group inventory",
+        "Local group memberships"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "LocalAdministrators",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecLocalAdministratorsEvidence",
+      "description": "Miembros del grupo de administradores local identificado por SID",
+      "sources": [
+        "Get-LocalGroup",
+        "Get-LocalGroupMember"
+      ],
+      "coverage": [
+        "Local administrators membership",
+        "Privileged identities"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "GuestAccount",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecGuestAccountEvidence",
+      "description": "Estado de cuenta Guest integrada por SID terminado en -501",
+      "sources": [
+        "Get-LocalUser"
+      ],
+      "coverage": [
+        "Built-in Guest state"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "PasswordPolicy",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecPasswordPolicyEvidence",
+      "description": "Salida local de politicas de contrasena y bloqueo de cuentas",
+      "sources": [
+        "net accounts"
+      ],
+      "coverage": [
+        "Password age/length policy raw",
+        "Account lockout policy raw"
+      ],
+      "deepNote": "El parseo multilingue de las politicas permanece pendiente."
+    },
+    {
+      "id": "PrivilegeRights",
+      "domain": "IdentityAccess",
+      "function": "Get-WinSecPrivilegeRightsEvidence",
+      "description": "Asignaciones de privilegios exportadas a fichero temporal local",
+      "sources": [
+        "secedit /export /areas USER_RIGHTS"
+      ],
+      "coverage": [
+        "User rights assignment",
+        "Local security privilege policy"
+      ],
+      "deepNote": "Exporta temporalmente un INF de solo lectura y lo elimina al finalizar."
+    },
+    {
+      "id": "Services",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecServicesEvidence",
+      "description": "Inventario de servicios y configuración de arranque",
+      "sources": [
+        "Win32_Service"
+      ],
+      "coverage": [
+        "Services running",
+        "Services startup mode",
+        "Service process identifiers"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "WindowsFeatures",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecWindowsFeaturesEvidence",
+      "description": "Caracteristicas opcionales Windows instaladas o deshabilitadas",
+      "sources": [
+        "Get-WindowsOptionalFeature"
+      ],
+      "coverage": [
+        "Optional Windows features",
+        "Legacy component state"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "StartupEntries",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecStartupEntriesEvidence",
+      "description": "Nombres y procedencia de programas de inicio sin comandos potencialmente secretos",
+      "sources": [
+        "Win32_StartupCommand"
+      ],
+      "coverage": [
+        "Startup entries metadata"
+      ],
+      "deepNote": "No guarda argumentos de ejecucion ni credenciales potenciales."
+    },
+    {
+      "id": "SystemHardening",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecSystemHardeningEvidence",
+      "description": "Politicas del sistema: LSA, WDigest, AutoRun y acceso remoto",
+      "sources": [
+        "Registry:LSA",
+        "Registry:Policies"
+      ],
+      "coverage": [
+        "LSA hardening",
+        "WDigest plaintext credentials policy",
+        "AutoRun",
+        "Removable storage restrictions",
+        "Remote Assistance"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "PowerShellPolicy",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecPowerShellPolicyEvidence",
+      "description": "Politicas de ejecucion PowerShell por alcance",
+      "sources": [
+        "Get-ExecutionPolicy"
+      ],
+      "coverage": [
+        "PowerShell execution policy scope"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "InstalledSoftware",
+      "domain": "ServicesHardening",
+      "function": "Get-WinSecInstalledSoftwareEvidence",
+      "description": "Software instalado desde claves Uninstall, sin claves de producto",
+      "sources": [
+        "Registry:Uninstall"
+      ],
+      "coverage": [
+        "Installed application names",
+        "Installed application versions",
+        "Installed application publishers"
+      ],
+      "deepNote": "No consulta Win32_Product ni extrae product keys."
+    },
+    {
+      "id": "AuditPolicy",
+      "domain": "LoggingAuditing",
+      "function": "Get-WinSecAuditPolicyEvidence",
+      "description": "Politica avanzada de auditoria del sistema (salida auditpol CSV)",
+      "sources": [
+        "auditpol /get /category:* /r"
+      ],
+      "coverage": [
+        "Advanced audit subcategories",
+        "Effective audit policy raw"
+      ],
+      "deepNote": "Los nombres localizados se guardan sin asignar resultados automaticos."
+    },
+    {
+      "id": "PowerShellLogging",
+      "domain": "LoggingAuditing",
+      "function": "Get-WinSecPowerShellLoggingEvidence",
+      "description": "Politicas de registro de modulos, Script Block Logging y transcripcion",
+      "sources": [
+        "Registry:PowerShellLogging"
+      ],
+      "coverage": [
+        "Script block logging policy",
+        "Module logging policy",
+        "Transcription policy"
+      ],
+      "deepNote": ""
+    },
+    {
+      "id": "EventLogConfiguration",
+      "domain": "LoggingAuditing",
+      "function": "Get-WinSecEventLogConfigurationEvidence",
+      "description": "Configuracion de registros de eventos sin exportar eventos",
+      "sources": [
+        "Get-WinEvent -ListLog"
+      ],
+      "coverage": [
+        "Security event log configuration",
+        "PowerShell operational logging",
+        "Defender event log",
+        "Sysmon log presence"
+      ],
+      "deepNote": "No exporta los eventos privados de usuarios."
+    },
+    {
+      "id": "WindowsUpdate",
+      "domain": "PatchManagement",
+      "function": "Get-WinSecWindowsUpdateEvidence",
+      "description": "Politicas Windows Update y estado de servicios de actualizaciones",
+      "sources": [
+        "Registry:WindowsUpdate",
+        "Get-Service"
+      ],
+      "coverage": [
+        "Windows Update policies",
+        "Windows Update services",
+        "Feature update target",
+        "WSUS use flag"
+      ],
+      "deepNote": "No confirma pendientes de la nube ni es un inventario completo de parches faltantes."
+    },
+    {
+      "id": "InstalledHotfixes",
+      "domain": "PatchManagement",
+      "function": "Get-WinSecInstalledHotfixesEvidence",
+      "description": "Actualizaciones registradas por Quick Fix Engineering",
+      "sources": [
+        "Get-HotFix"
+      ],
+      "coverage": [
+        "Installed Windows hotfixes",
+        "Hotfix install metadata"
+      ],
+      "deepNote": "No equivale a deteccion de todas las actualizaciones ausentes."
+    },
+    {
+      "id": "PendingReboot",
+      "domain": "PatchManagement",
+      "function": "Get-WinSecPendingRebootEvidence",
+      "description": "Indicadores locales de reinicio pendiente",
+      "sources": [
+        "Registry:WindowsUpdate RebootRequired",
+        "Registry:CBS RebootPending"
+      ],
+      "coverage": [
+        "Windows Update reboot required",
+        "Component Based Servicing reboot",
+        "Pending file rename indicator"
+      ],
+      "deepNote": ""
+    }
+  ]
+}

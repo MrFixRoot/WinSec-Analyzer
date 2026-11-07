@@ -1,0 +1,159 @@
+{
+  "schemaVersion": "1",
+  "note": "Reglas de correlacion propias. No equivalen a controles oficiales CIS o NIST.",
+  "correlations": [
+    {
+      "id": 1,
+      "title": "Network Security + Services & Hardening",
+      "domains": [
+        "NetworkSecurity",
+        "ServicesHardening"
+      ],
+      "required": [
+        "WinRM",
+        "TCPListeners",
+        "Services",
+        "SMB",
+        "SystemHardening"
+      ],
+      "facts": [
+        {
+          "collector": "WinRM",
+          "path": "data.service.Status",
+          "label": "WinRM service"
+        },
+        {
+          "collector": "SMB",
+          "path": "data.server.EnableSMB1Protocol",
+          "label": "SMBv1 server enabled"
+        },
+        {
+          "collector": "TCPListeners",
+          "path": "data.tcp",
+          "label": "TCP listening endpoints",
+          "display": "count"
+        },
+        {
+          "collector": "Services",
+          "path": "data.services",
+          "label": "Installed services",
+          "display": "count"
+        }
+      ],
+      "interpretation": "Relaciona servicios con superficies de red; no afirma accesibilidad desde Internet."
+    },
+    {
+      "id": 2,
+      "title": "Identity & Access + Logging & Auditing",
+      "domains": [
+        "IdentityAccess",
+        "LoggingAuditing"
+      ],
+      "required": [
+        "LocalAdministrators",
+        "LocalUsers",
+        "AuditPolicy",
+        "PowerShellLogging"
+      ],
+      "facts": [
+        {
+          "collector": "LocalAdministrators",
+          "path": "data.members",
+          "label": "Local administrators",
+          "display": "count"
+        },
+        {
+          "collector": "LocalUsers",
+          "path": "data.users",
+          "label": "Local users",
+          "display": "count"
+        },
+        {
+          "collector": "AuditPolicy",
+          "path": "data.exitCode",
+          "label": "Auditpol exit code"
+        },
+        {
+          "collector": "PowerShellLogging",
+          "path": "data.HKLM:_ScriptBlockLogging.values.EnableScriptBlockLogging",
+          "label": "Script Block Logging (machine policy)"
+        }
+      ],
+      "interpretation": "Une cuentas privilegiadas y configuracion de auditoria; no demuestra recepcion central de logs."
+    },
+    {
+      "id": 3,
+      "title": "Network Security + Identity & Access",
+      "domains": [
+        "NetworkSecurity",
+        "IdentityAccess"
+      ],
+      "required": [
+        "RDP",
+        "WindowsFirewall",
+        "TCPListeners",
+        "LocalAdministrators",
+        "LocalGroups"
+      ],
+      "facts": [
+        {
+          "collector": "RDP",
+          "path": "data.terminal.values.fDenyTSConnections",
+          "label": "RDP deny connections flag"
+        },
+        {
+          "collector": "RDP",
+          "path": "data.rdpTcp.values.UserAuthentication",
+          "label": "RDP NLA requirement"
+        },
+        {
+          "collector": "LocalAdministrators",
+          "path": "data.members",
+          "label": "Local administrators",
+          "display": "count"
+        },
+        {
+          "collector": "WindowsFirewall",
+          "path": "data.rules",
+          "label": "Firewall rules",
+          "display": "count"
+        }
+      ],
+      "interpretation": "Contextualiza acceso remoto y usuarios; no confirma que un puerto sea accesible externamente."
+    },
+    {
+      "id": 4,
+      "title": "System Security + Logging & Auditing",
+      "domains": [
+        "SystemSecurity",
+        "LoggingAuditing"
+      ],
+      "required": [
+        "WindowsDefender",
+        "WindowsFirewall",
+        "EventLogConfiguration",
+        "PowerShellLogging",
+        "AuditPolicy"
+      ],
+      "facts": [
+        {
+          "collector": "WindowsDefender",
+          "path": "data.computerStatus.RealTimeProtectionEnabled",
+          "label": "Defender real-time"
+        },
+        {
+          "collector": "EventLogConfiguration",
+          "path": "data.logs",
+          "label": "Configured event logs",
+          "display": "count"
+        },
+        {
+          "collector": "PowerShellLogging",
+          "path": "data.HKLM:_ScriptBlockLogging.values.EnableScriptBlockLogging",
+          "label": "PowerShell ScriptBlockLogging"
+        }
+      ],
+      "interpretation": "Contrasta protecciones con la telemetria configurada; no prueba que se hayan detectado ataques."
+    }
+  ]
+}

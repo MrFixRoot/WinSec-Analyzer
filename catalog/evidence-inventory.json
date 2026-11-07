@@ -1,0 +1,899 @@
+{
+  "schemaVersion": "1",
+  "target": "Windows11",
+  "itemCount": 99,
+  "note": "Estos son items de evidencia previstos, no controles CIS oficiales y no cuentan como cumplimiento.",
+  "items": [
+    {
+      "id": "EVD-WINDOWSDEFENDER-01",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Defender status",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-02",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Antivirus signatures",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-03",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Realtime protection",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-04",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Cloud protection",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-05",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "PUA",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-06",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "ASR rules",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-07",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Network protection",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSDEFENDER-08",
+      "domain": "SystemSecurity",
+      "collector": "WindowsDefender",
+      "evidenceTopic": "Ransomware controlled folders",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFIREWALL-01",
+      "domain": "SystemSecurity",
+      "collector": "WindowsFirewall",
+      "evidenceTopic": "Firewall profiles",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFIREWALL-02",
+      "domain": "SystemSecurity",
+      "collector": "WindowsFirewall",
+      "evidenceTopic": "Inbound/outbound firewall rules",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFIREWALL-03",
+      "domain": "SystemSecurity",
+      "collector": "WindowsFirewall",
+      "evidenceTopic": "Network port/address filters",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFIREWALL-04",
+      "domain": "SystemSecurity",
+      "collector": "WindowsFirewall",
+      "evidenceTopic": "Application/service filters",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-BITLOCKER-01",
+      "domain": "SystemSecurity",
+      "collector": "BitLocker",
+      "evidenceTopic": "Volume encryption status",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-BITLOCKER-02",
+      "domain": "SystemSecurity",
+      "collector": "BitLocker",
+      "evidenceTopic": "Encryption method",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-BITLOCKER-03",
+      "domain": "SystemSecurity",
+      "collector": "BitLocker",
+      "evidenceTopic": "Protection state",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-BITLOCKER-04",
+      "domain": "SystemSecurity",
+      "collector": "BitLocker",
+      "evidenceTopic": "Encryption percentage",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SECUREBOOT-01",
+      "domain": "SystemSecurity",
+      "collector": "SecureBoot",
+      "evidenceTopic": "Secure Boot",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SECUREBOOT-02",
+      "domain": "SystemSecurity",
+      "collector": "SecureBoot",
+      "evidenceTopic": "UEFI firmware",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TPM-01",
+      "domain": "SystemSecurity",
+      "collector": "TPM",
+      "evidenceTopic": "TPM readiness",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TPM-02",
+      "domain": "SystemSecurity",
+      "collector": "TPM",
+      "evidenceTopic": "TPM enabled",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TPM-03",
+      "domain": "SystemSecurity",
+      "collector": "TPM",
+      "evidenceTopic": "TPM lockout",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TPM-04",
+      "domain": "SystemSecurity",
+      "collector": "TPM",
+      "evidenceTopic": "Manufacturer",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-UAC-01",
+      "domain": "SystemSecurity",
+      "collector": "UAC",
+      "evidenceTopic": "UAC enabled",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-UAC-02",
+      "domain": "SystemSecurity",
+      "collector": "UAC",
+      "evidenceTopic": "Elevation prompts",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-UAC-03",
+      "domain": "SystemSecurity",
+      "collector": "UAC",
+      "evidenceTopic": "Secure desktop",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-UAC-04",
+      "domain": "SystemSecurity",
+      "collector": "UAC",
+      "evidenceTopic": "Admin token filtering",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-CREDENTIALGUARD-01",
+      "domain": "SystemSecurity",
+      "collector": "CredentialGuard",
+      "evidenceTopic": "VBS",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-CREDENTIALGUARD-02",
+      "domain": "SystemSecurity",
+      "collector": "CredentialGuard",
+      "evidenceTopic": "Credential Guard",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-CREDENTIALGUARD-03",
+      "domain": "SystemSecurity",
+      "collector": "CredentialGuard",
+      "evidenceTopic": "Memory integrity/HVCI",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-CREDENTIALGUARD-04",
+      "domain": "SystemSecurity",
+      "collector": "CredentialGuard",
+      "evidenceTopic": "LSA protection",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMARTSCREEN-01",
+      "domain": "SystemSecurity",
+      "collector": "SmartScreen",
+      "evidenceTopic": "SmartScreen shell policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMARTSCREEN-02",
+      "domain": "SystemSecurity",
+      "collector": "SmartScreen",
+      "evidenceTopic": "Browser SmartScreen policies",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMB-01",
+      "domain": "NetworkSecurity",
+      "collector": "SMB",
+      "evidenceTopic": "SMBv1 client/server",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMB-02",
+      "domain": "NetworkSecurity",
+      "collector": "SMB",
+      "evidenceTopic": "SMB signing",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMB-03",
+      "domain": "NetworkSecurity",
+      "collector": "SMB",
+      "evidenceTopic": "SMB encryption",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SMB-04",
+      "domain": "NetworkSecurity",
+      "collector": "SMB",
+      "evidenceTopic": "Insecure guest logons",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-RDP-01",
+      "domain": "NetworkSecurity",
+      "collector": "RDP",
+      "evidenceTopic": "RDP enabled",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-RDP-02",
+      "domain": "NetworkSecurity",
+      "collector": "RDP",
+      "evidenceTopic": "Network Level Authentication",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-RDP-03",
+      "domain": "NetworkSecurity",
+      "collector": "RDP",
+      "evidenceTopic": "RDP security level",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-RDP-04",
+      "domain": "NetworkSecurity",
+      "collector": "RDP",
+      "evidenceTopic": "RDP service",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINRM-01",
+      "domain": "NetworkSecurity",
+      "collector": "WinRM",
+      "evidenceTopic": "WinRM service",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINRM-02",
+      "domain": "NetworkSecurity",
+      "collector": "WinRM",
+      "evidenceTopic": "Local WSMan listener presence",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINRM-03",
+      "domain": "NetworkSecurity",
+      "collector": "WinRM",
+      "evidenceTopic": "WinRM service policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TCPLISTENERS-01",
+      "domain": "NetworkSecurity",
+      "collector": "TCPListeners",
+      "evidenceTopic": "TCP listening sockets",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TCPLISTENERS-02",
+      "domain": "NetworkSecurity",
+      "collector": "TCPListeners",
+      "evidenceTopic": "UDP local endpoints",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-TCPLISTENERS-03",
+      "domain": "NetworkSecurity",
+      "collector": "TCPListeners",
+      "evidenceTopic": "Owning process ID",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-NETWORKADAPTERS-01",
+      "domain": "NetworkSecurity",
+      "collector": "NetworkAdapters",
+      "evidenceTopic": "Network profiles",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-NETWORKADAPTERS-02",
+      "domain": "NetworkSecurity",
+      "collector": "NetworkAdapters",
+      "evidenceTopic": "Interfaces",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-NETWORKADAPTERS-03",
+      "domain": "NetworkSecurity",
+      "collector": "NetworkAdapters",
+      "evidenceTopic": "IP addresses",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-NETWORKADAPTERS-04",
+      "domain": "NetworkSecurity",
+      "collector": "NetworkAdapters",
+      "evidenceTopic": "Routing table",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-DNSANDPROXY-01",
+      "domain": "NetworkSecurity",
+      "collector": "DNSAndProxy",
+      "evidenceTopic": "Configured DNS servers",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-DNSANDPROXY-02",
+      "domain": "NetworkSecurity",
+      "collector": "DNSAndProxy",
+      "evidenceTopic": "DNS suffix configuration",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-DNSANDPROXY-03",
+      "domain": "NetworkSecurity",
+      "collector": "DNSAndProxy",
+      "evidenceTopic": "Proxy enabled/disabled",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALUSERS-01",
+      "domain": "IdentityAccess",
+      "collector": "LocalUsers",
+      "evidenceTopic": "Local account inventory",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALUSERS-02",
+      "domain": "IdentityAccess",
+      "collector": "LocalUsers",
+      "evidenceTopic": "Account enabled",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALUSERS-03",
+      "domain": "IdentityAccess",
+      "collector": "LocalUsers",
+      "evidenceTopic": "Password expiration metadata",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALUSERS-04",
+      "domain": "IdentityAccess",
+      "collector": "LocalUsers",
+      "evidenceTopic": "Last logon",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALGROUPS-01",
+      "domain": "IdentityAccess",
+      "collector": "LocalGroups",
+      "evidenceTopic": "Local group inventory",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALGROUPS-02",
+      "domain": "IdentityAccess",
+      "collector": "LocalGroups",
+      "evidenceTopic": "Local group memberships",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALADMINISTRATORS-01",
+      "domain": "IdentityAccess",
+      "collector": "LocalAdministrators",
+      "evidenceTopic": "Local administrators membership",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-LOCALADMINISTRATORS-02",
+      "domain": "IdentityAccess",
+      "collector": "LocalAdministrators",
+      "evidenceTopic": "Privileged identities",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-GUESTACCOUNT-01",
+      "domain": "IdentityAccess",
+      "collector": "GuestAccount",
+      "evidenceTopic": "Built-in Guest state",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PASSWORDPOLICY-01",
+      "domain": "IdentityAccess",
+      "collector": "PasswordPolicy",
+      "evidenceTopic": "Password age/length policy raw",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PASSWORDPOLICY-02",
+      "domain": "IdentityAccess",
+      "collector": "PasswordPolicy",
+      "evidenceTopic": "Account lockout policy raw",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PRIVILEGERIGHTS-01",
+      "domain": "IdentityAccess",
+      "collector": "PrivilegeRights",
+      "evidenceTopic": "User rights assignment",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PRIVILEGERIGHTS-02",
+      "domain": "IdentityAccess",
+      "collector": "PrivilegeRights",
+      "evidenceTopic": "Local security privilege policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SERVICES-01",
+      "domain": "ServicesHardening",
+      "collector": "Services",
+      "evidenceTopic": "Services running",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SERVICES-02",
+      "domain": "ServicesHardening",
+      "collector": "Services",
+      "evidenceTopic": "Services startup mode",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SERVICES-03",
+      "domain": "ServicesHardening",
+      "collector": "Services",
+      "evidenceTopic": "Service process identifiers",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFEATURES-01",
+      "domain": "ServicesHardening",
+      "collector": "WindowsFeatures",
+      "evidenceTopic": "Optional Windows features",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSFEATURES-02",
+      "domain": "ServicesHardening",
+      "collector": "WindowsFeatures",
+      "evidenceTopic": "Legacy component state",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-STARTUPENTRIES-01",
+      "domain": "ServicesHardening",
+      "collector": "StartupEntries",
+      "evidenceTopic": "Startup entries metadata",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SYSTEMHARDENING-01",
+      "domain": "ServicesHardening",
+      "collector": "SystemHardening",
+      "evidenceTopic": "LSA hardening",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SYSTEMHARDENING-02",
+      "domain": "ServicesHardening",
+      "collector": "SystemHardening",
+      "evidenceTopic": "WDigest plaintext credentials policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SYSTEMHARDENING-03",
+      "domain": "ServicesHardening",
+      "collector": "SystemHardening",
+      "evidenceTopic": "AutoRun",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SYSTEMHARDENING-04",
+      "domain": "ServicesHardening",
+      "collector": "SystemHardening",
+      "evidenceTopic": "Removable storage restrictions",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-SYSTEMHARDENING-05",
+      "domain": "ServicesHardening",
+      "collector": "SystemHardening",
+      "evidenceTopic": "Remote Assistance",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-POWERSHELLPOLICY-01",
+      "domain": "ServicesHardening",
+      "collector": "PowerShellPolicy",
+      "evidenceTopic": "PowerShell execution policy scope",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-INSTALLEDSOFTWARE-01",
+      "domain": "ServicesHardening",
+      "collector": "InstalledSoftware",
+      "evidenceTopic": "Installed application names",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-INSTALLEDSOFTWARE-02",
+      "domain": "ServicesHardening",
+      "collector": "InstalledSoftware",
+      "evidenceTopic": "Installed application versions",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-INSTALLEDSOFTWARE-03",
+      "domain": "ServicesHardening",
+      "collector": "InstalledSoftware",
+      "evidenceTopic": "Installed application publishers",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-AUDITPOLICY-01",
+      "domain": "LoggingAuditing",
+      "collector": "AuditPolicy",
+      "evidenceTopic": "Advanced audit subcategories",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-AUDITPOLICY-02",
+      "domain": "LoggingAuditing",
+      "collector": "AuditPolicy",
+      "evidenceTopic": "Effective audit policy raw",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-POWERSHELLLOGGING-01",
+      "domain": "LoggingAuditing",
+      "collector": "PowerShellLogging",
+      "evidenceTopic": "Script block logging policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-POWERSHELLLOGGING-02",
+      "domain": "LoggingAuditing",
+      "collector": "PowerShellLogging",
+      "evidenceTopic": "Module logging policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-POWERSHELLLOGGING-03",
+      "domain": "LoggingAuditing",
+      "collector": "PowerShellLogging",
+      "evidenceTopic": "Transcription policy",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-EVENTLOGCONFIGURATION-01",
+      "domain": "LoggingAuditing",
+      "collector": "EventLogConfiguration",
+      "evidenceTopic": "Security event log configuration",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-EVENTLOGCONFIGURATION-02",
+      "domain": "LoggingAuditing",
+      "collector": "EventLogConfiguration",
+      "evidenceTopic": "PowerShell operational logging",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-EVENTLOGCONFIGURATION-03",
+      "domain": "LoggingAuditing",
+      "collector": "EventLogConfiguration",
+      "evidenceTopic": "Defender event log",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-EVENTLOGCONFIGURATION-04",
+      "domain": "LoggingAuditing",
+      "collector": "EventLogConfiguration",
+      "evidenceTopic": "Sysmon log presence",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSUPDATE-01",
+      "domain": "PatchManagement",
+      "collector": "WindowsUpdate",
+      "evidenceTopic": "Windows Update policies",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSUPDATE-02",
+      "domain": "PatchManagement",
+      "collector": "WindowsUpdate",
+      "evidenceTopic": "Windows Update services",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSUPDATE-03",
+      "domain": "PatchManagement",
+      "collector": "WindowsUpdate",
+      "evidenceTopic": "Feature update target",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-WINDOWSUPDATE-04",
+      "domain": "PatchManagement",
+      "collector": "WindowsUpdate",
+      "evidenceTopic": "WSUS use flag",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-INSTALLEDHOTFIXES-01",
+      "domain": "PatchManagement",
+      "collector": "InstalledHotfixes",
+      "evidenceTopic": "Installed Windows hotfixes",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-INSTALLEDHOTFIXES-02",
+      "domain": "PatchManagement",
+      "collector": "InstalledHotfixes",
+      "evidenceTopic": "Hotfix install metadata",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PENDINGREBOOT-01",
+      "domain": "PatchManagement",
+      "collector": "PendingReboot",
+      "evidenceTopic": "Windows Update reboot required",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PENDINGREBOOT-02",
+      "domain": "PatchManagement",
+      "collector": "PendingReboot",
+      "evidenceTopic": "Component Based Servicing reboot",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    },
+    {
+      "id": "EVD-PENDINGREBOOT-03",
+      "domain": "PatchManagement",
+      "collector": "PendingReboot",
+      "evidenceTopic": "Pending file rename indicator",
+      "collectionStatus": "IMPLEMENTED_PROVISIONAL",
+      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "nistStatus": "CATEGORY_MAPPING_ONLY"
+    }
+  ]
+}
