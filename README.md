@@ -242,6 +242,10 @@ En el menu, la ayuda se abre con la tecla F1, sin escribir `help` ni pulsar
 Enter. F1 tambien funciona al consultar resultados. Fuera del menu,
 `-Help` sigue disponible para consultar la ayuda desde PowerShell.
 
+Los mapas de ayuda general y por seccion se incluyen en `help/` como parte
+del proyecto. WinSec los lee para mostrar la ayuda; si falta un mapa, genera
+su contenido desde el catalogo.
+
 Analizar sin `-Snapshot` selecciona la captura mas reciente del control/seccion
 solicitado, segun su UTC de recoleccion. Las capturas anteriores quedan como
 historial; no se sustituyen los ultimos datos por otros mas antiguos para

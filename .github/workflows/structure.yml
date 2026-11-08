@@ -18,8 +18,12 @@ jobs:
           git check-ignore -q src/collectors/SystemSecurity/AGENTS.md
           git check-ignore -q CONTRIBUTING.md
           git check-ignore -q docs/architecture.md
-          git check-ignore -q help/README.md
-          git check-ignore -q help/SystemSecurity.md
+      - name: Verify user help is tracked
+        shell: bash
+        run: |
+          git ls-files --error-unmatch help/README.md help/SystemSecurity.md \
+            help/NetworkSecurity.md help/IdentityAccess.md help/ServicesHardening.md \
+            help/LoggingAuditing.md help/PatchManagement.md
       - name: Verify private snapshots ignored
         shell: bash
         run: |

@@ -23,7 +23,7 @@ def is_private_path(path):
         or fnmatch.fnmatchcase(name, '*.agent.md')
         or fnmatch.fnmatchcase(name, '*.instructions.md')
         or fnmatch.fnmatchcase(name, '.env.*')
-        or path.startswith(('docs/', 'help/', '.github/agents/', '.github/instructions/',
+        or path.startswith(('docs/', '.github/agents/', '.github/instructions/',
                             '.claude/', '.codex/', '.cursor/', 'device/', 'devices/',
                             'scans/', 'snapshots/', 'evidence/', 'reports/', 'logs/',
                             'output/', 'tmp/', 'temp/', 'artifacts/', 'config/private/',
@@ -81,11 +81,24 @@ class RepoStructureTests(unittest.TestCase):
 
     def test_privacy_gitignore(self):
         gi=(ROOT/'.gitignore').read_text(encoding='utf8')
-        for word in ['AGENTS.md','/CONTRIBUTING.md','/docs/','/help/','.github/agents/',
+        for word in ['AGENTS.md','/CONTRIBUTING.md','/docs/','.github/agents/',
                      '/device/','/devices/','/scans/','/snapshots/','/evidence/',
                      '/reports/','/logs/','/output/','/tmp/','/temp/','/artifacts/',
                      'config/private/','config/local/']:
             self.assertIn(word,gi)
+
+    def test_public_help_maps(self):
+        domains = sorted({entry['domain'] for entry in self.catalog['collectors']})
+        paths = ['help/README.md'] + [f'help/{domain}.md' for domain in domains]
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertFalse(is_private_path(path))
+                text = (ROOT / path).read_text(encoding='utf8')
+                self.assertIn('winsec -a [section|control] -n|w', text)
+                self.assertNotRegex(text, r'winsec -a [a-zA-Z]')
+        if (ROOT / '.git').exists() and shutil.which('git'):
+            subprocess.run(['git', 'ls-files', '--error-unmatch', '--', *paths],
+                           cwd=ROOT, capture_output=True, check=True)
 
     def test_tracked_files_exclude_private_content(self):
         if not (ROOT / '.git').exists() or not shutil.which('git'):
