@@ -3,7 +3,7 @@ function New-WinSecSession {
     return [pscustomobject]@{
         OutputRoot=(Get-WinSecOutputRoot -OutputRoot $OutputRoot)
         Snapshot=$Snapshot; RunId=$null; Context=$null; Closed=$false; HintIndex=0
-        DeviceId=$null; DeviceName=$null; Warning=$null; Notifications=@(); MessageArea=$null
+        DeviceId=$null; DeviceName=$null; Warning=$null; Notifications=@(); MessageArea=$null; MessageRows=1
         SavedContexts=@()
     }
 }

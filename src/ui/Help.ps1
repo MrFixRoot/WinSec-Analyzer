@@ -16,9 +16,12 @@ function Get-WinSecHelpLines {
     if ($resolved -eq 'all') {
         @('# Ayuda de secciones','','Escanear todas las secciones:','    winsec -s','','Escanear secciones individuales (elige una):',
           ('    winsec -s ['+(($sections | ForEach-Object {$_.Command}) -join '|')+']'),
-          '','Marcos de referencia:','    -c [c]is benchmarks','    -n [n]ist csf 2.0',
-          '','Analizar una seccion (elige un marco):','    winsec -a network -n','    winsec -a network -c',
-          '','Correlacion PLUS [+]:','    -r co[r]relation','')
+          '','Analizar una seccion o un control:','    winsec -a [section|control] -n|w',
+          '    Elige un nombre y una opcion; no escribas los corchetes ni |.',
+          '','Marcos de referencia:','    -n [n]ist csf 2.0','    -w [w]insec baseline',
+          '','Secciones disponibles:')
+        foreach ($section in $sections) { '    {0} ({1})' -f $section.Command,$section.Name }
+        @('','Correlacion PLUS [+]:','    -r co[r]relation','')
         $config=Get-Content -LiteralPath (Join-Path $script:WinSecRoot 'config/correlation-rules/cross-domain.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($rule in $config.correlations) {
             'Correlacion {0}: {1}' -f $rule.id,$rule.title
@@ -37,10 +40,12 @@ function Get-WinSecHelpLines {
     })
     @(('# Ayuda de controles: '+$section.Name),'','Escanear esta seccion:',('    winsec -s '+$section.Command),
       '','Escanear un solo control:',('    winsec -s '+$names[0]),
-      '','Marcos de referencia:','    -c [c]is benchmarks','    -n [n]ist csf 2.0',
-      '','Analizar esta seccion (elige un marco):',('    winsec -a '+$section.Command+' -c'),('    winsec -a '+$section.Command+' -n'),
-      '','Ejemplos de analisis por control (un framework por comando):')
-    foreach ($name in $names) { @(('    winsec -a '+$name+' -n'),('    winsec -a '+$name+' -c')) }
+      '','Analizar una seccion o un control:','    winsec -a [section|control] -n|w',
+      '    Elige un nombre y una opcion; no escribas los corchetes ni |.',
+      '','Marcos de referencia:','    -n [n]ist csf 2.0','    -w [w]insec baseline',
+      '','Seccion disponible:',('    '+$section.Command+' ('+$section.Name+')'),
+      '','Controles disponibles:')
+    foreach ($name in $names) { '    '+$name }
 }
 
 function Show-WinSecHelp {
@@ -56,19 +61,15 @@ function Show-WinSecHelp {
         $example=ConvertTo-WinSecControlName $agents[0].id
         $selected=ConvertTo-WinSecControlName $control[0].id
     }
-    $inSectionExamples=$false
     Write-Host ''
     $lines=if (Test-Path -LiteralPath $path -PathType Leaf) {
         Get-Content -LiteralPath $path -Encoding UTF8 -ErrorAction Stop
     } else { Get-WinSecHelpLines -Domain $resolved }
     $lines | ForEach-Object {
         $line=$_
-        if ($line -match '^Analizar esta seccion') { $inSectionExamples=$true }
-        elseif ($line -match '^Ejemplos de analisis por control') { $inSectionExamples=$false }
-        if ($selected -and $inSectionExamples) { return }
         if ($selected) { $line=$line -replace ('(?<=winsec -s )'+[regex]::Escape($example)+'(?=\s|$)'),$selected }
         if ($line -match '^#{1,6}\s+') { Write-Host ('  '+($line -replace '^#{1,6}\s+','')) -ForegroundColor Cyan }
-        elseif ($selected -and $line -match ('^\s*winsec -(?:s|a) '+[regex]::Escape($selected)+'(?:\s|$)')) {
+        elseif ($selected -and ($line.Trim() -ceq $selected -or $line -match ('^\s*winsec -s '+[regex]::Escape($selected)+'(?:\s|$)'))) {
             Write-Host ('  '+$line) -ForegroundColor Cyan
         }
         else { Write-Host ('  '+$line) }
@@ -90,7 +91,7 @@ function Get-WinSecHint {
         $hints=@(
             [pscustomobject]@{ Lines=@('Escanear este control:',('winsec -s {0}' -f $name)) }
             [pscustomobject]@{ Lines=@('Analizar este control con NIST CSF:',('winsec -a {0} -n' -f $name)) }
-            [pscustomobject]@{ Lines=@('Analizar este control con CIS Benchmarks:',('winsec -a {0} -c' -f $name)) }
+            [pscustomobject]@{ Lines=@('Analizar este control con WinSec Baseline:',('winsec -a {0} -w' -f $name)) }
         )
     } elseif ($section.Count -gt 0) {
         $name=$section[0].Command
@@ -98,7 +99,7 @@ function Get-WinSecHint {
         foreach ($agent in @(Get-WinSecCatalog | Where-Object { $_.domain -eq $Domain })) {
             $controlName=ConvertTo-WinSecControlName $agent.id
             $hints+= [pscustomobject]@{ Lines=@(('Analizar {0} con NIST CSF:' -f $controlName),('winsec -a {0} -n' -f $controlName)) }
-            $hints+= [pscustomobject]@{ Lines=@(('Analizar {0} con CIS Benchmarks:' -f $controlName),('winsec -a {0} -c' -f $controlName)) }
+            $hints+= [pscustomobject]@{ Lines=@(('Analizar {0} con WinSec Baseline:' -f $controlName),('winsec -a {0} -w' -f $controlName)) }
         }
     } else {
         $hints=@([pscustomobject]@{ Lines=@('Escanear todas las secciones:','winsec -s') })
@@ -106,7 +107,7 @@ function Get-WinSecHint {
             $hints+= [pscustomobject]@{ Lines=@(('Escanear {0}:' -f $item.Name),('winsec -s {0}' -f $item.Command)) }
         }
         $hints+= [pscustomobject]@{ Lines=@('Analizar Network Security con NIST CSF:','winsec -a network -n') }
-        $hints+= [pscustomobject]@{ Lines=@('Analizar Network Security con CIS Benchmarks:','winsec -a network -c') }
+        $hints+= [pscustomobject]@{ Lines=@('Analizar Network Security con WinSec Baseline:','winsec -a network -w') }
     }
     $hint=$hints[$Session.HintIndex % $hints.Count]
     $Session.HintIndex++

@@ -72,23 +72,23 @@ try {
         $queriesBefore=$script:osQueries
         $manifestHash=Get-WinSecHash $first
         $notificationsBefore=@($session.Notifications).Count
-        winsec -a windowsDefender -c -Session $session -NoBanner 6>$null
         winsec -a windowsDefender -n -Session $session -NoBanner 6>$null
+        winsec -a windowsDefender -w -Session $session -NoBanner 6>$null
         Assert-Test (@($session.Notifications).Count -eq $notificationsBefore+2) 'New framework files must enqueue creation notifications.'
-        $cis=Join-Path $context.Base 'export/cisf/windowsDefender.json'
+        $baseline=Join-Path $context.Base 'export/winsecbaseline/windowsDefender.json'
         $nist=Join-Path $context.Base 'export/nistcsf/windowsDefender.json'
-        Assert-Test ((Get-Content $cis -Raw | ConvertFrom-Json).status -eq 'NOT_CONFIGURED') 'CIS without a pack must stay NOT_CONFIGURED.'
+        Assert-Test ((Get-Content $baseline -Raw | ConvertFrom-Json).status -eq 'NOT_CONFIGURED') 'WinSec Baseline without a pack must stay NOT_CONFIGURED.'
         Assert-Test ((Get-Content $nist -Raw | ConvertFrom-Json).status -eq 'EVIDENCE_MAPPING_ONLY') 'NIST must remain evidence mapping.'
-        $cisHash=Get-WinSecHash $cis
+        $baselineHash=Get-WinSecHash $baseline
         winsec -a windowsDefender -n -Session $session -NoBanner 6>$null
         Assert-Test (@($session.Notifications).Count -eq $notificationsBefore+2) 'Updating an existing framework export must not repeat its creation notification.'
-        Assert-Test ((Get-WinSecHash $cis) -eq $cisHash) 'Updating a NIST export must preserve the CIS result.'
-        foreach ($framework in @('c','n')) {
+        Assert-Test ((Get-WinSecHash $baseline) -eq $baselineHash) 'Updating a NIST export must preserve the WinSec Baseline result.'
+        foreach ($framework in @('n','w')) {
             $flags=@{$framework=$true}
             winsec -a network @flags -Session $session -NoBanner 6>$null
             winsec -a networkSecurity @flags -Session $session -NoBanner 6>$null
         }
-        foreach ($folder in @('cisf','nistcsf')) {
+        foreach ($folder in @('nistcsf','winsecbaseline')) {
             $exportRoot=Join-Path $context.Base ('export/'+$folder)
             Assert-Test (@(Get-ChildItem $exportRoot -Filter '*.json').Count -eq 2) 'Repeated analysis and section aliases must reuse the same export names.'
             $controlExport=Get-Content (Join-Path $exportRoot 'windowsDefender.json') -Raw | ConvertFrom-Json
@@ -100,11 +100,41 @@ try {
         Assert-Test (-not (Test-Path (Join-Path $context.Base 'analysis'))) 'Framework analysis must not create the old analysis directory.'
         Assert-Test ((Get-WinSecHash $first) -eq $manifestHash -and (Get-WinSecHash (Join-Path $context.Base $entry.path)) -eq $firstHash) 'Exports must preserve the source manifest and evidence.'
         Assert-Test ($script:osQueries -eq $queriesBefore) 'Analysis must never call the live OS guard.'
-        Assert-Throws {winsec -a WindowsDefender -n -c -Session $session} 'Combined framework switches must be rejected.'
-        Assert-Throws {winsec -a 'cis,nist' -n -Session $session} 'Combined framework values must be rejected.'
-        Assert-Throws {winsec -a 'nistcis' -c -Session $session} 'Combined framework names must be rejected.'
+        Assert-Throws {winsec -a WindowsDefender -n -w -Session $session} 'Combined framework switches must be rejected.'
+        Assert-Throws {winsec -a 'winsec,nist' -n -Session $session} 'Combined framework values must be rejected.'
+        Assert-Throws {winsec -a 'nistwinsec' -w -Session $session} 'Combined framework names must be rejected.'
         Assert-Throws {winsec -a WindowsDefender -Session $session} 'Analysis requires one explicit framework.'
         Assert-Test ($script:osQueries -eq $queriesBefore) 'Invalid analysis commands must not query Windows.'
+        Assert-Throws {ConvertFrom-WinSecInputCommand 'winsec -a windowsDefender -c'} 'The retired analysis shortcut must not be parsed as an active framework.'
+        Assert-Throws {winsec -a WindowsDefender -c -Session $session} 'The retired analysis shortcut must not resolve to a supported framework.'
+        $entrypoint=Get-Command (Join-Path $script:WinSecRoot 'run.ps1')
+        Assert-Test ($entrypoint.Parameters['WinSecBaseline'].Aliases -contains 'w') 'The script entrypoint must expose the same WinSec Baseline shortcut as the module.'
+
+        # An original synthetic rule validates the new pack schema without real evidence.
+        $originalRoot=$script:WinSecRoot
+        $baselineRoot=Join-Path $testRoot 'SYNTHETIC_BASELINE_ROOT'
+        $originalCatalog=Get-Content (Join-Path $originalRoot 'catalog/collectors.json') -Raw | ConvertFrom-Json
+        [void](Save-WinSecJson (Join-Path $baselineRoot 'catalog/collectors.json') $originalCatalog)
+        $baselinePackPath=Join-Path $baselineRoot 'config/baselines/local/SYNTHETIC.json'
+        $baselinePack=@{
+            schemaVersion='1';framework='WinSec Baseline';verified=$true
+            baseline=@{name='SYNTHETIC';version='TEST';targetOS='Windows11';edition='SYNTHETIC';profile='SYNTHETIC';source='SYNTHETIC_PROJECT_AUTHORED'}
+            rules=@(@{id='SYNTHETIC-WSB-001';title='SYNTHETIC';verified=$true;collector='WindowsDefender';path='data.computerStatus.RealTimeProtectionEnabled';operator='istrue';expected=$true})
+        }
+        try {
+            $script:WinSecRoot=$baselineRoot
+            [void](Save-WinSecJson $baselinePackPath $baselinePack)
+            $baselineResult=Invoke-WinSecBaselineAnalysis -Context $context -CollectorFilter WindowsDefender
+            Assert-Test ($baselineResult.framework -eq 'WinSec Baseline' -and $baselineResult.status -eq 'EVALUATED' -and $baselineResult.summary.passed -eq 1 -and $null -eq $baselineResult.score) 'An original verified baseline rule must evaluate existing JSON without a compliance score.'
+            $baselinePack.rules[0].path='data.SYNTHETIC_MISSING_PROPERTY'
+            [void](Save-WinSecJson $baselinePackPath $baselinePack)
+            $baselineResult=Invoke-WinSecBaselineAnalysis -Context $context -CollectorFilter WindowsDefender
+            Assert-Test ($baselineResult.findings[0].status -eq 'NOT_ASSESSED' -and $baselineResult.summary.notAssessed -eq 1) 'Missing baseline properties must remain unassessed instead of passing or failing.'
+            $baselinePack.framework='SYNTHETIC_OTHER_FAMILY'
+            [void](Save-WinSecJson $baselinePackPath $baselinePack)
+            Assert-Test ((Invoke-WinSecBaselineAnalysis -Context $context).status -eq 'NOT_CONFIGURED') 'Baseline evaluation must reject packs from other families.'
+        } finally { $script:WinSecRoot=$originalRoot }
+        Assert-Test ($script:osQueries -eq $queriesBefore) 'Verified baseline rules must not query Windows.'
         $savedPath=Join-Path $context.Base ($entry.path -replace '/', [IO.Path]::DirectorySeparatorChar)
         [IO.File]::AppendAllText($savedPath,' ')
         $tamperedHash=Get-WinSecHash $savedPath
@@ -239,7 +269,7 @@ try {
                 $hint=@(Get-WinSecHint -Session $hintSession -Domain NetworkSecurity -Collector $control -View $scope)
                 $command=$hint[-1]
                 $pattern=switch ($scope) {
-                    'control' {'^winsec -(s|a) windowsFirewall( -[cn])?$'}
+                    'control' {'^winsec -(s|a) windowsFirewall( -[nw])?$'}
                     'correlations' {'^winsec -r( [1-4])?$'}
                     default {''}
                 }
@@ -259,6 +289,8 @@ try {
             $agents=@(Get-WinSecCatalog | Where-Object {$_.domain -eq $section.Domain})
             $renderedHelp=@(Show-WinSecHelp -Domain $section.Domain 6>&1)
             $renderedText=($renderedHelp | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+            $availableControls=@($renderedHelp | ForEach-Object {$_.ToString().Trim()})
+            Assert-Test ($renderedText.Contains('winsec -a [section|control] -n|w') -and $renderedText -notmatch 'winsec -a [a-zA-Z]') 'Section help must keep analysis syntax generic.'
             $hintSession.HintIndex=0
             $examples=@(for ($i=0; $i -lt (1+2*$agents.Count); $i++) {
                 $lines=@(Get-WinSecHint -Session $hintSession -Domain $section.Domain -View section)
@@ -266,26 +298,25 @@ try {
             })
             foreach ($agent in $agents) {
                 $name=ConvertTo-WinSecControlName $agent.id
-                foreach ($flag in @('n','c')) {
+                Assert-Test (@($availableControls | Where-Object {$_ -ceq $name}).Count -eq 1) 'Every registered control must be listed once without command examples.'
+                foreach ($flag in @('n','w')) {
                     $example='winsec -a '+$name+' -'+$flag
-                    Assert-Test ($renderedText.Contains($example)) 'Every registered control must have its own NIST and CIS help examples.'
                     Assert-Test ($examples -ccontains $example) 'Control-list hints must cover every control in the section.'
                 }
             }
         }
         $controlHelp=@(Show-WinSecHelp -Domain SystemSecurity -Collector WindowsFirewall 6>&1)
         $helpText=($controlHelp | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
-        Assert-Test ($helpText -cmatch 'winsec -s windowsFirewall' -and $helpText -cmatch 'winsec -a windowsFirewall -c') 'Control help must use the selected control rather than the first collector.'
+        Assert-Test ($helpText -cmatch 'winsec -s windowsFirewall' -and $helpText.Contains('winsec -a [section|control] -n|w')) 'Control help must use the selected scan target and generic analysis syntax.'
+        $controlNames=@($controlHelp | ForEach-Object {$_.ToString().Trim()})
         foreach ($agent in @(Get-WinSecCatalog | Where-Object {$_.domain -eq 'SystemSecurity'})) {
             $name=ConvertTo-WinSecControlName $agent.id
-            foreach ($flag in @('n','c')) {
-                $example='winsec -a '+$name+' -'+$flag
-                Assert-Test ([regex]::Matches($helpText,[regex]::Escape($example)).Count -eq 1) 'Selecting a control must not replace or duplicate another control analysis example.'
-            }
+            Assert-Test (@($controlNames | Where-Object {$_ -ceq $name}).Count -eq 1) 'Selecting a control must preserve the complete list of control names.'
         }
+        Assert-Test ($helpText -notmatch 'winsec -a [a-zA-Z]') 'Control help must leave concrete analysis commands to prompt suggestions.'
         Assert-Test ($helpText -notmatch 'Selecciona el numero|Esc:|Q / q|sesion interactiva|winsec -a all') 'Control help must remain compact.'
-        Assert-Test ($helpText -notmatch 'winsec -a system -[cn]' -and $helpText -notmatch '-a \[A\]nalizar') 'Control help must omit the section-analysis block and the Analyze framework legend.'
-        foreach ($unsafe in @('winsec -s; Get-Service','winsec -s | Out-Host','winsec -s > output.txt','winsec -a $(Get-Service) -n','& winsec -s','winsec -a $env:USERNAME -c','winsec -s -s','help','?','winsec -Help')) {
+        Assert-Test ($helpText -notmatch 'winsec -a system -[nw]' -and $helpText -notmatch '-a \[A\]nalizar') 'Control help must omit the section-analysis block and the Analyze framework legend.'
+        foreach ($unsafe in @('winsec -s; Get-Service','winsec -s | Out-Host','winsec -s > output.txt','winsec -a $(Get-Service) -n','& winsec -s','winsec -a $env:USERNAME -w','winsec -s -s','help','?','winsec -Help')) {
             Assert-Throws {ConvertFrom-WinSecInputCommand $unsafe} ('Reject unsafe or ambiguous input: '+$unsafe)
         }
         function Get-WinSecCursor { return $null }
@@ -309,9 +340,9 @@ try {
         $script:testKeys.Enqueue([pscustomobject]@{VirtualKeyCode=112;Character=[char]0})
         $answer=Read-WinSecInput 6>$null
         Assert-Test ($answer.HelpRequested -and -not $answer.Cancelled -and $answer.Text -eq '' -and $script:testKeys.Count -eq 0) 'F1 must request help immediately without submitting a partially typed command.'
-        foreach ($ch in @('q','Q','c','N')) {
+        foreach ($ch in @('q','Q','w','N')) {
             $script:testKeys.Enqueue([pscustomobject]@{VirtualKeyCode=0;Character=[char]$ch})
-            $answer=Read-WinSecInput -Shortcuts 'qcn' 6>$null
+            $answer=Read-WinSecInput -Shortcuts 'qnw' 6>$null
             Assert-Test ($answer.Text -eq $ch -and $script:testKeys.Count -eq 0) 'Keyboard shortcuts must work without Enter in either case.'
         }
         foreach ($key in @(@(113,'Rename'),@(46,'Delete'),@(38,'Up'),@(40,'Down'))) {
@@ -333,6 +364,9 @@ try {
         function Clear-Host {}
         function Show-WinSecBanner {}
         $catalog=@(Get-WinSecCatalog)
+        $frameworkScreen=@(Show-WinSecMenuPage -View framework -Session $empty -Domain SystemSecurity -Agent $catalog[0] -Catalog $catalog 6>&1)
+        $frameworkText=($frameworkScreen | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($frameworkText.Contains('[N] NIST CSF 2.0') -and $frameworkText.Contains('[W] WinSec Baseline') -and $frameworkText.IndexOf('[N]') -lt $frameworkText.IndexOf('[W]')) 'The framework menu must show NIST then WinSec Baseline with their correct shortcuts.'
         $screen=@(Show-WinSecMenuPage -View main -Session (New-WinSecSession -OutputRoot $testRoot) -Domain all -Catalog $catalog 6>&1)
         $screenText=($screen | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
         foreach($number in 1..6) {Assert-Test ($screenText.Contains('['+$number+']')) 'Every domain must appear in the main menu.'}
@@ -347,8 +381,10 @@ try {
         Add-WinSecNotification -Session $displaySession -Message ('Snapshot created: '+$shortPath)
         $notificationScreen=@(Show-WinSecMenuPage -View main -Session $displaySession -Domain all -Catalog $catalog 6>&1)
         $noticeLines=@($notificationScreen | ForEach-Object {$_.ToString()})
-        $noticeIndex=[array]::IndexOf($noticeLines,('  Snapshot created: '+$shortPath))
-        Assert-Test ($noticeIndex -gt 0 -and $noticeLines[$noticeIndex-1] -eq '' -and $noticeLines[$noticeIndex+1] -eq '') 'A creation notification must be delimited by one blank line above and below.'
+        $noticeIndex=-1
+        for ($i=0; $i -lt $noticeLines.Count; $i++) {if ($noticeLines[$i].StartsWith('  Snapshot created: ')) {$noticeIndex=$i;break}}
+        $noticeText=($noticeLines | ForEach-Object {$_.TrimStart()}) -join ''
+        Assert-Test ($noticeIndex -gt 0 -and $noticeLines[$noticeIndex-1] -eq '' -and $noticeLines[-1] -eq '' -and $noticeText.Contains('Snapshot created: '+$shortPath)) 'A creation notification must retain its complete path across wrapped lines with blank delimiters.'
         Assert-Test (@($displaySession.Notifications).Count -eq 0) 'Displaying a notification must consume it.'
         $nextScreen=@(Show-WinSecMenuPage -View section -Session $displaySession -Domain SystemSecurity -Catalog $catalog 6>&1)
         Assert-Test ((($nextScreen | ForEach-Object {$_.ToString()}) -join ' ') -notmatch 'Snapshot created:|Snapshot saved:|Snapshot:') 'Navigating after a creation must leave the notification area empty.'
@@ -365,6 +401,31 @@ try {
         Assert-Test ($warningIndex -gt $plusIndex -and $warningLines[$warningIndex-1] -eq '' -and $warningLines[$warningIndex+1] -eq '') 'A warning must appear below PLUS, separated by blank lines, instead of above the sections.'
         Assert-Test (@($warningLines | Where-Object {$_.Contains($warning)}).Count -eq 1 -and @($warningScreen | Where-Object {$_ -is [System.Management.Automation.WarningRecord]}).Count -eq 0) 'An interactive warning must render once without a second warning stream record.'
         Assert-Test (-not $displaySession.Warning -and $displaySession.MessageArea.Active) 'Rendering must consume pending warnings and retain their area for dismissal.'
+
+        $layoutSession=New-WinSecSession -OutputRoot $testRoot
+        foreach ($view in @('main','section','control')) {
+            $emptyPage=@(Show-WinSecMenuPage -View $view -Session $layoutSession -Domain SystemSecurity -Agent $catalog[0] -Catalog $catalog 6>&1)
+            Add-WinSecWarning -Session $layoutSession -Message 'SYNTHETIC'
+            $alertPage=@(Show-WinSecMenuPage -View $view -Session $layoutSession -Domain SystemSecurity -Agent $catalog[0] -Catalog $catalog 6>&1)
+            Clear-WinSecMessageArea -Area $layoutSession.MessageArea
+            $clearedPage=@(Show-WinSecMenuPage -View $view -Session $layoutSession -Domain SystemSecurity -Agent $catalog[0] -Catalog $catalog 6>&1)
+            Assert-Test ($emptyPage.Count -eq $alertPage.Count -and $alertPage.Count -eq $clearedPage.Count) 'Empty, visible and dismissed warnings must keep the same prompt position in sections and controls.'
+            Assert-Test ($layoutSession.MessageArea.Rows -eq 3 -and -not $layoutSession.MessageArea.Active) 'Every view must reserve one message row with a blank line above and below.'
+        }
+        $longWarning='SYNTHETIC_LONG_WARNING_'*20
+        Add-WinSecWarning -Session $layoutSession -Message $longWarning
+        $longFrame=@(Show-WinSecNotifications -Session $layoutSession 6>&1)
+        $reservedRows=$layoutSession.MessageArea.Rows
+        $longText=($longFrame | ForEach-Object {$_.ToString().TrimStart()}) -join ''
+        Clear-WinSecMessageArea -Area $layoutSession.MessageArea
+        $emptyFrame=@(Show-WinSecNotifications -Session $layoutSession 6>&1)
+        Assert-Test ($longText.Contains($longWarning) -and $reservedRows -gt 3) 'Long warnings must wrap inside the message region without truncation.'
+        Assert-Test ($longFrame.Count -eq $emptyFrame.Count -and $layoutSession.MessageArea.Rows -eq $reservedRows) 'Dismissing a wrapped warning must keep its allocated space across redraws.'
+        Add-WinSecNotification -Session $layoutSession -Message 'SYNTHETIC_FILE_CREATED'
+        Add-WinSecWarning -Session $layoutSession -Message 'SYNTHETIC_WARNING'
+        $combinedFrame=@(Show-WinSecNotifications -Session $layoutSession 6>&1)
+        $combinedText=($combinedFrame | ForEach-Object {$_.ToString().TrimStart()}) -join ''
+        Assert-Test ($combinedFrame.Count -eq $emptyFrame.Count -and $combinedText.Contains('SYNTHETIC_FILE_CREATED') -and $combinedText.Contains('SYNTHETIC_WARNING')) 'Mixed notifications and warnings must share the reserved region without changing its height.'
 
         $command=${function:winsec}
         function winsec {
@@ -387,13 +448,13 @@ try {
             return $script:testKeys.Dequeue()
         }
         foreach ($dismiss in @(0,8,9,13)) {
-            $script:messageProbe=[pscustomobject]@{Origin=$null;Rows=0;Active=$true}
+            $script:messageProbe=[pscustomobject]@{Origin=$null;Rows=3;Active=$true}
             $script:messageReads=0
             $character=if ($dismiss -eq 0) {[char]'w'} else {[char]0}
             $script:testKeys.Enqueue([pscustomobject]@{VirtualKeyCode=$dismiss;Character=$character})
             if ($dismiss -ne 13) { $script:testKeys.Enqueue([pscustomobject]@{VirtualKeyCode=13;Character=[char]13}) }
             $answer=Read-WinSecInput -MessageArea $script:messageProbe 6>$null
-            Assert-Test (-not $script:messageProbe.Active -and $answer.Text -eq $(if ($dismiss -eq 0) {'w'} else {''}) -and $script:testKeys.Count -eq 0) 'Typing, Backspace, Tab or Enter must dismiss messages without consuming command text or asking for another Enter.'
+            Assert-Test (-not $script:messageProbe.Active -and $script:messageProbe.Rows -eq 3 -and $answer.Text -eq $(if ($dismiss -eq 0) {'w'} else {''}) -and $script:testKeys.Count -eq 0) 'Typing, Backspace, Tab or Enter must dismiss message text while preserving its space and the new command.'
         }
         ${function:Read-WinSecKey}=$readKey
 
@@ -441,7 +502,7 @@ try {
         }
         $waitsBefore=$script:resultWaits
         $viewsBefore=$script:views.Count
-        foreach ($text in @('','winsec -s system -Collector WindowsDefender','winsec -s windowsDefender','winsec -s network -Collector SMB','ESC','1','1','a','c','ESC','q')) {
+        foreach ($text in @('','winsec -s system -Collector WindowsDefender','winsec -s windowsDefender','winsec -s network -Collector SMB','ESC','1','1','a','w','ESC','q')) {
             $script:answers.Enqueue([pscustomobject]@{Cancelled=($text -eq 'ESC');HelpRequested=$false;Text=$text})
         }
         Invoke-WinSecMenu -OutputRoot $testRoot 6>$null
@@ -475,6 +536,8 @@ try {
             }
             & $pair[0] -a -n -Snapshot 'SYNTHETIC_PATH'
             Assert-Test ($script:aliasAnalysis.Framework -eq 'nist' -and ($script:aliasAnalysis.Collector -eq $pair[1] -or $script:aliasAnalysis.Domain -eq $pair[1])) 'Short analysis commands must use exactly the selected framework and target.'
+            & $pair[0] -a -w -Snapshot 'SYNTHETIC_PATH'
+            Assert-Test ($script:aliasAnalysis.Framework -eq 'winsec' -and ($script:aliasAnalysis.Collector -eq $pair[1] -or $script:aliasAnalysis.Domain -eq $pair[1])) 'Every short command must route -w to WinSec Baseline for the same target.'
             if ($pair[0] -eq 'win-services') {
                 Assert-Test (-not $script:aliasAnalysis.Collector) 'win-services analysis must cover the whole Services & Hardening section.'
             }

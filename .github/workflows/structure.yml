@@ -26,4 +26,4 @@ jobs:
           git check-ignore -q device/Windows11_Pro_26100/TEST/SNAPSHOT/manifest.json
           git check-ignore -q device/inventory.json
           git check-ignore -q scans/private.scan.json
-          git check-ignore -q config/benchmarks/local/personal.json
+          git check-ignore -q config/baselines/local/personal.json

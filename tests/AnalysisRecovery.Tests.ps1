@@ -60,9 +60,9 @@ try {
             return $value
         }
         function New-AnalysisCommand {
-            param($Session,[string]$Target='windowsDefender',[switch]$Cis)
+            param($Session,[string]$Target='windowsDefender',[switch]$WinSecBaseline)
             $p=@{Analyze=$Target;Session=$Session;NoBanner=$true}
-            if ($Cis) {$p.Cis=$true} else {$p.Nist=$true}
+            if ($WinSecBaseline) {$p.WinSecBaseline=$true} else {$p.Nist=$true}
             return $p
         }
 
@@ -74,7 +74,7 @@ try {
             Assert-Test ((Confirm-WinSecAnalysisEvidence $session $p 6>$null) -eq 'Cancelled') 'No, Enter and Esc must cancel recovery.'
         }
         Assert-Test ($script:queries -eq 0 -and -not (Test-Path $root)) 'Declining recovery must not query Windows or write files.'
-        $invalid=@{Analyze='windowsDefender';Nist=$true;Cis=$true}
+        $invalid=@{Analyze='windowsDefender';Nist=$true;WinSecBaseline=$true}
         Assert-Throws {Confirm-WinSecAnalysisEvidence $session $invalid} 'Invalid framework combinations must be rejected before recovery.'
         $invalid=@{Analyze='windowsDefender';Nist=$true;Collector='SMB'}
         Assert-Throws {Confirm-WinSecAnalysisEvidence $session $invalid} 'Conflicting analysis targets must be rejected before recovery.'
@@ -91,10 +91,10 @@ try {
         winsec @p 6>$null
         $nist=Get-Content (Join-Path $first.Base 'export/nistcsf/windowsDefender.json') -Raw | ConvertFrom-Json
         Assert-Test ($nist.sourceRunId -eq $first.Manifest.runId -and $script:queries -eq $before) 'Analysis must use the recovered run without another Windows query.'
-        $cisParams=New-AnalysisCommand $session -Cis
-        Assert-Test ((Confirm-WinSecAnalysisEvidence $session $cisParams 6>$null) -eq 'Ready' -and $script:answers.Count -eq 0) 'Existing valid evidence must not request a rescan.'
-        winsec @cisParams 6>$null
-        Assert-Test ((Get-Content (Join-Path $first.Base 'export/cisf/windowsDefender.json') -Raw | ConvertFrom-Json).status -eq 'NOT_CONFIGURED') 'CIS must remain NOT_CONFIGURED without a verified benchmark pack.'
+        $baselineParams=New-AnalysisCommand $session -WinSecBaseline
+        Assert-Test ((Confirm-WinSecAnalysisEvidence $session $baselineParams 6>$null) -eq 'Ready' -and $script:answers.Count -eq 0) 'Existing valid evidence must not request a rescan.'
+        winsec @baselineParams 6>$null
+        Assert-Test ((Get-Content (Join-Path $first.Base 'export/winsecbaseline/windowsDefender.json') -Raw | ConvertFrom-Json).status -eq 'NOT_CONFIGURED') 'WinSec Baseline must remain NOT_CONFIGURED without its own verified rules.'
 
         # An older valid run must not hide a missing file in the latest attempt.
         $olderRun=Join-Path (Split-Path -Parent $first.Base) '20260101T000000Z_SYNTHETIC_HISTORY'
@@ -125,9 +125,9 @@ try {
         $stale.Snapshot=$olderManifest; $stale.Context=Get-WinSecSnapshotManifest $olderManifest
         Assert-Test ((Get-WinSecSessionSnapshot -Session $stale -Collector WindowsDefender -Domain SystemSecurity) -eq $fresh.Path) 'Automatic analysis must select the latest collected control, regardless of the displayed context or manifest mtime.'
         $before=$script:queries
-        winsec -a windowsDefender -c -OutputRoot $root -NoBanner 6>$null
-        $cis=Get-Content (Join-Path $fresh.Base 'export/cisf/windowsDefender.json') -Raw | ConvertFrom-Json
-        Assert-Test ($cis.sourceRunId -eq $fresh.Manifest.runId -and $script:queries -eq $before) 'CLI analysis must also use the latest collected target without querying Windows.'
+        winsec -a windowsDefender -w -OutputRoot $root -NoBanner 6>$null
+        $baseline=Get-Content (Join-Path $fresh.Base 'export/winsecbaseline/windowsDefender.json') -Raw | ConvertFrom-Json
+        Assert-Test ($baseline.sourceRunId -eq $fresh.Manifest.runId -and $script:queries -eq $before) 'CLI analysis must also use the latest collected target without querying Windows.'
 
         # Removing the active manifest must not break recovery or quitting.
         Remove-Item -LiteralPath $fresh.Path

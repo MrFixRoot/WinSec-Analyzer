@@ -46,5 +46,7 @@ copilot-instructions.md
 .env.*
 config/local/
 config/private/
-config/benchmarks/local/*
-!config/benchmarks/local/.gitkeep
+config/baselines/local/*
+!config/baselines/local/.gitkeep
+# Keep previously stored local material private; never load it as a baseline.
+config/benchmarks/local/

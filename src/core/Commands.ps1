@@ -1,5 +1,5 @@
 ﻿function Invoke-WinSecNamedAnalysis {
-    param([ValidateSet('cis','nist')][string]$Framework,[int]$Correlation,[string]$Snapshot,[string]$OutputRoot,[string]$CollectorFilter,[string]$DomainFilter,$Session)
+    param([ValidateSet('nist','winsec')][string]$Framework,[int]$Correlation,[string]$Snapshot,[string]$OutputRoot,[string]$CollectorFilter,[string]$DomainFilter,$Session)
     $context=Get-WinSecSnapshotManifest -Snapshot $Snapshot -OutputRoot $OutputRoot
     if ($context.Manifest.os.family -ne 'Windows11' -or [int]$context.Manifest.os.build -lt 22000) {
         throw 'Solo se analizan snapshots de Windows 11.'
@@ -7,17 +7,15 @@
     $productType=$context.Manifest.os.PSObject.Properties['productType']
     if ($null -ne $productType -and [int]$productType.Value -ne 1) { throw 'El snapshot no corresponde a Windows 11 cliente.' }
     if ($Framework) {
-        if ($Framework -eq 'cis') { $data=Invoke-WinSecCISAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
-        else { $data=Invoke-WinSecNISTAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
+        if ($Framework -eq 'nist') { $data=Invoke-WinSecNISTAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
+        else { $data=Invoke-WinSecBaselineAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
         [void](Save-WinSecAnalysis -Context $context -Name $Framework -Data $data -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter -Session $Session)
-        Write-Host ('  [{0}] {1}' -f $data.status,$Framework.ToUpperInvariant()) -ForegroundColor Yellow
-        if ($Framework -eq 'cis') {
+        Write-Host ('  [{0}] {1}' -f $data.status,$data.framework) -ForegroundColor Yellow
+        if ($Framework -eq 'winsec') {
             foreach ($finding in @($data.findings)) {
                 Write-Host ('  [{0}] {1} | {2}' -f $finding.status,$finding.id,$finding.title)
             }
-            if ($null -ne $data.score) {
-                Write-Host ('  CIS evaluated ratio: {0}% (n={1}, not official CIS scoring)' -f $data.score,$data.denominator) -ForegroundColor Cyan
-            } else { Write-Host ('  '+$data.note) -ForegroundColor DarkYellow }
+            Write-Host ('  '+$data.note) -ForegroundColor DarkYellow
         } else {
             foreach ($category in @($data.categories)) {
                 Write-Host ('  [{0}] {1} | {2}/{3} collectors' -f $category.status,$category.category,$category.collected,$category.mapped)
@@ -56,7 +54,7 @@ function winsec {
         [Alias('s')][switch]$Scan,
         [Alias('a')][string]$Analyze,
         [Alias('n')][switch]$Nist,
-        [Alias('c')][switch]$Cis,
+        [Alias('w')][switch]$WinSecBaseline,
         [Alias('r')][switch]$Correlate,
         [ValidateRange(1,5)][int]$Correlation,
         [Parameter(Position=0)][string]$Domain='all',
@@ -70,9 +68,9 @@ function winsec {
         [Alias('h')][switch]$Help,
         [Parameter(DontShow=$true)]$Session
     )
-    if ($Nist -and $Cis) { throw 'Selecciona un solo framework: -n para NIST CSF o -c para CIS.' }
-    if ($Analyze -and -not ($Nist -or $Cis)) { throw 'Usa winsec -a <control|seccion> -n o -c; un solo framework por comando.' }
-    if (($Nist -or $Cis) -and -not $Analyze) { throw 'Indica el objetivo con -a <control|seccion>.' }
+    if ($Nist -and $WinSecBaseline) { throw 'Selecciona un solo framework: -n para NIST CSF o -w para WinSec Baseline.' }
+    if ($Analyze -and -not ($Nist -or $WinSecBaseline)) { throw 'Usa winsec -a <control|seccion> -n o -w; un solo framework por comando.' }
+    if (($Nist -or $WinSecBaseline) -and -not $Analyze) { throw 'Indica el objetivo con -a <control|seccion>.' }
     if ($Correlate) {
         if ($PSBoundParameters.ContainsKey('Correlation')) { throw 'Usa -r o -Correlation, sin combinarlos.' }
         if ($Scan -or $Analyze -or $Collector) { throw 'Ejecuta la correlacion en un comando separado: winsec -r [1-4].' }
@@ -126,7 +124,7 @@ function winsec {
         }
     }
     if ($Analyze) {
-        $framework=if ($Cis) {'cis'} else {'nist'}
+        $framework=if ($WinSecBaseline) {'winsec'} else {'nist'}
         Invoke-WinSecNamedAnalysis -Framework $framework -Snapshot $Snapshot -OutputRoot $OutputRoot -CollectorFilter $target.Collector -DomainFilter $target.Domain -Session $Session
     }
     if ($Correlation -gt 0) { Invoke-WinSecNamedAnalysis -Correlation $Correlation -Snapshot $Snapshot -OutputRoot $OutputRoot -Session $Session }
@@ -141,8 +139,8 @@ function winsec {
 }
 
 function Invoke-WinSecAgentAlias {
-    param([string]$Target,[switch]$Scan,[switch]$Analyze,[switch]$Nist,[switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[switch]$Help)
-    $parameters=@{ Scan=$Scan; Nist=$Nist; Cis=$Cis; NoBanner=$true; Deep=$Deep; Help=$Help }
+    param([string]$Target,[switch]$Scan,[switch]$Analyze,[switch]$Nist,[switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[switch]$Help)
+    $parameters=@{ Scan=$Scan; Nist=$Nist; WinSecBaseline=$WinSecBaseline; NoBanner=$true; Deep=$Deep; Help=$Help }
     if ($Analyze) { $parameters.Analyze=$Target }
     else {
         $selection=Resolve-WinSecTarget $Target
@@ -156,48 +154,48 @@ function Invoke-WinSecAgentAlias {
 
 function win-defender {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'WindowsDefender' @PSBoundParameters
 }
 
 function win-firewall {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'WindowsFirewall' @PSBoundParameters
 }
 
 function win-bitlocker {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'BitLocker' @PSBoundParameters
 }
 
 function win-update {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'WindowsUpdate' @PSBoundParameters
 }
 
 function win-network {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'network' @PSBoundParameters
 }
 
 function win-identity {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'identity' @PSBoundParameters
 }
 
 function win-logging {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'logging' @PSBoundParameters
 }
 
 function win-services {
     [CmdletBinding()]
-    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('c')][switch]$Cis,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
+    param([Alias('s')][switch]$Scan,[Alias('a')][switch]$Analyze,[Alias('n')][switch]$Nist,[Alias('w')][switch]$WinSecBaseline,[string]$Snapshot,[string]$OutputRoot,[switch]$Deep,[Alias('h')][switch]$Help)
     Invoke-WinSecAgentAlias -Target 'ServicesHardening' @PSBoundParameters
 }

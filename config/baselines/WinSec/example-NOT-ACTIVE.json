@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "framework": "WinSec Baseline",
+  "baseline": {
+    "name": "WinSec Baseline for Windows 11 (draft)",
+    "version": "DRAFT",
+    "targetOS": "Windows11",
+    "edition": "REPLACE_WITH_TARGET_EDITION",
+    "profile": "REPLACE_WITH_PROJECT_PROFILE",
+    "source": "PROJECT_AUTHORED"
+  },
+  "verified": false,
+  "note": "Inactive structure for original WinSec Baseline rules. No active checks or third-party rule sets are included. NIST CSF 2.0 evidence mapping is the current priority.",
+  "rules": []
+}

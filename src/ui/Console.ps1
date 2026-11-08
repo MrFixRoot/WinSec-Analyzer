@@ -35,17 +35,30 @@ function Show-WinSecNotifications {
     $warnings=@(@($Session.Warning)+$Warnings | Where-Object { $_ } | Select-Object -Unique)
     $Session.Notifications=@()
     $Session.Warning=$null
-    $Session.MessageArea=$null
+    $width=80
+    try { $width=[math]::Max(8,$Host.UI.RawUI.BufferSize.Width) } catch { }
+    $capacity=$width-3
+    $lines=New-Object 'System.Collections.Generic.List[object]'
+    $items=@($messages | ForEach-Object {[pscustomobject]@{Text=[string]$_;Color='Cyan'}})+
+        @($warnings | ForEach-Object {[pscustomobject]@{Text=('Warning: '+$_);Color='Yellow'}})
+    foreach ($item in $items) {
+        foreach ($part in ($item.Text -split '\r\n|\n|\r')) {
+            $line=$part
+            while ($line.Length -gt $capacity) {
+                $lines.Add([pscustomobject]@{Text=$line.Substring(0,$capacity);Color=$item.Color})
+                $line=$line.Substring($capacity)
+            }
+            $lines.Add([pscustomobject]@{Text=$line;Color=$item.Color})
+        }
+    }
+    # Keep the same reserved height across pages and after dismissing a message.
+    $Session.MessageRows=[math]::Max($Session.MessageRows,[math]::Max(1,$lines.Count))
     $origin=Get-WinSecCursor
     Write-Host ''
-    foreach ($message in $messages) { Write-Host ('  '+$message) -ForegroundColor Cyan }
-    foreach ($warning in $warnings) { Write-Host ('  Warning: '+$warning) -ForegroundColor Yellow }
-    if ($messages.Count -gt 0 -or $warnings.Count -gt 0) {
-        Write-Host ''
-        $end=Get-WinSecCursor
-        $rows=if ($null -ne $origin -and $null -ne $end) {[math]::Max(0,$end.Y-$origin.Y)} else {0}
-        $Session.MessageArea=[pscustomobject]@{ Origin=$origin; Rows=$rows; Active=$true }
-    }
+    foreach ($line in $lines) { Write-Host ('  '+$line.Text) -ForegroundColor $line.Color }
+    for ($i=$lines.Count; $i -lt $Session.MessageRows; $i++) { Write-Host '' }
+    Write-Host ''
+    $Session.MessageArea=[pscustomobject]@{ Origin=$origin; Rows=($Session.MessageRows+2); Active=($lines.Count -gt 0) }
 }
 
 function Show-WinSecMenuPage {
@@ -89,8 +102,8 @@ function Show-WinSecMenuPage {
         }
         'framework' {
             Write-Host ('  Analyze / '+(ConvertTo-WinSecControlName $Agent.id)) -ForegroundColor Cyan
-            Write-Host '  [C] CIS Benchmarks'
             Write-Host '  [N] NIST CSF 2.0'
+            Write-Host '  [W] WinSec Baseline'
         }
         'help' {
             $collectorId=if ($null -ne $Agent) {$Agent.id} else {''}
@@ -168,8 +181,8 @@ function Get-WinSecMenuScanSelection {
 function Confirm-WinSecAnalysisEvidence {
     param($Session,$Parameters)
     $nist=($Parameters.ContainsKey('Nist') -and $Parameters.Nist)
-    $cis=($Parameters.ContainsKey('Cis') -and $Parameters.Cis)
-    if ($nist -eq $cis) { throw 'Usa exactamente un framework: -c o -n.' }
+    $baseline=($Parameters.ContainsKey('WinSecBaseline') -and $Parameters.WinSecBaseline)
+    if ($nist -eq $baseline) { throw 'Usa exactamente una opcion: -n para NIST CSF 2.0 o -w para WinSec Baseline.' }
     if ($Parameters.ContainsKey('Collector') -or ($Parameters.ContainsKey('Domain') -and $Parameters.Domain -ne 'all')) { throw 'El objetivo del analisis se indica solamente despues de -a.' }
     if ($Parameters.ContainsKey('OutputRoot') -and (Get-WinSecOutputRoot $Parameters.OutputRoot) -ne $Session.OutputRoot) { throw 'La sesion utiliza un unico OutputRoot.' }
     $target=Resolve-WinSecTarget $Parameters.Analyze
@@ -288,7 +301,7 @@ function Invoke-WinSecMenu {
                 'main' {'123456+q'}
                 'section' { ((1..(@($catalog | Where-Object { $_.domain -eq $domain }).Count)) -join '')+'q' }
                 'control' {'aq'}
-                'framework' {'cnq'}
+                'framework' {'nwq'}
                 'correlations' {'12345q'}
                 default {'q'}
             }
@@ -326,9 +339,9 @@ function Invoke-WinSecMenu {
             if ($view -eq 'control' -and $text -eq 'a') { $view='framework'; continue }
             $isScan=$false; $scanSelection=$null
             try {
-                if ($view -eq 'framework' -and $text -in @('c','n')) {
+                if ($view -eq 'framework' -and $text -in @('n','w')) {
                     $parameters=@{ Analyze=$agent.id; NoBanner=$true; Session=$session }
-                    if ($text -eq 'c') { $parameters.Cis=$true } else { $parameters.Nist=$true }
+                    if ($text -eq 'w') { $parameters.WinSecBaseline=$true } else { $parameters.Nist=$true }
                 } elseif ($view -eq 'correlations' -and $text -match '^[1-5]$') {
                     $parameters=@{ Correlation=[int]$text; NoBanner=$true; Session=$session }
                 } else {
