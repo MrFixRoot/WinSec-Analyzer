@@ -11,9 +11,17 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s tests -v
+      - name: Verify development instructions stay private
+        shell: bash
+        run: |
+          git check-ignore -q AGENTS.md
+          git check-ignore -q src/collectors/SystemSecurity/AGENTS.md
+          git check-ignore -q CONTRIBUTING.md
+          git check-ignore -q docs/architecture.md
       - name: Verify private snapshots ignored
         shell: bash
         run: |
           git check-ignore -q device/Windows11_Pro_26100/TEST/SNAPSHOT/manifest.json
+          git check-ignore -q device/inventory.json
           git check-ignore -q scans/private.scan.json
           git check-ignore -q config/benchmarks/local/personal.json
