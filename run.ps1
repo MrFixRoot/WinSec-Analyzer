@@ -4,7 +4,7 @@ param(
     [Alias('s')][switch]$Scan,
     [Alias('a')][string]$Analyze,
     [Alias('n')][switch]$Nist,
-    [Alias('c')][switch]$Cis,
+    [Alias('w')][switch]$WinSecBaseline,
     [Alias('r')][switch]$Correlate,
     [ValidateRange(1,5)][int]$Correlation,
     [Parameter(Position=0)][string]$Domain = 'all',
@@ -19,7 +19,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WinSecAnalyzer.psm1') -Force -DisableNameChecking
-$p = @{ Scan=$Scan; Domain=$Domain; Nist=$Nist; Cis=$Cis; Correlate=$Correlate; Deep=$Deep; List=$List; Report=$Report; NoBanner=$NoBanner; Help=$Help }
+$p = @{ Scan=$Scan; Domain=$Domain; Nist=$Nist; WinSecBaseline=$WinSecBaseline; Correlate=$Correlate; Deep=$Deep; List=$List; Report=$Report; NoBanner=$NoBanner; Help=$Help }
 if ($Analyze) { $p.Analyze = $Analyze }
 if ($PSBoundParameters.ContainsKey('Correlation')) { $p.Correlation=$Correlation }
 if ($Collector) { $p.Collector = $Collector }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1",
-  "note": "Reglas de correlacion propias. No equivalen a controles oficiales CIS o NIST.",
+  "note": "Observaciones propias entre dominios. No son reglas de WinSec Baseline ni acreditan cumplimiento NIST CSF 2.0.",
   "correlations": [
     {
       "id": 1,

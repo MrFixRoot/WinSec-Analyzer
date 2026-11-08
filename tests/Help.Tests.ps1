@@ -17,16 +17,17 @@ try {
             Assert-Test ($text.Contains('winsec -s '+$section.Command)) 'Section help must work without a local Markdown file.'
             $examples=$text.Substring($text.IndexOf('Ejemplos de analisis por control'))
             foreach ($control in @(Get-WinSecCatalog | Where-Object {$_.domain -eq $section.Domain})) {
-                foreach ($flag in @('n','c')) {
+                foreach ($flag in @('n','w')) {
                     $pattern='winsec -a '+[regex]::Escape($control.id)+' -'+$flag+'(?=\s|$)'
                     Assert-Test ([regex]::Matches($examples,$pattern,[Text.RegularExpressions.RegexOptions]::IgnoreCase).Count -eq 1) 'Every control must have one example for each framework.'
                 }
             }
-            foreach ($flag in @('n','c')) {
+            foreach ($flag in @('n','w')) {
                 Assert-Test ($text.Contains('winsec -a '+$section.Command+' -'+$flag)) 'Section analysis examples must retain separate frameworks.'
             }
             Assert-Test ($text -notmatch 'Esc:|Q / q|-a \[A\]nalizar|winsec -a all') 'Help must retain compact contextual examples.'
-            Assert-Test ($text.Contains('-c [c]is benchmarks') -and $text.Contains('-n [n]ist csf 2.0')) 'Framework descriptions must remain available.'
+            Assert-Test ($text.Contains('-w [w]insec baseline') -and $text.Contains('-n [n]ist csf 2.0')) 'Framework descriptions must remain available.'
+            Assert-Test ($text.IndexOf('-n [n]ist csf 2.0') -lt $text.IndexOf('-w [w]insec baseline')) 'NIST must precede WinSec Baseline in every section help page.'
         }
         $rendered=@(Show-WinSecHelp 6>&1)
         $text=($rendered | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine

@@ -5,13 +5,14 @@
 > **Estado: EN DESARROLLO.** Este repositorio es un prototipo funcional a nivel
 > de codigo, con **validacion parcial en Windows 11 y PowerShell 5.1**. No
 > constituye un producto certificado, un escaner de vulnerabilidades ni una
-> auditoria oficial de cumplimiento CIS o NIST.
+> auditoria oficial NIST.
 
 WinSec-Analyzer es una herramienta en desarrollo, preparada para GitHub y desarrollada principalmente
 en **PowerShell** para recolectar configuraciones de seguridad de estaciones de
 trabajo **Windows 11**, almacenarlas en snapshots JSON trazables y analizarlas
-posteriormente utilizando **CIS Benchmarks** y **NIST CSF 2.0**. Los resultados
-pueden correlacionarse entre dominios sin volver a ejecutar consultas al equipo.
+posteriormente utilizando **NIST CSF 2.0** y una linea base propia,
+**WinSec Baseline**. Los resultados pueden correlacionarse entre dominios sin
+volver a ejecutar consultas al equipo.
 
 **Autor/alias:** mrRoot  
 **GitHub:** https://github.com/MrFixRoot/WinSec-Analyzer  
@@ -36,14 +37,14 @@ pueden correlacionarse entre dominios sin volver a ejecutar consultas al equipo.
 
 1. **Scan (`-s`)**: consulta Windows 11, recoge propiedades seguras de cada
    fuente y guarda un JSON por collector mas un `manifest.json` con hashes.
-2. **Analyze (`-a <control|seccion> -c` o `-n`)**: lee y analiza el snapshot;
+2. **Analyze (`-a <control|seccion> -n` o `-w`)**: lee y analiza el snapshot;
    **no vuelve a consultar Windows**.
 3. **Correlate (`-r 1..4` o `-r` para todas)**: une configuraciones del MISMO
    snapshot, registra evidencia faltante y produce observaciones para revision.
 4. **Report (`-Report`)**: crea un indice JSON de lo recolectado y analizado.
 
 Un collector **no asigna PASS/FAIL**. Ese estado es exclusivo de reglas de
-benchmark explicitas, verificadas y compatibles con la edicion/perfil.
+WinSec Baseline explicitas, verificadas y compatibles con la edicion/perfil.
 
 ## Seis dominios / 32 collectors
 
@@ -58,9 +59,8 @@ benchmark explicitas, verificadas y compatibles con la edicion/perfil.
 
 **Total: 32 collectors con archivos individuales `.ps1` y ~99 familias de
 items de evidencia** en `catalog/evidence-inventory.json`. El inventario recoge
-**evidencias a recolectar**, no un total de recomendaciones oficiales CIS. La
-cobertura exhaustiva de todos los controles de todos los Benchmarks CIS todavia
-no esta implementada. Las propiedades disponibles varian segun permisos y
+**evidencias a recolectar**, no un total de reglas evaluativas ni una garantia
+de cobertura completa. Las propiedades disponibles varian segun permisos y
 edicion de Windows 11. Algunos collectors son deliberadamente parciales para
 proteger secretos o evitar costes excesivos.
 
@@ -68,9 +68,9 @@ proteger secretos o evitar costes excesivos.
 
 Windows 11 cliente, PowerShell 5.1, acceso a cmdlets locales de Windows;
 permisos de administrador recomendados para auditar mas fuentes. No se
-requiere acceso a Internet para escanear ni analizar JSON ya guardado. Las
-reglas CIS deben obtenerse legitimamente por el operador cuando se habilite
-la funcion.
+requiere acceso a Internet para escanear ni analizar JSON ya guardado.
+La prioridad actual es el mapeo NIST CSF 2.0; WinSec Baseline aun no incluye
+reglas activas.
 
 ## Instalacion
 
@@ -141,7 +141,7 @@ Pulsa **F1** para la ayuda del contexto. No hay opciones principales 7, 8, 9 ni 
   alternativas debajo de la entrada. Sigue escribiendo para filtrarlas o pulsa
   Tab para recorrerlas; **Shift+Tab** retrocede. Enter ejecuta el comando.
   Por ejemplo: `w<Tab>-a<Tab>windowsD<Tab>` completa
-  `winsec -a windowsDefender `; despues puedes elegir `-n` o `-c`.
+  `winsec -a windowsDefender `; despues puedes elegir `-n` o `-w`.
   Las listas largas muestran ocho alternativas por pagina; Tab recorre todas.
   El autocompletado del menu no consulta Windows ni ejecuta el texto escrito.
   Los campos de nombre de dispositivo y confirmacion de borrado no lo activan.
@@ -151,7 +151,7 @@ Pulsa **F1** para la ayuda del contexto. No hay opciones principales 7, 8, 9 ni 
   Los registros de sesiones anteriores llevan **(saved)** y conservan su color.
   Estos estados no significan cumplimiento.
 - Dentro de un control solo aparece **[A] Analyze**, seguido de
-  **[C] CIS Benchmarks** o **[N] NIST CSF 2.0**, siempre por separado.
+  **[N] NIST CSF 2.0** o **[W] WinSec Baseline**, siempre por separado.
 - Los nombres de controles se muestran en camelCase, por ejemplo
   `windowsDefender`, `bitLocker`, `tpm` y `uac`.
 - En el menu principal, los ejemplos son de secciones. En el listado de
@@ -168,7 +168,10 @@ Pulsa **F1** para la ayuda del contexto. No hay opciones principales 7, 8, 9 ni 
   `Snapshot created: ../<Host>\<UTC_runId>\manifest.json`.
 - La franja entre el listado (debajo de PLUS en la vista principal) y el
   prompt muestra las advertencias y los mensajes recientes una sola vez,
-  con una linea vacia arriba y abajo. Desaparecen al empezar a escribir,
+  con una linea vacia arriba y abajo. La franja reserva espacio incluso vacia,
+  igual en secciones y controles. Si un mensaje necesita mas lineas, conserva
+  esa altura durante la sesion para que el prompt no suba al borrarlo.
+  Los mensajes desaparecen al empezar a escribir,
   usar Tab/Backspace, pulsar Enter o navegar; la primera tecla se conserva
   como parte del nuevo comando. Un comando invalido vuelve directamente
   al prompt, sin pedir `Press Enter to return`.
@@ -207,10 +210,10 @@ winsec -s login               # Logging & Auditing; logging sigue disponible
 winsec -s patch
 winsec -s windowsDefender     # Un solo control
 
-winsec -a windowsDefender -c   # CIS para este control
 winsec -a windowsDefender -n   # NIST para este control
+winsec -a windowsDefender -w   # WinSec Baseline para este control
 winsec -a network -n          # Una seccion
-winsec -a network -c
+winsec -a network -w
 
 winsec -r 1                   # Network + Services
 winsec -r 2                   # Identity + Logging
@@ -220,9 +223,9 @@ winsec -r                     # Las cuatro correlaciones
 ```
 
 `-a` significa Analyze y recibe **un control o seccion**. `-n` elige
-NIST CSF; `-c` elige CIS. No se admiten ambos switches ni nombres/listas
+NIST CSF 2.0; `-w` elige WinSec Baseline. No se admiten ambos switches ni nombres/listas
 de frameworks combinados. `-r` significa co[r]relation: admite un numero
-del 1 al 4, o ninguno para ejecutar todas. `-c` queda reservado para CIS.
+del 1 al 4, o ninguno para ejecutar todas. `-w` queda reservado para WinSec Baseline.
 En la ayuda compacta, los corchetes y `|` indican alternativas: se elige
 una, sin escribir esos signos en el comando.
 
@@ -258,8 +261,8 @@ Al abrir el menu con una captura historica, esta puede analizarse; el primer
 escaneo crea una captura nueva.
 
 La ayuda de cada seccion separa escaneo, marcos y ejemplos de analisis de
-seccion/controles. La leyenda de marcos muestra solo `-c [c]is benchmarks` y
-`-n [n]ist csf 2.0`. `-a` sigue indicando el objetivo en los comandos.
+seccion/controles. La leyenda de marcos muestra solo `-n [n]ist csf 2.0` y
+`-w [w]insec baseline`. `-a` sigue indicando el objetivo en los comandos.
 
 Los escaneos normales comparten **un run activo** hasta cerrar o cambiar de
 dispositivo. Un reescaneo confirmado inicia otro run dentro del mismo menu.
@@ -274,8 +277,8 @@ Disponibles desde PowerShell despues de importar el modulo:
 ```powershell
 Import-Module .\WinSecAnalyzer.psm1 -Force
 win-defender -s
-win-defender -a -c
 win-defender -a -n
+win-defender -a -w
 win-firewall -s
 win-bitlocker -s
 win-update -s
@@ -288,23 +291,22 @@ win-services -s
 
 En los comandos cortos, `-a` es un switch porque el objetivo ya esta definido.
 
-## CIS Benchmarks y NIST
+## NIST CSF 2.0 y WinSec Baseline
 
-**Solo se utilizaran CIS Benchmarks y NIST CSF 2.0.**
+Las opciones se presentan en orden alfabetico y se ejecutan por separado:
 
-- **CIS Benchmarks:** criterios tecnicos verificables por producto, benchmark,
-  version, edicion y perfil. Sin packs oficiales incluidos. El motor devuelve
-  `NOT_CONFIGURED` hasta que exista un paquete local legitimo y verificado.
-  El porcentaje opcional PASS/(PASS+FAIL) es una metrica propia, no puntuacion
-  o certificacion CIS. Defender dispone de un benchmark independiente del de
-  Windows 11 en las versiones actuales de CIS.
-- **NIST CSF 2.0:** categorias y evidencias observables. `EVIDENCE_AVAILABLE`
-  NO significa cumplimiento del resultado organizacional. No se inventa
-  `NIST Score` ni `PASS` para CSF.
+- **NIST CSF 2.0 (`-n`):** prioridad actual del proyecto. Relaciona las
+  evidencias con categorias del marco y explica sus limites de cobertura.
+  `EVIDENCE_AVAILABLE` indica disponibilidad de evidencia; no acredita
+  cumplimiento, certificacion ni puntuacion NIST.
+- **WinSec Baseline (`-w`):** linea base propia para seleccionar configuraciones
+  importantes de Windows 11 a partir de documentacion tecnica y buenas practicas
+  de seguridad de distintas fuentes. Sus criterios se redactaran y verificaran
+  dentro del proyecto, con referencias documentadas y sin reproducir reglas de
+  terceros. Todavia no incluye reglas activas: devuelve `NOT_CONFIGURED` hasta
+  disponer de un conjunto propio verificado y aplicable a la edicion/perfil.
 
-Referencias oficiales:
-[CIS Windows Desktop](https://www.cisecurity.org/benchmark/microsoft_windows_desktop),
-[NIST CSF 2.0](https://www.nist.gov/cyberframework).
+Referencia del marco: [NIST CSF 2.0](https://www.nist.gov/cyberframework).
 
 ## Correlaciones entre dominios
 
@@ -339,8 +341,8 @@ WinSec-Analyzer/
 │   ├── collectors/                  # Seis dominios, 32 collectors .ps1
 │   └── ui/                          # Banner/menu/estado
 ├── config/
-│   ├── benchmarks/CIS/             # Ejemplo inactivo
-│   ├── benchmarks/local/           # Packs propios no versionados en Git
+│   ├── baselines/WinSec/             # Ejemplo inactivo
+│   ├── baselines/local/           # Reglas locales propias ignoradas por Git
 │   ├── mappings/                   # NIST CSF 2.0
 │   └── correlation-rules/          # Cuatro correlaciones
 └── device/                          # Snapshots LOCALES ignorados por Git
@@ -371,7 +373,7 @@ device/
                 ├── nistcsf/
                 │   ├── windowsDefender.json
                 │   └── networkSecurity.json
-                └── cisf/
+                └── winsecbaseline/
                     ├── windowsDefender.json
                     └── networkSecurity.json
 ```
@@ -382,7 +384,7 @@ ni el directorio `device/` a repositorios publicos.
 Cada correlacion se guarda en `correlations/<seccion>+<seccion>.json` dentro
 del mismo run. La opcion 5 genera los cuatro archivos, sin otra copia conjunta.
 Los frameworks se guardan en `export/nistcsf/<control|seccion>.json` o
-`export/cisf/<control|seccion>.json`. Los nombres usan camelCase y la seccion
+`export/winsecbaseline/<control|seccion>.json`. Los nombres usan camelCase y la seccion
 canonica: `winsec -a network -n` genera `export/nistcsf/networkSecurity.json`.
 Repetir un analisis actualiza su archivo derivado; conserva los JSON fuente y
 su manifest. No se crea la carpeta `analysis/`. El reporte incluye las nuevas
@@ -409,7 +411,8 @@ limitaciones de responsabilidad establecidas en LICENSE. El usuario debe evaluar
 su idoneidad y revisar los resultados; una captura no garantiza la seguridad
 del equipo ni acredita cumplimiento oficial.
 
-Los collectors son implementaciones propias. No se incluyen reglas oficiales
-ni copias de CIS Benchmarks; sus materiales y los de terceros conservan sus
-propios terminos. El proyecto no esta avalado ni certificado por CIS o NIST.
-NIST CSF 2.0 se utiliza para relacionar evidencia, sin score ni certificacion.
+Los collectors son implementaciones propias. Los futuros criterios de WinSec
+Baseline se desarrollaran dentro del proyecto; las referencias tecnicas y
+materiales de terceros conservan sus propios terminos. El uso de NIST CSF 2.0
+sirve para relacionar evidencia y no implica aval, puntuacion ni certificacion
+oficial.

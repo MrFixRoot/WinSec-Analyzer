@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def is_private_path(path):
     path = path.replace('\\', '/').lower()
-    # The directory marker ships no licensed local rule pack.
-    if path == 'config/benchmarks/local/.gitkeep':
+    # The directory marker ships no local baseline rules.
+    if path == 'config/baselines/local/.gitkeep':
         return False
     name = path.rsplit('/', 1)[-1]
     return (
@@ -27,7 +27,7 @@ def is_private_path(path):
                             '.claude/', '.codex/', '.cursor/', 'device/', 'devices/',
                             'scans/', 'snapshots/', 'evidence/', 'reports/', 'logs/',
                             'output/', 'tmp/', 'temp/', 'artifacts/', 'config/private/',
-                            'config/local/', 'config/benchmarks/local/'))
+                            'config/local/', 'config/baselines/local/', 'config/benchmarks/local/'))
     )
 
 
@@ -61,13 +61,15 @@ class RepoStructureTests(unittest.TestCase):
         self.assertEqual(inv['itemCount'], len(inv['items']))
         agents = {a['id'] for a in self.catalog['collectors']}
         self.assertTrue(all(i['collector'] in agents for i in inv['items']))
-        self.assertTrue(all(i['cisRuleStatus'] == 'AWAITING_VERIFIED_BENCHMARK' for i in inv['items']))
+        self.assertTrue(all(i['winsecRuleStatus'] == 'AWAITING_BASELINE_DEFINITION' for i in inv['items']))
 
-    def test_rules_and_mappings_only_nist_cis(self):
+    def test_rules_and_mappings_only_nist_winsec(self):
         nist = json.loads((ROOT / 'config/mappings/nist-csf-2.0.json').read_text(encoding='utf8'))
         corr = json.loads((ROOT / 'config/correlation-rules/cross-domain.json').read_text(encoding='utf8'))
-        example = json.loads((ROOT / 'config/benchmarks/CIS/example-NOT-ACTIVE.json').read_text(encoding='utf8'))
+        example = json.loads((ROOT / 'config/baselines/WinSec/example-NOT-ACTIVE.json').read_text(encoding='utf8'))
         self.assertEqual(nist['framework'], 'NIST CSF 2.0')
+        self.assertEqual(example['framework'], 'WinSec Baseline')
+        self.assertEqual(example['baseline']['targetOS'], 'Windows11')
         self.assertEqual(len(corr['correlations']), 4)
         self.assertFalse(example['verified'])
         self.assertFalse(example['rules'])
@@ -93,10 +95,10 @@ class RepoStructureTests(unittest.TestCase):
         files = result.stdout.decode('utf8').split('\0')
         private = [path for path in files if path and is_private_path(path)]
         self.assertEqual(private, [], 'Private paths are still tracked by Git')
-        marker = ROOT / 'config/benchmarks/local/.gitkeep'
+        marker = ROOT / 'config/baselines/local/.gitkeep'
         if marker.exists():
             self.assertIn(marker.read_text(encoding='utf8').strip(),
-                          ('', '# Local licensed benchmark packs are intentionally ignored.'),
+                          ('', '# Local WinSec Baseline rule packs are intentionally ignored.'),
                           'The local-pack marker must contain no rule pack or private data')
 
     def test_public_readme_links(self):

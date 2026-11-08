@@ -26,11 +26,14 @@ try {
         }
         Assert-Test ((Get-WinSecCommandCompletion 'WINSEC -a WINDOWSDE').Matches -ccontains 'windowsDefender') 'Matching must be case insensitive while preserving canonical spelling.'
         Assert-Test ((Get-WinSecCommandCompletion 'winsec -a ').Matches -notcontains 'all') 'Analysis completion must not suggest a global target.'
+        $frameworks=(Get-WinSecCommandCompletion 'winsec -a windowsDefender -').Matches
+        Assert-Test ($frameworks[0] -eq '-n' -and $frameworks[1] -eq '-w' -and $frameworks -notcontains '-c') 'Framework completion must list NIST then WinSec Baseline and omit the retired shortcut.'
+        Assert-Test ((ConvertFrom-WinSecInputCommand 'winsec -a windowsDefender -w').WinSecBaseline -and (ConvertFrom-WinSecInputCommand 'winsec -a windowsDefender -WinSecBaseline').WinSecBaseline) 'Both WinSec Baseline selectors must resolve to the same parser parameter.'
         Assert-Test (((Get-WinSecCommandCompletion 'winsec -r ').Matches -join ',') -eq '1,2,3,4') 'Correlation shortcuts must complete only numbers 1 through 4.'
         Assert-Test ((Get-WinSecCommandCompletion 'winsec -Correlation ').Matches -contains '5') 'The long correlation parameter must retain its supported selector 5.'
-        foreach ($flag in @('-n','-Nist')) {
+        foreach ($flag in @('-n','-Nist','-w','-WinSecBaseline')) {
             $matches=(Get-WinSecCommandCompletion ('winsec -a windowsDefender '+$flag+' -')).Matches
-            Assert-Test ($matches -notcontains '-c' -and $matches -notcontains '-n' -and $matches -contains '-Snapshot') 'Completion must exclude duplicate and conflicting framework flags, including their aliases.'
+            Assert-Test ($matches -notcontains '-w' -and $matches -notcontains '-n' -and $matches -contains '-Snapshot') 'Completion must exclude duplicate and conflicting framework flags, including their aliases.'
         }
         Assert-Test ((Get-WinSecCommandCompletion 'winsec -s system -d').Matches -contains '-Deep') 'Scan options must complete after their target.'
         Assert-Test ((Get-WinSecCommandCompletion 'winsec -an').Matches -contains '-Analyze') 'Long parameter aliases must complete when typed.'

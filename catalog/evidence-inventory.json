@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "1",
+  "schemaVersion": "2",
   "target": "Windows11",
   "itemCount": 99,
-  "note": "Estos son items de evidencia previstos, no controles CIS oficiales y no cuentan como cumplimiento.",
+  "note": "Items de evidencia previstos para mapeo NIST CSF 2.0. Las reglas propias de WinSec Baseline estan pendientes de definir; la evidencia no acredita cumplimiento.",
   "items": [
     {
       "id": "EVD-WINDOWSDEFENDER-01",
@@ -10,7 +10,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Defender status",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -19,7 +19,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Antivirus signatures",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -28,7 +28,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Realtime protection",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -37,7 +37,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Cloud protection",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -46,7 +46,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "PUA",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -55,7 +55,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "ASR rules",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -64,7 +64,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Network protection",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -73,7 +73,7 @@
       "collector": "WindowsDefender",
       "evidenceTopic": "Ransomware controlled folders",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -82,7 +82,7 @@
       "collector": "WindowsFirewall",
       "evidenceTopic": "Firewall profiles",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -91,7 +91,7 @@
       "collector": "WindowsFirewall",
       "evidenceTopic": "Inbound/outbound firewall rules",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -100,7 +100,7 @@
       "collector": "WindowsFirewall",
       "evidenceTopic": "Network port/address filters",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -109,7 +109,7 @@
       "collector": "WindowsFirewall",
       "evidenceTopic": "Application/service filters",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -118,7 +118,7 @@
       "collector": "BitLocker",
       "evidenceTopic": "Volume encryption status",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -127,7 +127,7 @@
       "collector": "BitLocker",
       "evidenceTopic": "Encryption method",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -136,7 +136,7 @@
       "collector": "BitLocker",
       "evidenceTopic": "Protection state",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -145,7 +145,7 @@
       "collector": "BitLocker",
       "evidenceTopic": "Encryption percentage",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -154,7 +154,7 @@
       "collector": "SecureBoot",
       "evidenceTopic": "Secure Boot",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -163,7 +163,7 @@
       "collector": "SecureBoot",
       "evidenceTopic": "UEFI firmware",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -172,7 +172,7 @@
       "collector": "TPM",
       "evidenceTopic": "TPM readiness",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -181,7 +181,7 @@
       "collector": "TPM",
       "evidenceTopic": "TPM enabled",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -190,7 +190,7 @@
       "collector": "TPM",
       "evidenceTopic": "TPM lockout",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -199,7 +199,7 @@
       "collector": "TPM",
       "evidenceTopic": "Manufacturer",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -208,7 +208,7 @@
       "collector": "UAC",
       "evidenceTopic": "UAC enabled",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -217,7 +217,7 @@
       "collector": "UAC",
       "evidenceTopic": "Elevation prompts",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -226,7 +226,7 @@
       "collector": "UAC",
       "evidenceTopic": "Secure desktop",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -235,7 +235,7 @@
       "collector": "UAC",
       "evidenceTopic": "Admin token filtering",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -244,7 +244,7 @@
       "collector": "CredentialGuard",
       "evidenceTopic": "VBS",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -253,7 +253,7 @@
       "collector": "CredentialGuard",
       "evidenceTopic": "Credential Guard",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -262,7 +262,7 @@
       "collector": "CredentialGuard",
       "evidenceTopic": "Memory integrity/HVCI",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -271,7 +271,7 @@
       "collector": "CredentialGuard",
       "evidenceTopic": "LSA protection",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -280,7 +280,7 @@
       "collector": "SmartScreen",
       "evidenceTopic": "SmartScreen shell policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -289,7 +289,7 @@
       "collector": "SmartScreen",
       "evidenceTopic": "Browser SmartScreen policies",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -298,7 +298,7 @@
       "collector": "SMB",
       "evidenceTopic": "SMBv1 client/server",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -307,7 +307,7 @@
       "collector": "SMB",
       "evidenceTopic": "SMB signing",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -316,7 +316,7 @@
       "collector": "SMB",
       "evidenceTopic": "SMB encryption",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -325,7 +325,7 @@
       "collector": "SMB",
       "evidenceTopic": "Insecure guest logons",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -334,7 +334,7 @@
       "collector": "RDP",
       "evidenceTopic": "RDP enabled",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -343,7 +343,7 @@
       "collector": "RDP",
       "evidenceTopic": "Network Level Authentication",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -352,7 +352,7 @@
       "collector": "RDP",
       "evidenceTopic": "RDP security level",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -361,7 +361,7 @@
       "collector": "RDP",
       "evidenceTopic": "RDP service",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -370,7 +370,7 @@
       "collector": "WinRM",
       "evidenceTopic": "WinRM service",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -379,7 +379,7 @@
       "collector": "WinRM",
       "evidenceTopic": "Local WSMan listener presence",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -388,7 +388,7 @@
       "collector": "WinRM",
       "evidenceTopic": "WinRM service policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -397,7 +397,7 @@
       "collector": "TCPListeners",
       "evidenceTopic": "TCP listening sockets",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -406,7 +406,7 @@
       "collector": "TCPListeners",
       "evidenceTopic": "UDP local endpoints",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -415,7 +415,7 @@
       "collector": "TCPListeners",
       "evidenceTopic": "Owning process ID",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -424,7 +424,7 @@
       "collector": "NetworkAdapters",
       "evidenceTopic": "Network profiles",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -433,7 +433,7 @@
       "collector": "NetworkAdapters",
       "evidenceTopic": "Interfaces",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -442,7 +442,7 @@
       "collector": "NetworkAdapters",
       "evidenceTopic": "IP addresses",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -451,7 +451,7 @@
       "collector": "NetworkAdapters",
       "evidenceTopic": "Routing table",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -460,7 +460,7 @@
       "collector": "DNSAndProxy",
       "evidenceTopic": "Configured DNS servers",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -469,7 +469,7 @@
       "collector": "DNSAndProxy",
       "evidenceTopic": "DNS suffix configuration",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -478,7 +478,7 @@
       "collector": "DNSAndProxy",
       "evidenceTopic": "Proxy enabled/disabled",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -487,7 +487,7 @@
       "collector": "LocalUsers",
       "evidenceTopic": "Local account inventory",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -496,7 +496,7 @@
       "collector": "LocalUsers",
       "evidenceTopic": "Account enabled",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -505,7 +505,7 @@
       "collector": "LocalUsers",
       "evidenceTopic": "Password expiration metadata",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -514,7 +514,7 @@
       "collector": "LocalUsers",
       "evidenceTopic": "Last logon",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -523,7 +523,7 @@
       "collector": "LocalGroups",
       "evidenceTopic": "Local group inventory",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -532,7 +532,7 @@
       "collector": "LocalGroups",
       "evidenceTopic": "Local group memberships",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -541,7 +541,7 @@
       "collector": "LocalAdministrators",
       "evidenceTopic": "Local administrators membership",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -550,7 +550,7 @@
       "collector": "LocalAdministrators",
       "evidenceTopic": "Privileged identities",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -559,7 +559,7 @@
       "collector": "GuestAccount",
       "evidenceTopic": "Built-in Guest state",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -568,7 +568,7 @@
       "collector": "PasswordPolicy",
       "evidenceTopic": "Password age/length policy raw",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -577,7 +577,7 @@
       "collector": "PasswordPolicy",
       "evidenceTopic": "Account lockout policy raw",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -586,7 +586,7 @@
       "collector": "PrivilegeRights",
       "evidenceTopic": "User rights assignment",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -595,7 +595,7 @@
       "collector": "PrivilegeRights",
       "evidenceTopic": "Local security privilege policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -604,7 +604,7 @@
       "collector": "Services",
       "evidenceTopic": "Services running",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -613,7 +613,7 @@
       "collector": "Services",
       "evidenceTopic": "Services startup mode",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -622,7 +622,7 @@
       "collector": "Services",
       "evidenceTopic": "Service process identifiers",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -631,7 +631,7 @@
       "collector": "WindowsFeatures",
       "evidenceTopic": "Optional Windows features",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -640,7 +640,7 @@
       "collector": "WindowsFeatures",
       "evidenceTopic": "Legacy component state",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -649,7 +649,7 @@
       "collector": "StartupEntries",
       "evidenceTopic": "Startup entries metadata",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -658,7 +658,7 @@
       "collector": "SystemHardening",
       "evidenceTopic": "LSA hardening",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -667,7 +667,7 @@
       "collector": "SystemHardening",
       "evidenceTopic": "WDigest plaintext credentials policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -676,7 +676,7 @@
       "collector": "SystemHardening",
       "evidenceTopic": "AutoRun",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -685,7 +685,7 @@
       "collector": "SystemHardening",
       "evidenceTopic": "Removable storage restrictions",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -694,7 +694,7 @@
       "collector": "SystemHardening",
       "evidenceTopic": "Remote Assistance",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -703,7 +703,7 @@
       "collector": "PowerShellPolicy",
       "evidenceTopic": "PowerShell execution policy scope",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -712,7 +712,7 @@
       "collector": "InstalledSoftware",
       "evidenceTopic": "Installed application names",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -721,7 +721,7 @@
       "collector": "InstalledSoftware",
       "evidenceTopic": "Installed application versions",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -730,7 +730,7 @@
       "collector": "InstalledSoftware",
       "evidenceTopic": "Installed application publishers",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -739,7 +739,7 @@
       "collector": "AuditPolicy",
       "evidenceTopic": "Advanced audit subcategories",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -748,7 +748,7 @@
       "collector": "AuditPolicy",
       "evidenceTopic": "Effective audit policy raw",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -757,7 +757,7 @@
       "collector": "PowerShellLogging",
       "evidenceTopic": "Script block logging policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -766,7 +766,7 @@
       "collector": "PowerShellLogging",
       "evidenceTopic": "Module logging policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -775,7 +775,7 @@
       "collector": "PowerShellLogging",
       "evidenceTopic": "Transcription policy",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -784,7 +784,7 @@
       "collector": "EventLogConfiguration",
       "evidenceTopic": "Security event log configuration",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -793,7 +793,7 @@
       "collector": "EventLogConfiguration",
       "evidenceTopic": "PowerShell operational logging",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -802,7 +802,7 @@
       "collector": "EventLogConfiguration",
       "evidenceTopic": "Defender event log",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -811,7 +811,7 @@
       "collector": "EventLogConfiguration",
       "evidenceTopic": "Sysmon log presence",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -820,7 +820,7 @@
       "collector": "WindowsUpdate",
       "evidenceTopic": "Windows Update policies",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -829,7 +829,7 @@
       "collector": "WindowsUpdate",
       "evidenceTopic": "Windows Update services",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -838,7 +838,7 @@
       "collector": "WindowsUpdate",
       "evidenceTopic": "Feature update target",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -847,7 +847,7 @@
       "collector": "WindowsUpdate",
       "evidenceTopic": "WSUS use flag",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -856,7 +856,7 @@
       "collector": "InstalledHotfixes",
       "evidenceTopic": "Installed Windows hotfixes",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -865,7 +865,7 @@
       "collector": "InstalledHotfixes",
       "evidenceTopic": "Hotfix install metadata",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -874,7 +874,7 @@
       "collector": "PendingReboot",
       "evidenceTopic": "Windows Update reboot required",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -883,7 +883,7 @@
       "collector": "PendingReboot",
       "evidenceTopic": "Component Based Servicing reboot",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     },
     {
@@ -892,7 +892,7 @@
       "collector": "PendingReboot",
       "evidenceTopic": "Pending file rename indicator",
       "collectionStatus": "IMPLEMENTED_PROVISIONAL",
-      "cisRuleStatus": "AWAITING_VERIFIED_BENCHMARK",
+      "winsecRuleStatus": "AWAITING_BASELINE_DEFINITION",
       "nistStatus": "CATEGORY_MAPPING_ONLY"
     }
   ]

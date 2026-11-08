@@ -30,28 +30,28 @@ function Test-WinSecRuleValue {
     }
 }
 
-function Invoke-WinSecCISAnalysis {
+function Invoke-WinSecBaselineAnalysis {
     param($Context,[string]$CollectorFilter,[string]$DomainFilter)
     $eligible=@(Get-WinSecCatalog | Where-Object { (-not $CollectorFilter -or $_.id -eq $CollectorFilter) -and (-not $DomainFilter -or $DomainFilter -eq 'all' -or $_.domain -eq $DomainFilter) } | ForEach-Object { $_.id })
-    $localDir=Join-Path $script:WinSecRoot 'config/benchmarks/local'
+    $localDir=Join-Path $script:WinSecRoot 'config/baselines/local'
     $packs=@()
     if (Test-Path -LiteralPath $localDir) {
         foreach ($file in @(Get-ChildItem -LiteralPath $localDir -Filter '*.json' -File)) {
             try {
                 $pack=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-                if ($pack.framework -ne 'CIS Benchmarks' -or $pack.schemaVersion -ne '1' -or $pack.verified -ne $true -or $pack.benchmark.targetOS -ne 'Windows11') { continue }
+                if ($pack.framework -ne 'WinSec Baseline' -or $pack.schemaVersion -ne '1' -or $pack.verified -ne $true -or $pack.baseline.targetOS -ne 'Windows11') { continue }
                 # Solo usar packs con metadatos completos y edicion exacta, nunca versiones genericas.
-                if ([string]::IsNullOrWhiteSpace($pack.benchmark.version) -or [string]::IsNullOrWhiteSpace($pack.benchmark.profile) -or [string]::IsNullOrWhiteSpace($pack.benchmark.source)) { continue }
-                if ($pack.benchmark.edition -ne $Context.Manifest.os.edition) { continue }
+                if ([string]::IsNullOrWhiteSpace($pack.baseline.name) -or [string]::IsNullOrWhiteSpace($pack.baseline.version) -or [string]::IsNullOrWhiteSpace($pack.baseline.profile) -or [string]::IsNullOrWhiteSpace($pack.baseline.source)) { continue }
+                if ($pack.baseline.edition -ne $Context.Manifest.os.edition) { continue }
                 $packs+=,$pack
-            } catch { Write-Warning ('Pack CIS invalido: '+$file.Name+' '+$_.Exception.Message) }
+            } catch { Write-Warning ('Pack WinSec Baseline invalido: '+$file.Name+' '+$_.Exception.Message) }
         }
     }
     $results=@()
     if ($packs.Count -eq 0) {
         return [ordered]@{
-            framework='CIS Benchmarks'; status='NOT_CONFIGURED'; benchmark=$null; findings=@(); score=$null;
-            note='No se incluye contenido de CIS por defecto. Agrega packs locales licenciados, verificados y compatibles con la edicion de Windows 11.'
+            framework='WinSec Baseline'; status='NOT_CONFIGURED'; baseline=$null; findings=@(); score=$null;
+            note='WinSec Baseline esta pendiente de definir. No hay reglas propias verificadas para esta edicion de Windows 11; la prioridad actual es NIST CSF 2.0.'
         }
     }
     foreach ($pack in $packs) {
@@ -72,14 +72,12 @@ function Invoke-WinSecCISAnalysis {
                     }
                 }
             } catch { $note=$_.Exception.Message }
-            $results+= [ordered]@{ id=$rule.id; title=$rule.title; collector=$rule.collector; status=$status; observed=$observed; expected=$rule.expected; evidencePath=$rule.path; note=$note; benchmark=$pack.benchmark.name; benchmarkVersion=$pack.benchmark.version; profile=$pack.benchmark.profile }
+            $results+= [ordered]@{ id=$rule.id; title=$rule.title; collector=$rule.collector; status=$status; observed=$observed; expected=$rule.expected; evidencePath=$rule.path; note=$note; baseline=$pack.baseline.name; baselineVersion=$pack.baseline.version; profile=$pack.baseline.profile }
         }
     }
     $passed=@($results | Where-Object { $_.status -eq 'PASS' }).Count
     $failed=@($results | Where-Object { $_.status -eq 'FAIL' }).Count
-    $score=$null
-    if (($passed+$failed) -gt 0) { $score=[math]::Round(100*$passed/($passed+$failed),2) }
-    return [ordered]@{ framework='CIS Benchmarks'; status=if ($results.Count -gt 0) {'EVALUATED'} else {'NOT_CONFIGURED'}; benchmark=@($packs | ForEach-Object { $_.benchmark }); findings=$results; score=$score; denominator=($passed+$failed); note='Porcentaje propio PASS/(PASS+FAIL), NO es una certificacion ni scoring oficial CIS.' }
+    return [ordered]@{ framework='WinSec Baseline'; status=if ($results.Count -gt 0) {'EVALUATED'} else {'NOT_CONFIGURED'}; baseline=@($packs | ForEach-Object { $_.baseline }); findings=$results; score=$null; summary=[ordered]@{passed=$passed;failed=$failed;notAssessed=@($results | Where-Object {$_.status -eq 'NOT_ASSESSED'}).Count}; note='Reglas propias de WinSec Baseline; no constituyen certificacion ni puntuacion de cumplimiento normativo.' }
 }
 
 function Invoke-WinSecNISTAnalysis {
@@ -177,7 +175,7 @@ function Get-WinSecResultName {
 }
 
 function Save-WinSecAnalysis {
-    param($Context,[ValidateSet('cis','nist')][string]$Name,$Data,[string]$CollectorFilter,[string]$DomainFilter,$Session)
+    param($Context,[ValidateSet('nist','winsec')][string]$Name,$Data,[string]$CollectorFilter,[string]$DomainFilter,$Session)
     if ($CollectorFilter) {
         $agents=@(Get-WinSecCatalog | Where-Object { $_.id -eq $CollectorFilter })
         if ($agents.Count -ne 1) { throw 'Control de exportacion no registrado.' }
@@ -189,7 +187,7 @@ function Save-WinSecAnalysis {
     } else {
         $scope=[ordered]@{ type='snapshot'; id='all'; name='all' }
     }
-    $folder=if ($Name -eq 'nist') {'nistcsf'} else {'cisf'}
+    $folder=if ($Name -eq 'nist') {'nistcsf'} else {'winsecbaseline'}
     $dir=Join-Path $Context.Base ('export/'+$folder)
     $path=Join-Path $dir ($scope.name+'.json')
     $document=New-WinSecAnalysisDocument -Context $Context -Scope $scope -Data $Data

@@ -1,10 +1,10 @@
 function Get-WinSecInputParameters {
     # Shared with the literal command parser; completion never invokes PowerShell.
     return @{
-        Switches=@{s='Scan';scan='Scan';n='Nist';nist='Nist';c='Cis';cis='Cis';r='Correlate';correlate='Correlate';deep='Deep';list='List';report='Report';nobanner='NoBanner'}
+        Switches=@{s='Scan';scan='Scan';n='Nist';nist='Nist';w='WinSecBaseline';winsecbaseline='WinSecBaseline';r='Correlate';correlate='Correlate';deep='Deep';list='List';report='Report';nobanner='NoBanner'}
         Values=@{a='Analyze';analyze='Analyze';domain='Domain';collector='Collector';snapshot='Snapshot';outputroot='OutputRoot';correlation='Correlation'}
         Names=@{
-            Scan=@('-s','-Scan');Analyze=@('-a','-Analyze');Nist=@('-n','-Nist');Cis=@('-c','-Cis')
+            Scan=@('-s','-Scan');Analyze=@('-a','-Analyze');Nist=@('-n','-Nist');WinSecBaseline=@('-w','-WinSecBaseline')
             Correlate=@('-r','-Correlate');Deep=@('-Deep');List=@('-List');Report=@('-Report')
             NoBanner=@('-NoBanner');Domain=@('-Domain');Collector=@('-Collector')
             Snapshot=@('-Snapshot');OutputRoot=@('-OutputRoot');Correlation=@('-Correlation')
@@ -84,7 +84,7 @@ function Get-WinSecCommandCompletion {
         $choices=if ($mode -eq 'Scan') {$targets+@('all')} else {@('1','2','3','4')}
     } else {
         $allowed=switch ($mode) {
-            'Analyze' {@('Nist','Cis','Snapshot','NoBanner')}
+            'Analyze' {@('Nist','WinSecBaseline','Snapshot','NoBanner')}
             'Scan' {@('Deep','Collector','NoBanner')}
             'Correlation' {@('Snapshot','NoBanner')}
             'Report' {@('Snapshot','NoBanner')}
@@ -93,7 +93,7 @@ function Get-WinSecCommandCompletion {
         }
         foreach ($key in $allowed) {
             if ($parsed.ContainsKey($key)) { continue }
-            if (($key -eq 'Cis' -and $parsed.ContainsKey('Nist')) -or ($key -eq 'Nist' -and $parsed.ContainsKey('Cis'))) { continue }
+            if (($key -eq 'WinSecBaseline' -and $parsed.ContainsKey('Nist')) -or ($key -eq 'Nist' -and $parsed.ContainsKey('WinSecBaseline'))) { continue }
             if ($key -eq 'Collector' -and $parsed.ContainsKey('Domain')) { continue }
             $names=@($metadata.Names[$key])
             $choices+=$names[0]
