@@ -289,6 +289,8 @@ try {
             $agents=@(Get-WinSecCatalog | Where-Object {$_.domain -eq $section.Domain})
             $renderedHelp=@(Show-WinSecHelp -Domain $section.Domain 6>&1)
             $renderedText=($renderedHelp | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+            $availableControls=@($renderedHelp | ForEach-Object {$_.ToString().Trim()})
+            Assert-Test ($renderedText.Contains('winsec -a [section|control] -n|w') -and $renderedText -notmatch 'winsec -a [a-zA-Z]') 'Section help must keep analysis syntax generic.'
             $hintSession.HintIndex=0
             $examples=@(for ($i=0; $i -lt (1+2*$agents.Count); $i++) {
                 $lines=@(Get-WinSecHint -Session $hintSession -Domain $section.Domain -View section)
@@ -296,23 +298,22 @@ try {
             })
             foreach ($agent in $agents) {
                 $name=ConvertTo-WinSecControlName $agent.id
+                Assert-Test (@($availableControls | Where-Object {$_ -ceq $name}).Count -eq 1) 'Every registered control must be listed once without command examples.'
                 foreach ($flag in @('n','w')) {
                     $example='winsec -a '+$name+' -'+$flag
-                    Assert-Test ($renderedText.Contains($example)) 'Every registered control must have its own NIST and WinSec Baseline help examples.'
                     Assert-Test ($examples -ccontains $example) 'Control-list hints must cover every control in the section.'
                 }
             }
         }
         $controlHelp=@(Show-WinSecHelp -Domain SystemSecurity -Collector WindowsFirewall 6>&1)
         $helpText=($controlHelp | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
-        Assert-Test ($helpText -cmatch 'winsec -s windowsFirewall' -and $helpText -cmatch 'winsec -a windowsFirewall -w') 'Control help must use the selected control rather than the first collector.'
+        Assert-Test ($helpText -cmatch 'winsec -s windowsFirewall' -and $helpText.Contains('winsec -a [section|control] -n|w')) 'Control help must use the selected scan target and generic analysis syntax.'
+        $controlNames=@($controlHelp | ForEach-Object {$_.ToString().Trim()})
         foreach ($agent in @(Get-WinSecCatalog | Where-Object {$_.domain -eq 'SystemSecurity'})) {
             $name=ConvertTo-WinSecControlName $agent.id
-            foreach ($flag in @('n','w')) {
-                $example='winsec -a '+$name+' -'+$flag
-                Assert-Test ([regex]::Matches($helpText,[regex]::Escape($example)).Count -eq 1) 'Selecting a control must not replace or duplicate another control analysis example.'
-            }
+            Assert-Test (@($controlNames | Where-Object {$_ -ceq $name}).Count -eq 1) 'Selecting a control must preserve the complete list of control names.'
         }
+        Assert-Test ($helpText -notmatch 'winsec -a [a-zA-Z]') 'Control help must leave concrete analysis commands to prompt suggestions.'
         Assert-Test ($helpText -notmatch 'Selecciona el numero|Esc:|Q / q|sesion interactiva|winsec -a all') 'Control help must remain compact.'
         Assert-Test ($helpText -notmatch 'winsec -a system -[nw]' -and $helpText -notmatch '-a \[A\]nalizar') 'Control help must omit the section-analysis block and the Analyze framework legend.'
         foreach ($unsafe in @('winsec -s; Get-Service','winsec -s | Out-Host','winsec -s > output.txt','winsec -a $(Get-Service) -n','& winsec -s','winsec -a $env:USERNAME -w','winsec -s -s','help','?','winsec -Help')) {

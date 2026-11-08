@@ -260,9 +260,10 @@ Las correlaciones usan la captura actual, sin mezclar sesiones.
 Al abrir el menu con una captura historica, esta puede analizarse; el primer
 escaneo crea una captura nueva.
 
-La ayuda de cada seccion separa escaneo, marcos y ejemplos de analisis de
-seccion/controles. La leyenda de marcos muestra solo `-n [n]ist csf 2.0` y
-`-w [w]insec baseline`. `-a` sigue indicando el objetivo en los comandos.
+La ayuda muestra `winsec -a [section|control] -n|w` y los nombres disponibles:
+secciones en la ayuda general y controles del dominio en la ayuda de seccion
+o control. Los ejemplos concretos de analisis aparecen solo como sugerencias
+del prompt. La leyenda mantiene `-n [n]ist csf 2.0` y `-w [w]insec baseline`.
 
 Los escaneos normales comparten **un run activo** hasta cerrar o cambiar de
 dispositivo. Un reescaneo confirmado inicia otro run dentro del mismo menu.
