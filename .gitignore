@@ -45,3 +45,5 @@ copilot-instructions.md
 .env.*
 config/local/
 config/private/
+config/benchmarks/local/*
+!config/benchmarks/local/.gitkeep
