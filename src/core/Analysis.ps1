@@ -113,6 +113,8 @@ function Invoke-WinSecNISTAnalysis {
 function Invoke-WinSecCorrelation {
     param($Context,[int]$Id=5)
     $config=Get-Content -LiteralPath (Join-Path $script:WinSecRoot 'config/correlation-rules/cross-domain.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    # La opcion 5 ejecuta las correlaciones 1, 2, 3 y 4 del mismo snapshot;
+    # es un selector conjunto, no una quinta regla de correlacion.
     $selected=@($config.correlations | Where-Object { $Id -eq 5 -or $_.id -eq $Id })
     if ($selected.Count -eq 0) { throw "Correlacion no encontrada: $Id" }
     $output=@()
@@ -132,42 +134,108 @@ function Invoke-WinSecCorrelation {
         $facts=@()
         foreach ($fact in $rule.facts) {
             $found=$null
+            $reason=$null
             try {
                 $ev=Get-WinSecEvidenceFile -Context $Context -CollectorId $fact.collector
-                if ($null -ne $ev) { $found=Resolve-WinSecJsonPath -Root $ev -Path $fact.path }
-            } catch { }
+                if ($null -ne $ev -and $ev.status -in @('COMPLETED','PARTIAL')) {
+                    $found=Resolve-WinSecJsonPath -Root $ev -Path $fact.path
+                }
+            } catch { $reason=$_.Exception.Message }
             $value=$null
-            if ($null -ne $found -and $found.found) {
-                if ($fact.display -eq 'count') { $value=@($found.value).Count }
+            $available=($null -ne $found -and $found.found -and $null -ne $found.value)
+            if ($available) {
+                $display=$fact.PSObject.Properties['display']
+                if ($null -ne $display -and $display.Value -eq 'count') { $value=@($found.value).Count }
                 else { $value=$found.value }
+            } else {
+                $missing+= $fact.collector+':'+$fact.path
+                if (-not $reason) { $reason='Propiedad requerida no disponible o evidencia no evaluable.' }
             }
-            $facts+= [ordered]@{ label=$fact.label; collector=$fact.collector; available=($null -ne $found -and $found.found); value=$value }
+            $facts+= [ordered]@{ label=$fact.label; collector=$fact.collector; available=$available; value=$value; reason=$reason }
         }
         $outStatus=if ($missing.Count -gt 0) {'INSUFFICIENT_EVIDENCE'} else {'REVIEW_REQUIRED'}
-        $output+= [ordered]@{ id=$rule.id; title=$rule.title; status=$outStatus; required=$rule.required; missing=$missing; facts=$facts; note=$rule.interpretation }
+        $output+= [ordered]@{ id=$rule.id; title=$rule.title; domains=@($rule.domains); status=$outStatus; required=$rule.required; missing=$missing; facts=$facts; note=$rule.interpretation }
     }
     return [ordered]@{ analysis='Cross-Domain Correlations'; status='OBSERVATIONAL'; correlations=$output; note='No se asignan PASS/FAIL sin criterios evaluativos verificados.' }
 }
 
+function New-WinSecAnalysisDocument {
+    param($Context,$Scope,[System.Collections.IDictionary]$Data)
+    $document=[ordered]@{}
+    foreach ($key in $Data.Keys) { $document[$key]=$Data[$key] }
+    $document.schemaVersion='1'
+    $document.sourceRunId=[string]$Context.Manifest.runId
+    $document.generatedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
+    $document.scope=$Scope
+    return $document
+}
+
+function Get-WinSecResultName {
+    param([string]$Id)
+    if ($Id -notmatch '^[a-zA-Z][a-zA-Z0-9]*$') { throw 'Identificador de resultado no seguro.' }
+    return (ConvertTo-WinSecControlName $Id)
+}
+
 function Save-WinSecAnalysis {
-    param($Context,[string]$Name,$Data)
-    $name=ConvertTo-WinSecSafeName $Name
-    $dir=Join-Path $Context.Base ('analysis/'+$name)
-    $stamp=(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
-    $path=Join-Path $dir ($stamp+'_'+[guid]::NewGuid().ToString('N').Substring(0,6)+'.json')
-    [void](Save-WinSecJson -Path $path -Value $Data)
-    Write-Host ('Analisis guardado: '+$path) -ForegroundColor Cyan
+    param($Context,[ValidateSet('cis','nist')][string]$Name,$Data,[string]$CollectorFilter,[string]$DomainFilter,$Session)
+    if ($CollectorFilter) {
+        $agents=@(Get-WinSecCatalog | Where-Object { $_.id -eq $CollectorFilter })
+        if ($agents.Count -ne 1) { throw 'Control de exportacion no registrado.' }
+        $scope=[ordered]@{ type='control'; id=$agents[0].id; name=(Get-WinSecResultName $agents[0].id) }
+    } elseif ($DomainFilter -and $DomainFilter -ne 'all') {
+        $domain=Resolve-WinSecDomain $DomainFilter
+        if ($domain -eq 'all') { throw 'Se requiere una seccion concreta para esta exportacion.' }
+        $scope=[ordered]@{ type='section'; id=$domain; name=(Get-WinSecResultName $domain) }
+    } else {
+        $scope=[ordered]@{ type='snapshot'; id='all'; name='all' }
+    }
+    $folder=if ($Name -eq 'nist') {'nistcsf'} else {'cisf'}
+    $dir=Join-Path $Context.Base ('export/'+$folder)
+    $path=Join-Path $dir ($scope.name+'.json')
+    $document=New-WinSecAnalysisDocument -Context $Context -Scope $scope -Data $Data
+    $created=-not (Test-Path -LiteralPath $path)
+    # Derived exports have stable names; replacing them never changes source evidence.
+    [void](Save-WinSecJson -Path $path -Value $document)
+    if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: export/'+$folder+'/'+$scope.name+'.json') }
+    Write-Host ('Exportacion guardada: '+$path) -ForegroundColor Cyan
     return $path
 }
 
-function Invoke-WinSecReport {
-    param($Context)
-    $analyses=@()
-    $root=Join-Path $Context.Base 'analysis'
-    if (Test-Path -LiteralPath $root) {
-        $analyses=@(Get-ChildItem -LiteralPath $root -Filter '*.json' -File -Recurse | ForEach-Object {
-            [ordered]@{ name=$_.Directory.Name; file=$_.Name; sha256=(Get-WinSecHash -Path $_.FullName) }
+function Save-WinSecCorrelations {
+    param($Context,$Data,$Session)
+    foreach ($item in $Data.correlations) {
+        if (@($item.domains).Count -ne 2) { throw 'La correlacion debe identificar dos secciones.' }
+        $domains=@(foreach ($domain in $item.domains) {
+            $resolved=Resolve-WinSecDomain $domain
+            if ($resolved -eq 'all') { throw 'Seccion de correlacion no valida.' }
+            $resolved
         })
+        $name=(@($domains | ForEach-Object { Get-WinSecResultName $_ }) -join '+')
+        $scope=[ordered]@{ type='correlation'; id=$item.id; domains=$domains; name=$name }
+        $result=[ordered]@{ analysis=$Data.analysis; status=$Data.status; correlations=@($item); note=$Data.note }
+        $document=New-WinSecAnalysisDocument -Context $Context -Scope $scope -Data $result
+        $path=Join-Path (Join-Path $Context.Base 'correlations') ($name+'.json')
+        $created=-not (Test-Path -LiteralPath $path)
+        [void](Save-WinSecJson -Path $path -Value $document)
+        if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: correlations/'+$name+'.json') }
+        Write-Host ('Correlacion guardada: '+$path) -ForegroundColor Cyan
+        $path
+    }
+}
+
+function Invoke-WinSecReport {
+    param($Context,$Session)
+    $analyses=@()
+    $basePrefix=[IO.Path]::GetFullPath($Context.Base).TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+    # Read legacy results when present, without creating or modifying their directories.
+    foreach ($relativeRoot in @('export','correlations','analysis')) {
+        $root=Join-Path $Context.Base $relativeRoot
+        if (Test-Path -LiteralPath $root) {
+            $analyses+=@(Get-ChildItem -LiteralPath $root -Filter '*.json' -File -Recurse | ForEach-Object {
+                $relative=$_.FullName.Substring($basePrefix.Length).Replace('\','/')
+                [ordered]@{ name=$_.Directory.Name; file=$_.Name; path=$relative; sha256=(Get-WinSecHash -Path $_.FullName) }
+            })
+        }
     }
     $report=[ordered]@{
         reportType='WinSec Evidence Index'; generatedAtUtc=(Get-Date).ToUniversalTime().ToString('o');
@@ -177,7 +245,9 @@ function Invoke-WinSecReport {
         note='Indice de evidencias; ninguna certificacion de cumplimiento es implicita.'
     }
     $path=Join-Path $Context.Base ('report-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')+'.report.json')
+    $created=-not (Test-Path -LiteralPath $path)
     [void](Save-WinSecJson -Path $path -Value $report)
+    if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: '+[IO.Path]::GetFileName($path)) }
     Write-Host ('Reporte guardado: '+$path) -ForegroundColor Cyan
     return $path
 }

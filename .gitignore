@@ -3,9 +3,14 @@
 # ==========================================
 
 AGENTS.md
+/CONTRIBUTING.md
+CLAUDE.md
+GEMINI.md
+copilot-instructions.md
 *.agent.md
 *.instructions.md
 .github/instructions/
+.github/agents/
 .claude/
 .codex/
 .cursor/
@@ -15,6 +20,7 @@ AGENTS.md
 # ==========================================
 
 /docs/
+/help/
 
 # ==========================================
 # AUDIT DATA - PRIVATE
@@ -28,6 +34,9 @@ AGENTS.md
 /reports/
 /logs/
 /output/
+/tmp/
+/temp/
+/artifacts/
 
 # ==========================================
 # LOCAL CONFIGURATION
@@ -37,3 +46,5 @@ AGENTS.md
 .env.*
 config/local/
 config/private/
+config/benchmarks/local/*
+!config/benchmarks/local/.gitkeep
