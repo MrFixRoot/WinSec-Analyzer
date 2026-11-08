@@ -31,15 +31,6 @@ class UiSessionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("PASS:", output)
 
+    @unittest.skipUnless(POWERSHELL, "Windows PowerShell 5.1 is required")
     def test_context_help_covers_each_registered_control(self):
-        import json
-        catalog = json.loads((ROOT / "catalog/collectors.json").read_text(encoding="utf8"))
-        for agent in catalog["collectors"]:
-            with self.subTest(control=agent["id"]):
-                help_text = (ROOT / "help" / (agent["domain"] + ".md")).read_text(encoding="utf8")
-                self.assertIn(agent["id"].casefold(), help_text.casefold())
-                self.assertNotIn("Esc:", help_text)
-                self.assertNotIn("Q / q", help_text)
-                for framework in ("n", "c"):
-                    command = f"winsec -a {agent['id']} -{framework}"
-                    self.assertIn(command.casefold(), help_text.casefold())
+        self._check_powershell_script("Help.Tests.ps1")

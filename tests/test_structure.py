@@ -23,7 +23,7 @@ def is_private_path(path):
         or fnmatch.fnmatchcase(name, '*.agent.md')
         or fnmatch.fnmatchcase(name, '*.instructions.md')
         or fnmatch.fnmatchcase(name, '.env.*')
-        or path.startswith(('docs/', '.github/agents/', '.github/instructions/',
+        or path.startswith(('docs/', 'help/', '.github/agents/', '.github/instructions/',
                             '.claude/', '.codex/', '.cursor/', 'device/', 'devices/',
                             'scans/', 'snapshots/', 'evidence/', 'reports/', 'logs/',
                             'output/', 'tmp/', 'temp/', 'artifacts/', 'config/private/',
@@ -79,7 +79,7 @@ class RepoStructureTests(unittest.TestCase):
 
     def test_privacy_gitignore(self):
         gi=(ROOT/'.gitignore').read_text(encoding='utf8')
-        for word in ['AGENTS.md','/CONTRIBUTING.md','/docs/','.github/agents/',
+        for word in ['AGENTS.md','/CONTRIBUTING.md','/docs/','/help/','.github/agents/',
                      '/device/','/devices/','/scans/','/snapshots/','/evidence/',
                      '/reports/','/logs/','/output/','/tmp/','/temp/','/artifacts/',
                      'config/private/','config/local/']:
@@ -121,4 +121,3 @@ class RepoStructureTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
