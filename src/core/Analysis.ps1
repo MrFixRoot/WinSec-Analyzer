@@ -177,7 +177,7 @@ function Get-WinSecResultName {
 }
 
 function Save-WinSecAnalysis {
-    param($Context,[ValidateSet('cis','nist')][string]$Name,$Data,[string]$CollectorFilter,[string]$DomainFilter)
+    param($Context,[ValidateSet('cis','nist')][string]$Name,$Data,[string]$CollectorFilter,[string]$DomainFilter,$Session)
     if ($CollectorFilter) {
         $agents=@(Get-WinSecCatalog | Where-Object { $_.id -eq $CollectorFilter })
         if ($agents.Count -ne 1) { throw 'Control de exportacion no registrado.' }
@@ -193,14 +193,16 @@ function Save-WinSecAnalysis {
     $dir=Join-Path $Context.Base ('export/'+$folder)
     $path=Join-Path $dir ($scope.name+'.json')
     $document=New-WinSecAnalysisDocument -Context $Context -Scope $scope -Data $Data
+    $created=-not (Test-Path -LiteralPath $path)
     # Derived exports have stable names; replacing them never changes source evidence.
     [void](Save-WinSecJson -Path $path -Value $document)
+    if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: export/'+$folder+'/'+$scope.name+'.json') }
     Write-Host ('Exportacion guardada: '+$path) -ForegroundColor Cyan
     return $path
 }
 
 function Save-WinSecCorrelations {
-    param($Context,$Data)
+    param($Context,$Data,$Session)
     foreach ($item in $Data.correlations) {
         if (@($item.domains).Count -ne 2) { throw 'La correlacion debe identificar dos secciones.' }
         $domains=@(foreach ($domain in $item.domains) {
@@ -213,14 +215,16 @@ function Save-WinSecCorrelations {
         $result=[ordered]@{ analysis=$Data.analysis; status=$Data.status; correlations=@($item); note=$Data.note }
         $document=New-WinSecAnalysisDocument -Context $Context -Scope $scope -Data $result
         $path=Join-Path (Join-Path $Context.Base 'correlations') ($name+'.json')
+        $created=-not (Test-Path -LiteralPath $path)
         [void](Save-WinSecJson -Path $path -Value $document)
+        if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: correlations/'+$name+'.json') }
         Write-Host ('Correlacion guardada: '+$path) -ForegroundColor Cyan
         $path
     }
 }
 
 function Invoke-WinSecReport {
-    param($Context)
+    param($Context,$Session)
     $analyses=@()
     $basePrefix=[IO.Path]::GetFullPath($Context.Base).TrimEnd([IO.Path]::DirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
     # Read legacy results when present, without creating or modifying their directories.
@@ -241,7 +245,9 @@ function Invoke-WinSecReport {
         note='Indice de evidencias; ninguna certificacion de cumplimiento es implicita.'
     }
     $path=Join-Path $Context.Base ('report-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')+'.report.json')
+    $created=-not (Test-Path -LiteralPath $path)
     [void](Save-WinSecJson -Path $path -Value $report)
+    if ($created) { Add-WinSecNotification -Session $Session -Message ('File created: '+[IO.Path]::GetFileName($path)) }
     Write-Host ('Reporte guardado: '+$path) -ForegroundColor Cyan
     return $path
 }

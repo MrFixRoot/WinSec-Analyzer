@@ -1,6 +1,7 @@
 ﻿function Invoke-WinSecCollection {
     param([string]$Domain='all',[string]$Collector,[string]$OutputRoot,[switch]$Deep,$Session)
     $os=Assert-WinSecWindows11
+    $newSnapshot=$false; $createdFiles=0
     $resolved=Resolve-WinSecDomain $Domain
     $entries=@(Get-WinSecCatalog | Where-Object { ($resolved -eq 'all' -or $_.domain -eq $resolved) -and (-not $Collector -or $_.id -eq $Collector) })
     if ($entries.Count -eq 0) { throw 'No hay collectors registrados para la seleccion.' }
@@ -16,8 +17,10 @@
     } else {
         if ($null -ne $Session) { $OutputRoot=$Session.OutputRoot }
         $context=New-WinSecCollectionContext -OS $os -OutputRoot $OutputRoot -Domain $resolved -Collector $Collector -Deep:$Deep -Interactive:($null -ne $Session)
+        $newSnapshot=$true
         if ($null -ne $Session) {
             $Session.Context=$context; $Session.Snapshot=$context.Path; $Session.RunId=$context.Manifest.runId
+            Add-WinSecNotification -Session $Session -Message ('Snapshot created: '+(Format-WinSecSnapshotPath $context.Path))
         }
     }
     $manifest=$context.Manifest
@@ -62,6 +65,7 @@
             $sha=$null
             try {
                 [void](Save-WinSecJson -Path $file -Value $evidence)
+                $createdFiles++
                 $sha=Get-WinSecHash -Path $file
                 $status=[string]$payload.status
                 Write-WinSecCollectionState -Text ('  [{0}/{1}] {2} | {3}' -f $index,$entries.Count,$agent.id,$status) -Color $(if ($status -eq 'COMPLETED') {'Green'} elseif ($status -eq 'PARTIAL') {'Yellow'} else {'DarkYellow'}) -Session $Session
@@ -70,7 +74,7 @@
                 Write-Warning ('No se pudo guardar '+$agent.id+': '+$_.Exception.Message)
             }
             $manifest.collectors=@($manifest.collectors | Where-Object { $_.id -ne $agent.id })+
-                @([ordered]@{ id=$agent.id; domain=$agent.domain; status=$status; path=$relative; sha256=$sha })
+                @([ordered]@{ id=$agent.id; domain=$agent.domain; status=$status; path=$relative; sha256=$sha; collectedAtUtc=$evidence.collectedAtUtc })
             [void](Save-WinSecJson -Path $context.Path -Value $manifest)
         }
         $failures=@($manifest.collectors | Where-Object { $_.status -ne 'COMPLETED' })
@@ -85,6 +89,9 @@
         if ($null -eq $Session) { Write-Progress -Activity 'WinSec: recopilando configuraciones Windows 11' -Completed }
         else { Write-Host '' }
         if ($null -ne $Session) { $Session.Context=$context }
+        if (-not $newSnapshot -and $createdFiles -gt 0) {
+            Add-WinSecNotification -Session $Session -Message ('Evidence created: '+$createdFiles+' file(s)')
+        }
     }
 }
 

@@ -29,6 +29,25 @@
     Write-Host ''
 }
 
+function Show-WinSecNotifications {
+    param($Session,[string[]]$Warnings=@(),[string[]]$Messages=@())
+    $messages=@(@($Session.Notifications)+$Messages | Where-Object { $_ } | Select-Object -Unique)
+    $warnings=@(@($Session.Warning)+$Warnings | Where-Object { $_ } | Select-Object -Unique)
+    $Session.Notifications=@()
+    $Session.Warning=$null
+    $Session.MessageArea=$null
+    $origin=Get-WinSecCursor
+    Write-Host ''
+    foreach ($message in $messages) { Write-Host ('  '+$message) -ForegroundColor Cyan }
+    foreach ($warning in $warnings) { Write-Host ('  Warning: '+$warning) -ForegroundColor Yellow }
+    if ($messages.Count -gt 0 -or $warnings.Count -gt 0) {
+        Write-Host ''
+        $end=Get-WinSecCursor
+        $rows=if ($null -ne $origin -and $null -ne $end) {[math]::Max(0,$end.Y-$origin.Y)} else {0}
+        $Session.MessageArea=[pscustomobject]@{ Origin=$origin; Rows=$rows; Active=$true }
+    }
+}
+
 function Show-WinSecMenuPage {
     param([string]$View,$Session,[string]$Domain,$Agent,$Catalog)
     Clear-Host
@@ -86,22 +105,13 @@ function Show-WinSecMenuPage {
             Write-Host '  [5] All Available Correlations (1, 2, 3, 4)'
         }
     }
-    if ($Session.Snapshot) {
-        $displaySnapshot=if ($null -ne $Agent) {
-            Get-WinSecSessionSnapshot -Session $Session -Collector $Agent.id
-        } elseif ($Domain -ne 'all') {
-            Get-WinSecSessionSnapshot -Session $Session -Domain $Domain
-        } else { $Session.Snapshot }
-        $label=if ($Session.RunId -and $displaySnapshot -eq $Session.Snapshot) {'Snapshot saved: '} else {'Snapshot: '}
-        Write-Host ('  '+$label+(Format-WinSecSnapshotPath $displaySnapshot)) -ForegroundColor DarkGray
-    }
-    if ($Session.Notice) { Write-Host ('  '+$Session.Notice) -ForegroundColor Yellow }
+    Show-WinSecNotifications -Session $Session
 }
 
 function Wait-WinSecResult {
     param([string]$Domain='all',[string]$Collector)
     while ($true) {
-        $answer=Read-WinSecInput -Hints @('Press Enter to return.') -Shortcuts 'q'
+        $answer=Read-WinSecInput -Shortcuts 'q'
         if ($answer.HelpRequested) {
             Clear-Host
             Show-WinSecBanner
@@ -113,7 +123,7 @@ function Wait-WinSecResult {
 }
 
 function Show-WinSecDevicePage {
-    param($Devices,[int]$Index,$LocalDevice,[string]$OutputRoot,[string]$Notice)
+    param($Devices,[int]$Index,$LocalDevice,[string]$OutputRoot,[string]$Notice,$Session)
     Clear-Host
     Show-WinSecBanner
     Write-Host '  DEVICE INVENTORY' -ForegroundColor Cyan
@@ -135,10 +145,18 @@ function Show-WinSecDevicePage {
         Write-Host ('  {0} {1} | {2}' -f $hardware.manufacturer,$hardware.model,$memory) -ForegroundColor DarkGray
         Write-Host ('  CPU: '+(@($hardware.processors) -join ', ')) -ForegroundColor DarkGray
     }
-    if ($Devices.Count -gt 0) {
-        foreach ($warning in @($Devices[$Index].warnings)) { Write-Host ('  '+$warning) -ForegroundColor Yellow }
+    $warnings=if ($Devices.Count -gt 0) {@($Devices[$Index].warnings)} else {@()}
+    Show-WinSecNotifications -Session $Session -Warnings $warnings -Messages @($Notice)
+}
+
+function Invoke-WinSecMenuCommand {
+    param($Session,$Parameters)
+    $commandWarnings=@()
+    try {
+        winsec @Parameters -WarningAction SilentlyContinue -WarningVariable commandWarnings | Out-Host
+    } finally {
+        foreach ($warning in $commandWarnings) { Add-WinSecWarning -Session $Session -Message ([string]$warning) }
     }
-    if ($Notice) { Write-Host ('  '+$Notice) -ForegroundColor Yellow }
 }
 
 function Get-WinSecMenuScanSelection {
@@ -147,12 +165,51 @@ function Get-WinSecMenuScanSelection {
     return $target
 }
 
+function Confirm-WinSecAnalysisEvidence {
+    param($Session,$Parameters)
+    $nist=($Parameters.ContainsKey('Nist') -and $Parameters.Nist)
+    $cis=($Parameters.ContainsKey('Cis') -and $Parameters.Cis)
+    if ($nist -eq $cis) { throw 'Usa exactamente un framework: -c o -n.' }
+    if ($Parameters.ContainsKey('Collector') -or ($Parameters.ContainsKey('Domain') -and $Parameters.Domain -ne 'all')) { throw 'El objetivo del analisis se indica solamente despues de -a.' }
+    if ($Parameters.ContainsKey('OutputRoot') -and (Get-WinSecOutputRoot $Parameters.OutputRoot) -ne $Session.OutputRoot) { throw 'La sesion utiliza un unico OutputRoot.' }
+    $target=Resolve-WinSecTarget $Parameters.Analyze
+    $snapshot=if ($Parameters.ContainsKey('Snapshot')) {$Parameters.Snapshot} else {''}
+    $ready=Get-WinSecAnalysisReadiness -Session $Session -Target $target -Snapshot $snapshot
+    if ($ready.Available) { $Parameters.Snapshot=$ready.Path; return 'Ready' }
+    if ($Session.DeviceId -ne (Get-WinSecDeviceId $env:COMPUTERNAME)) { throw 'Saved evidence is missing. Only the local device can be rescanned.' }
+    $showHelp=$false
+    while ($true) {
+        Clear-Host
+        Show-WinSecBanner
+        if ($showHelp) { Show-WinSecHelp -Domain $target.Domain -Collector $target.Collector }
+        Write-Host ('  Missing evidence for: '+$Parameters.Analyze) -ForegroundColor Yellow
+        Write-Host ('  '+$ready.Reason) -ForegroundColor DarkGray
+        Write-Host '  A rescan creates a NEW snapshot; existing captures remain in history.' -ForegroundColor DarkGray
+        $answer=Read-WinSecInput -Hints @('Rescan this target now? [Y/S] Yes | [N] No (default)') -Shortcuts 'ysnq'
+        if ($answer.Text -eq 'q') { return 'Quit' }
+        if ($answer.HelpRequested) { $showHelp=$true; continue }
+        if ($answer.Cancelled -or -not $answer.Text -or $answer.Text -eq 'n') { return 'Cancelled' }
+        if ($answer.Text -notin @('y','s')) { continue }
+        Reset-WinSecSessionForRescan $Session
+        Clear-Host
+        Show-WinSecBanner
+        $scan=@{Scan=$true;Domain=$target.Domain;Session=$Session;NoBanner=$true}
+        if ($target.Collector) { $scan.Collector=$target.Collector }
+        if ($Parameters.ContainsKey('Deep')) { $scan.Deep=$Parameters.Deep }
+        Invoke-WinSecMenuCommand -Session $Session -Parameters $scan
+        $ready=Get-WinSecAnalysisReadiness -Session $Session -Target $target -Snapshot $Session.Snapshot
+        if (-not $ready.Available) { throw ('The scan did not save valid evidence. '+$ready.Reason) }
+        $Parameters.Snapshot=$ready.Path
+        return 'Ready'
+    }
+}
+
 function Invoke-WinSecMenu {
     param([string]$OutputRoot,[string]$Snapshot)
     $session=New-WinSecSession -OutputRoot $OutputRoot -Snapshot $Snapshot
     if ($Snapshot) { $session.Context=Get-WinSecSnapshotManifest -Snapshot $Snapshot }
     $localDevice=Get-WinSecLocalDevice
-    $inventory=Register-WinSecDevice -OutputRoot $session.OutputRoot -LocalDevice $localDevice
+    $inventory=Register-WinSecDevice -OutputRoot $session.OutputRoot -LocalDevice $localDevice -Session $session
     $catalog=@(Get-WinSecCatalog)
     $sections=@(Get-WinSecSections)
     $view='devices'; $domain='all'; $agent=$null; $helpReturnView='main'; $quit=$false
@@ -162,13 +219,13 @@ function Invoke-WinSecMenu {
             if ($view -eq 'devices') {
                 $devices=@($inventory.devices | Sort-Object @{Expression={$_.id -ne $localDevice.id}},name)
                 if ($deviceIndex -ge $devices.Count) { $deviceIndex=0 }
-                Show-WinSecDevicePage -Devices $devices -Index $deviceIndex -LocalDevice $localDevice -OutputRoot $session.OutputRoot -Notice $deviceNotice
-                $answer=Read-WinSecInput -Hints @('Enter: open selected device. Type its number to select.','[Up/Down] Select | [F2] Rename | [Supr] Delete device + snapshots') -Shortcuts '+q' -Actions @('Rename','Delete','Up','Down')
+                Show-WinSecDevicePage -Devices $devices -Index $deviceIndex -LocalDevice $localDevice -OutputRoot $session.OutputRoot -Notice $deviceNotice -Session $session
+                $answer=Read-WinSecInput -Hints @('Enter: open highlighted device. Or type its number + Enter.','[Up/Down] Select | [F2] Rename | [Supr] Delete device + snapshots') -Shortcuts '+q' -Actions @('Rename','Delete','Up','Down') -NoLeadingSpace -MessageArea $session.MessageArea
                 $deviceNotice=''
                 if ($answer.Text -eq 'q') { $quit=$true; continue }
                 if ($answer.Cancelled) { continue }
                 if ($answer.HelpRequested) {
-                    $deviceNotice='Enter opens saved scans. F2 edits the display name. Supr deletes the device AND all its snapshots after confirmation.'
+                    $deviceNotice='Up/Down + Enter or number + Enter opens a device. F2 edits its name. Supr deletes the device AND all its snapshots after confirmation.'
                     continue
                 }
                 $action=if ($answer.PSObject.Properties['Action']) {$answer.Action} else {''}
@@ -178,7 +235,7 @@ function Invoke-WinSecMenu {
                 }
                 try {
                     if ($answer.Text -eq '+') {
-                        $inventory=Register-WinSecDevice -OutputRoot $session.OutputRoot -LocalDevice $localDevice
+                        $inventory=Register-WinSecDevice -OutputRoot $session.OutputRoot -LocalDevice $localDevice -Session $session
                         $deviceIndex=0; continue
                     }
                     if ($devices.Count -eq 0) { continue }
@@ -202,17 +259,19 @@ function Invoke-WinSecMenu {
                                 if ($confirmation.Text -cne $selected.host) { throw 'Hostname does not match. Nothing deleted.' }
                                 if ($session.DeviceId -eq $selected.id) { Close-WinSecSession $session }
                                 $inventory=Remove-WinSecDeviceData -OutputRoot $session.OutputRoot -DeviceId $selected.id -Confirmation $confirmation.Text
-                                $deviceNotice='Device and snapshots deleted.'
+                                Add-WinSecNotification -Session $session -Message ('Device and snapshots deleted: '+$selected.name)
                             }
                         }
                         continue
                     }
                     $number=0
                     if ([int]::TryParse($answer.Text,[ref]$number)) {
-                        if ($number -ge 1 -and $number -le $devices.Count) { $deviceIndex=$number-1 }
-                        continue
-                    }
-                    if ($answer.Text) { $deviceNotice='Use Enter, a device number, F2 or Supr.'; continue }
+                        if ($number -lt 1 -or $number -gt $devices.Count) {
+                            $deviceNotice='Invalid device number. Use 1-'+$devices.Count+'.'; continue
+                        }
+                        $deviceIndex=$number-1
+                        $selected=$devices[$deviceIndex]
+                    } elseif ($answer.Text) { $deviceNotice='Use Up/Down + Enter, a device number + Enter, F2 or Supr.'; continue }
                     if ($session.Closed -or $session.DeviceId -ne $selected.id) {
                         Close-WinSecSession $session
                         $root=$session.OutputRoot
@@ -235,7 +294,7 @@ function Invoke-WinSecMenu {
             }
             $collectorId=if ($null -ne $agent) {$agent.id} else {''}
             $hintView=if ($view -eq 'help') {$helpReturnView} else {$view}
-            $answer=Read-WinSecInput -Hints @(Get-WinSecHint -Session $session -Domain $domain -Collector $collectorId -View $hintView) -Shortcuts $shortcuts
+            $answer=Read-WinSecInput -Hints @(Get-WinSecHint -Session $session -Domain $domain -Collector $collectorId -View $hintView) -Shortcuts $shortcuts -NoLeadingSpace -CompleteCommands -CompletionDomain $domain -CompletionCollector $collectorId -MessageArea $session.MessageArea
             if ($answer.Cancelled) {
                 switch ($view) {
                     'main' { $view='devices' }
@@ -266,7 +325,6 @@ function Invoke-WinSecMenu {
             }
             if ($view -eq 'control' -and $text -eq 'a') { $view='framework'; continue }
             $isScan=$false; $scanSelection=$null
-            $session.Notice=$null
             try {
                 if ($view -eq 'framework' -and $text -in @('c','n')) {
                     $parameters=@{ Analyze=$agent.id; NoBanner=$true; Session=$session }
@@ -286,10 +344,15 @@ function Invoke-WinSecMenu {
                     Clear-Host
                     Show-WinSecBanner
                 }
-                winsec @parameters | Out-Host
+                if (-not $isScan -and $parameters.ContainsKey('Analyze')) {
+                    $decision=Confirm-WinSecAnalysisEvidence -Session $session -Parameters $parameters
+                    if ($decision -eq 'Quit') { $quit=$true; continue }
+                    if ($decision -eq 'Cancelled') { continue }
+                }
+                Invoke-WinSecMenuCommand -Session $session -Parameters $parameters
             } catch {
-                $session.Notice=$_.Exception.Message
-                Write-Warning $_.Exception.Message
+                Add-WinSecWarning -Session $session -Message $_.Exception.Message
+                continue
             }
             if ($isScan) {
                 if ($null -ne $scanSelection) {
@@ -298,6 +361,7 @@ function Invoke-WinSecMenu {
                 }
                 continue
             }
+            if ($session.Warning) { continue }
             $quit=Wait-WinSecResult -Domain $domain -Collector $collectorId
             if ($view -eq 'framework') { $view='control' }
         }

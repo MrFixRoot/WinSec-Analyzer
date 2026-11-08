@@ -56,11 +56,14 @@ try {
         $script:rejectCPU=$false
 
         $root=Join-Path $testRoot 'device'
-        $inventory=Register-WinSecDevice -OutputRoot $root -LocalDevice $local
+        $deviceEvents=New-WinSecSession -OutputRoot $root
+        $inventory=Register-WinSecDevice -OutputRoot $root -LocalDevice $local -Session $deviceEvents
+        Assert-Test (@($deviceEvents.Notifications).Count -eq 1) 'A newly registered device must enqueue a creation notification.'
         Assert-Test (@($inventory.devices).Count -eq 1 -and $inventory.devices[0].name -eq $env:COMPUTERNAME) 'A new device must default to the hostname.'
         Assert-Test (@(Get-ChildItem $root -Filter manifest.json -Recurse).Count -eq 0) 'Hardware detection must not create an empty scan.'
         $inventory=Rename-WinSecDevice -OutputRoot $root -DeviceId $local.id -Name '  Operator workstation  '
-        $inventory=Register-WinSecDevice -OutputRoot $root -LocalDevice $local
+        $inventory=Register-WinSecDevice -OutputRoot $root -LocalDevice $local -Session $deviceEvents
+        Assert-Test (@($deviceEvents.Notifications).Count -eq 1) 'Refreshing an existing device must not repeat its creation event.'
         Assert-Test (@($inventory.devices).Count -eq 1 -and $inventory.devices[0].name -eq 'Operator workstation') 'Detection must preserve a renamed display label and avoid duplicate devices.'
         Assert-Test ($inventory.devices[0].host -eq $env:COMPUTERNAME -and $env:COMPUTERNAME -eq 'SYNTHETIC_LOCAL') 'Renaming inventory must not rename Windows or the source hostname.'
         Assert-Throws {Rename-WinSecDevice -OutputRoot $root -DeviceId $local.id -Name ([string][char]27)} 'Terminal control characters must be rejected in device labels.'
@@ -135,8 +138,11 @@ try {
         Push-Text 'wrong' -Enter
         Push-Key 46
         Push-Text $local.host -Enter
+        Push-Key 27
         Push-Text 'q'
-        Invoke-WinSecMenu -OutputRoot $root 6>$null
+        $deleted=@(Invoke-WinSecMenu -OutputRoot $root 6>&1)
+        $deletedText=($deleted | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ([regex]::Matches($deletedText,'Device and snapshots deleted:').Count -eq 1) 'A confirmed device deletion must notify once, then disappear on the next navigation.'
         Assert-Test (-not (Test-Path $snapshotPaths[0]) -and (Get-WinSecHash $otherManifest) -eq $otherHash) 'Supr must delete only the confirmed host after rejecting an incorrect confirmation.'
         $remaining=Get-WinSecDeviceInventory $root
         Assert-Test (@($remaining.devices | Where-Object {$_.id -eq $local.id}).Count -eq 0) 'Supr must remove the device record as well as its captures.'
@@ -176,6 +182,7 @@ try {
         Push-Text 'q'
         $screen=@(Invoke-WinSecMenu -OutputRoot $historyRoot 6>&1)
         $text=($screen | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ([regex]::Matches($text,'Snapshot created:').Count -eq 1) 'A new scan must notify exactly once, without repeating its path on later pages.'
         Assert-Test ($text -match 'windowsDefender\s+Scanned \(saved\)' -and $text -match 'windowsFirewall\s+Scanned \(partial\) \(saved\)') 'Previously scanned controls must retain their complete or partial state across sessions.'
         Assert-Test ($text -match 'smb\s+Scanned' -and $text -match 'secureBoot\s+Not yet') 'Only controls without any saved attempt may show Not yet.'
         foreach ($name in @('windowsDefender','systemSecurity')) {
@@ -192,8 +199,42 @@ try {
         Push-Text 'q'
         $reopened=@(Invoke-WinSecMenu -OutputRoot $historyRoot 6>&1)
         $text=($reopened | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($text -notmatch 'Snapshot created:|Snapshot saved:|Snapshot:|File created:') 'Opening a saved device must not generate file notifications or a permanent snapshot path.'
         Assert-Test ($text -match 'windowsDefender\s+Scanned \(saved\)' -and $text -notmatch 'windowsDefender\s+Not yet') 'Reopening after a different section scan must still show older saved control states.'
         Assert-Test (@(Get-WinSecDeviceSnapshots -OutputRoot $historyRoot -DeviceId $local.id).Count -eq 3) 'Viewing a saved device must not create another run.'
+
+        Push-Key 40
+        Push-Key 38
+        Push-Key 38
+        Push-Key 13
+        Push-Text 'q'
+        $arrows=@(Invoke-WinSecMenu -OutputRoot $root 6>&1)
+        $text=($arrows | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($text.Contains('  Device: SYNTHETIC_OTHER') -and $script:keys.Count -eq 0) 'Up and Down must move the highlight, wrap at the list boundary and open the highlighted device with Enter.'
+        Push-Text '2' -Enter
+        Push-Text 'q'
+        $numeric=@(Invoke-WinSecMenu -OutputRoot $root 6>&1)
+        $text=($numeric | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($text.Contains('  Device: SYNTHETIC_OTHER') -and $script:keys.Count -eq 0) 'A device number plus one Enter must open that device directly.'
+
+        $selectionRoot=Join-Path $testRoot 'selection'
+        $selection=Register-WinSecDevice -OutputRoot $selectionRoot -LocalDevice $local
+        foreach ($index in 1..11) {
+            $name='SYNTHETIC_SAVED_{0:00}' -f $index
+            $selection.devices+= [pscustomobject]@{
+                id=(Get-WinSecDeviceId $name);host=$name;name=$name
+                hardware=$null;os=$null;warnings=@();firstSeenAtUtc=$null;lastSeenAtUtc=$null
+            }
+        }
+        Save-WinSecDeviceInventory -OutputRoot $selectionRoot -Inventory $selection
+        Push-Text '0' -Enter
+        Push-Text '99' -Enter
+        Push-Text '12' -Enter
+        Push-Text 'q'
+        $multiDigit=@(Invoke-WinSecMenu -OutputRoot $selectionRoot 6>&1)
+        $text=($multiDigit | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($text.Contains('  Device: SYNTHETIC_SAVED_11') -and $script:keys.Count -eq 0) 'Multi-digit numbers must be read completely and open the corresponding device on Enter.'
+        Assert-Test ($text.Contains('Invalid device number.') -and -not $text.Contains('  Device: '+$local.host)) 'Invalid numbers must keep the inventory open without opening the previous selection.'
 
         $script:collectionCalls=0
         function Invoke-WinSecCollection { $script:collectionCalls++; throw 'No live collection allowed in this test.' }

@@ -56,12 +56,16 @@ function Show-WinSecHelp {
         $example=ConvertTo-WinSecControlName $agents[0].id
         $selected=ConvertTo-WinSecControlName $control[0].id
     }
+    $inSectionExamples=$false
     Write-Host ''
     $lines=if (Test-Path -LiteralPath $path -PathType Leaf) {
         Get-Content -LiteralPath $path -Encoding UTF8 -ErrorAction Stop
     } else { Get-WinSecHelpLines -Domain $resolved }
     $lines | ForEach-Object {
         $line=$_
+        if ($line -match '^Analizar esta seccion') { $inSectionExamples=$true }
+        elseif ($line -match '^Ejemplos de analisis por control') { $inSectionExamples=$false }
+        if ($selected -and $inSectionExamples) { return }
         if ($selected) { $line=$line -replace ('(?<=winsec -s )'+[regex]::Escape($example)+'(?=\s|$)'),$selected }
         if ($line -match '^#{1,6}\s+') { Write-Host ('  '+($line -replace '^#{1,6}\s+','')) -ForegroundColor Cyan }
         elseif ($selected -and $line -match ('^\s*winsec -(?:s|a) '+[regex]::Escape($selected)+'(?:\s|$)')) {
@@ -113,7 +117,7 @@ function Get-WinSecCollectorState {
     param($Session,[string]$Collector)
     $entry=@()
     $saved=$false
-    foreach ($context in @(Get-WinSecSessionContexts $Session)) {
+    foreach ($context in @(Get-WinSecSessionContexts -Session $Session -Collector $Collector)) {
         $entry=@($context.Manifest.collectors | Where-Object { $_.id -eq $Collector })
         if ($entry.Count -gt 0) {
             $saved=(-not $Session.RunId -or $context.Manifest.runId -ne $Session.RunId)

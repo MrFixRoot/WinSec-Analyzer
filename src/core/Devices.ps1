@@ -129,7 +129,7 @@ function Open-WinSecDeviceHistory {
 }
 
 function Register-WinSecDevice {
-    param([string]$OutputRoot,$LocalDevice)
+    param([string]$OutputRoot,$LocalDevice,$Session)
     $inventory=Get-WinSecDeviceInventory $OutputRoot
     $existing=@($inventory.devices | Where-Object {$_.id -eq $LocalDevice.id})
     $now=(Get-Date).ToUniversalTime().ToString('o')
@@ -147,6 +147,7 @@ function Register-WinSecDevice {
         if (-not $entry.firstSeenAtUtc) { $entry.firstSeenAtUtc=$now }
     }
     Save-WinSecDeviceInventory -OutputRoot $OutputRoot -Inventory $inventory
+    if ($existing.Count -eq 0) { Add-WinSecNotification -Session $Session -Message ('Device created: '+$entry.name) }
     return $inventory
 }
 

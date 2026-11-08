@@ -1,5 +1,5 @@
 ﻿function Invoke-WinSecNamedAnalysis {
-    param([ValidateSet('cis','nist')][string]$Framework,[int]$Correlation,[string]$Snapshot,[string]$OutputRoot,[string]$CollectorFilter,[string]$DomainFilter)
+    param([ValidateSet('cis','nist')][string]$Framework,[int]$Correlation,[string]$Snapshot,[string]$OutputRoot,[string]$CollectorFilter,[string]$DomainFilter,$Session)
     $context=Get-WinSecSnapshotManifest -Snapshot $Snapshot -OutputRoot $OutputRoot
     if ($context.Manifest.os.family -ne 'Windows11' -or [int]$context.Manifest.os.build -lt 22000) {
         throw 'Solo se analizan snapshots de Windows 11.'
@@ -9,7 +9,7 @@
     if ($Framework) {
         if ($Framework -eq 'cis') { $data=Invoke-WinSecCISAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
         else { $data=Invoke-WinSecNISTAnalysis -Context $context -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter }
-        [void](Save-WinSecAnalysis -Context $context -Name $Framework -Data $data -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter)
+        [void](Save-WinSecAnalysis -Context $context -Name $Framework -Data $data -CollectorFilter $CollectorFilter -DomainFilter $DomainFilter -Session $Session)
         Write-Host ('  [{0}] {1}' -f $data.status,$Framework.ToUpperInvariant()) -ForegroundColor Yellow
         if ($Framework -eq 'cis') {
             foreach ($finding in @($data.findings)) {
@@ -27,7 +27,7 @@
     }
     if ($Correlation -gt 0) {
         $data=Invoke-WinSecCorrelation -Context $context -Id $Correlation
-        [void](Save-WinSecCorrelations -Context $context -Data $data)
+        [void](Save-WinSecCorrelations -Context $context -Data $data -Session $Session)
         foreach ($item in $data.correlations) {
             Write-Host ('  [{0}] {1}' -f $item.status,$item.title) -ForegroundColor Cyan
             if (@($item.missing).Count -gt 0) { Write-Host ('    Missing: '+(@($item.missing) -join ', ')) -ForegroundColor Yellow }
@@ -118,19 +118,21 @@ function winsec {
         $Snapshot=Invoke-WinSecCollection -Domain $Domain -Collector $Collector -OutputRoot $OutputRoot -Deep:$Deep -Session $Session
     }
     if ($Analyze -or $Correlation -gt 0 -or $Report) {
-        if (-not $Snapshot -and $null -ne $Session) {
-            if ($Analyze) { $Snapshot=Get-WinSecSessionSnapshot -Session $Session -Collector $target.Collector -Domain $target.Domain }
-            else { $Snapshot=Get-WinSecSessionSnapshot $Session }
+        if (-not $Snapshot) {
+            if ($Analyze) {
+                $analysisSession=if ($null -ne $Session) {$Session} else {New-WinSecSession -OutputRoot $OutputRoot}
+                $Snapshot=Get-WinSecSessionSnapshot -Session $analysisSession -Collector $target.Collector -Domain $target.Domain
+            } elseif ($null -ne $Session) { $Snapshot=Get-WinSecSessionSnapshot $Session }
         }
     }
     if ($Analyze) {
         $framework=if ($Cis) {'cis'} else {'nist'}
-        Invoke-WinSecNamedAnalysis -Framework $framework -Snapshot $Snapshot -OutputRoot $OutputRoot -CollectorFilter $target.Collector -DomainFilter $target.Domain
+        Invoke-WinSecNamedAnalysis -Framework $framework -Snapshot $Snapshot -OutputRoot $OutputRoot -CollectorFilter $target.Collector -DomainFilter $target.Domain -Session $Session
     }
-    if ($Correlation -gt 0) { Invoke-WinSecNamedAnalysis -Correlation $Correlation -Snapshot $Snapshot -OutputRoot $OutputRoot }
+    if ($Correlation -gt 0) { Invoke-WinSecNamedAnalysis -Correlation $Correlation -Snapshot $Snapshot -OutputRoot $OutputRoot -Session $Session }
     if ($Report) {
         $context=Get-WinSecSnapshotManifest -Snapshot $Snapshot -OutputRoot $OutputRoot
-        [void](Invoke-WinSecReport -Context $context)
+        [void](Invoke-WinSecReport -Context $context -Session $Session)
     }
     if (-not $Scan -and -not $Analyze -and -not $Correlation -and -not $Report) {
         $null=Assert-WinSecWindows11
