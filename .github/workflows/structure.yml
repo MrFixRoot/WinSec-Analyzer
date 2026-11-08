@@ -18,6 +18,8 @@ jobs:
           git check-ignore -q src/collectors/SystemSecurity/AGENTS.md
           git check-ignore -q CONTRIBUTING.md
           git check-ignore -q docs/architecture.md
+          git check-ignore -q help/README.md
+          git check-ignore -q help/SystemSecurity.md
       - name: Verify private snapshots ignored
         shell: bash
         run: |

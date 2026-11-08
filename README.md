@@ -47,9 +47,9 @@ No se muestra ningun numero de version de la aplicacion en el banner.
 Un collector **no asigna PASS/FAIL**. Ese estado es exclusivo de reglas de
 benchmark explicitas, verificadas y compatibles con la edicion/perfil.
 
-## Seis dominios / 32 agentes de recoleccion
+## Seis dominios / 32 collectors de recoleccion
 
-| Dominio | Agentes incluidos | Fuentes y ejemplos |
+| Dominio | Collectors incluidos | Fuentes y ejemplos |
 |---|---|---|
 | **System Security** (8) | WindowsDefender, WindowsFirewall, BitLocker, SecureBoot, TPM, UAC, CredentialGuard, SmartScreen | Antivirus y politicas; firmas; firewall perfiles/reglas/filtros; cifrado; UEFI, TPM, LSA, VBS, SmartScreen |
 | **Network Security** (6) | SMB, RDP, WinRM, TCPListeners, NetworkAdapters, DNSAndProxy | SMB cliente/servidor, NLA, WinRM, TCP/UDP, interfaces, IP, rutas, DNS, proxy flags |
@@ -58,32 +58,13 @@ benchmark explicitas, verificadas y compatibles con la edicion/perfil.
 | **Logging & Auditing** (3) | AuditPolicy, PowerShellLogging, EventLogConfiguration | `auditpol`, Script Block/Module Logging, transcripcion, canales y retencion |
 | **Patch Management** (3) | WindowsUpdate, InstalledHotfixes, PendingReboot | Politicas de WU, servicios, hotfixes visibles, reinicio pendiente |
 
-**Total: 32 agentes con archivos individuales `.ps1` y ~99 familias de
+**Total: 32 collectors con archivos individuales `.ps1` y ~99 familias de
 items de evidencia** en `catalog/evidence-inventory.json`. El inventario recoge
 **evidencias a recolectar**, no un total de recomendaciones oficiales CIS. La
 cobertura exhaustiva de todos los controles de todos los Benchmarks CIS todavia
 no esta implementada. Las propiedades disponibles varian segun permisos y
 edicion de Windows 11. Algunos collectors son deliberadamente parciales para
 proteger secretos o evitar costes excesivos.
-
-## Estado del desarrollo
-
-| Componente | Estado | Situacion real |
-|---|---|---|
-| Logo, banner, menu interactivo | **Implementado** | Q/Esc, seis secciones y ayuda contextual; validacion parcial PS5.1 |
-| 32 agentes por dominios | **Implementacion inicial** | Consultas y normalizacion creadas; por probar en Home/Pro/Enterprise |
-| Validacion solo Windows 11 | **Implementado en codigo** | Comprobacion de build y tipo de producto; requiere prueba en SO real |
-| JSON por agente + manifest + SHA-256 | **Implementado en codigo** | Persistencia y comprobacion de hashes; pendiente prueba integral |
-| CLI `winsec -s / -a objetivo -c o -n` | **Implementado** | Un framework por comando; regresiones sinteticas PS5.1 |
-| Sesion interactiva incremental | **Implementado** | Un runId, manifest compartido y reutilizacion sin sobrescribir collectors |
-| Correlaciones 1–4 entre dominios | **Base preparada** | Hechos y disponibilidad; interpretacion avanzada en desarrollo |
-| Mapeo NIST CSF 2.0 | **Inicial** | Categorias asociadas a evidencia; subcategorias y validacion pendientes |
-| Motor CIS Benchmarks | **Adaptador preparado** | **Sin rulepacks oficiales ni cumplimiento evaluable por defecto** |
-| Calificacion CIS | **Condicionada** | Solo si se cargan reglas verificadas y evaluables; no score global por defecto |
-| Reportes | **Indice JSON inicial** | HTML/CSV, graficas y comparaciones historicas en desarrollo |
-| Pruebas | **Estructurales y sinteticas** | UI/CLI/sesion en PS5.1; matriz completa por edicion pendiente |
-| Coleccion Deep | **En desarrollo** | Bandera existe; catalogos profundos adicionales pendientes |
-| Firma de evidencias / atestacion | **Pendiente** | Hashes no constituyen una firma digital confiable |
 
 ## Requisitos
 
@@ -219,20 +200,6 @@ win-services -s
 
 En los comandos cortos, `-a` es un switch porque el objetivo ya esta definido.
 
-### Ayuda por seccion
-
-La UI lee estos archivos; contienen comandos, controles y navegacion propios:
-
-| Contexto | Archivo |
-|---|---|
-| General | [help/README.md](help/README.md) |
-| System Security | [SystemSecurity.md](help/SystemSecurity.md) |
-| Network Security | [NetworkSecurity.md](help/NetworkSecurity.md) |
-| Identity & Access | [IdentityAccess.md](help/IdentityAccess.md) |
-| Services & Hardening | [ServicesHardening.md](help/ServicesHardening.md) |
-| Logging & Auditing | [LoggingAuditing.md](help/LoggingAuditing.md) |
-| Patch Management | [PatchManagement.md](help/PatchManagement.md) |
-
 ## CIS Benchmarks y NIST
 
 **Solo se utilizaran CIS Benchmarks y NIST CSF 2.0.**
@@ -276,15 +243,13 @@ WinSec-Analyzer/
 │   └── evidence-inventory.json     # Familias de evidencia a recolectar
 ├── src/
 │   ├── core/                        # Validacion, almacenamiento, CLI, analisis
-│   ├── collectors/                  # Seis dominios, 32 archivos de agentes .ps1
+│   ├── collectors/                  # Seis dominios, 32 archivos de collectors .ps1
 │   └── ui/                          # Banner/menu/estado
-├── help/                            # Ayuda general y seis mapas por seccion
 ├── config/
 │   ├── benchmarks/CIS/             # Ejemplo inactivo
 │   ├── benchmarks/local/           # Packs propios no versionados en Git
 │   ├── mappings/                   # NIST CSF 2.0
 │   └── correlation-rules/          # Cuatro correlaciones
-├── tests/                           # Pruebas estructurales y Pester
 └── device/                          # Snapshots LOCALES ignorados por Git
 ```
 
@@ -309,44 +274,28 @@ device/
 La ubicacion, ejemplos y nombres son ilustrativos. Nunca subir JSON reales
 ni el directorio `device/` a repositorios publicos.
 
-## Privacidad y seguridad
+## Licencia y responsabilidad
 
-Recopilar configuraciones no implica capturar secretos. Los agents utilizan
-listas de propiedades permitidas. Nunca se guardan contrasenas, keys de
-recuperacion BitLocker, hashes, tokens o registros de actividad del usuario.
-Algunos metadatos (SID, usuarios, direcciones IP, nombres de programas) son
-sensibles y requieren ACLs NTFS adecuadas. El `.gitignore` excluye `device/`,
-`scans/`, `snapshots/`, `evidence/`, `reports/`, `logs/` y ficheros sensibles,
-pero `git add -f` podria evadirlo. Revisar siempre staging.
+El codigo de WinSec-Analyzer se distribuye bajo **Apache License 2.0
+(Apache-2.0)**. El texto completo y sus condiciones estan en [LICENSE](LICENSE).
 
-En Windows, el programa **no cambia configuraciones de seguridad**. Hay una
-excepcion operativa de escritura local temporal: `PrivilegeRights` crea un
-INF con `secedit /export` y lo elimina; esto **no aplica ni modifica**
-politicas del equipo. Ninguna remediacion automatica esta incluida.
+**Copyright 2026 Norman López P. (mrRoot / MrFixRoot)**, autor y creador original.
+[NOTICE](NOTICE) identifica la autoria, el proyecto y su repositorio oficial,
+y recoge los avisos de atribucion aplicables. Es informativo y no modifica
+los terminos de la licencia.
 
-## Desarrollo, extensibilidad y pruebas
+Al redistribuir el proyecto o una obra derivada, deben cumplirse las condiciones
+de la seccion 4 de LICENSE: proporcionar la licencia, identificar los archivos
+modificados y conservar los avisos de copyright y atribucion aplicables,
+incluidos los de NOTICE. Las aportaciones de terceros conservan los derechos
+que les correspondan.
 
-- Catalogo: [`catalog/collectors.json`](catalog/collectors.json)
+El software se proporciona **tal cual, sin garantias**, con las exclusiones y
+limitaciones de responsabilidad establecidas en LICENSE. El usuario debe evaluar
+su idoneidad y revisar los resultados; una captura no garantiza la seguridad
+del equipo ni acredita cumplimiento oficial.
 
-Pruebas estructurales independientes de Windows:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-La suite incluye regresiones sinteticas de UI, comandos, navegacion Q/Esc,
-sesion compartida y analisis sin consultas al host. En Windows ejecuta
-`tests/UiSession.Tests.ps1` con Windows PowerShell 5.1 y elimina sus
-temporales fuera del repositorio. En otros entornos esa prueba se omite.
-La matriz completa por edicion, elevacion y packs licenciados queda pendiente.
-
-## Licencias y responsabilidad
-
-No se incluyen rulepacks de CIS ni material protegido con licencia. El uso y
-redistribucion de cualquier benchmark debera respetar sus terminos. NIST se
-utiliza como mapa de resultados y no como certificacion. La auditoria tiene
-alcance local y no garantiza que un endpoint sea seguro.
-
-**Proyecto en desarrollo; licencia del codigo pendiente de definir.** Se agradecen contribuciones que mejoren la
-calidad de la evidencia, validacion de fuentes, tests, documentacion y
-trazabilidad sin comprometer la privacidad de los equipos.
+Los collectors son implementaciones propias. No se incluyen reglas oficiales
+ni copias de CIS Benchmarks; sus materiales y los de terceros conservan sus
+propios terminos. El proyecto no esta avalado ni certificado por CIS o NIST.
+NIST CSF 2.0 se utiliza para relacionar evidencia, sin score ni certificacion.
