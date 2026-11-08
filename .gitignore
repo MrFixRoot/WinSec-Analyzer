@@ -3,9 +3,14 @@
 # ==========================================
 
 AGENTS.md
+/CONTRIBUTING.md
+CLAUDE.md
+GEMINI.md
+copilot-instructions.md
 *.agent.md
 *.instructions.md
 .github/instructions/
+.github/agents/
 .claude/
 .codex/
 .cursor/
@@ -21,12 +26,16 @@ AGENTS.md
 # ==========================================
 
 /device/
+/devices/
 /scans/
 /snapshots/
 /evidence/
 /reports/
 /logs/
 /output/
+/tmp/
+/temp/
+/artifacts/
 
 # ==========================================
 # LOCAL CONFIGURATION

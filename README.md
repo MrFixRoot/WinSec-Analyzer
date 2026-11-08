@@ -306,7 +306,7 @@ Para distinguir objetivos, `services` es el control de servicios y
   NO significa cumplimiento del resultado organizacional. No se inventa
   `NIST Score` ni `PASS` para CSF.
 
-Documentacion: [Marco CIS/NIST](docs/FRAMEWORKS.md),
+Referencias oficiales:
 [CIS Windows Desktop](https://www.cisecurity.org/benchmark/microsoft_windows_desktop),
 [NIST CSF 2.0](https://www.nist.gov/cyberframework).
 
@@ -335,14 +335,12 @@ Su comando equivalente es `winsec -r` sin numero.
 WinSec-Analyzer/
 ├── run.ps1                         # CLI / menu
 ├── WinSecAnalyzer.psm1              # Modulo PowerShell
-├── AGENTS.md                        # Instrucciones para agentes de desarrollo
 ├── catalog/
 │   ├── collectors.json             # Registry de 32 collectors
 │   └── evidence-inventory.json     # Familias de evidencia a recolectar
 ├── src/
 │   ├── core/                        # Validacion, almacenamiento, CLI, analisis
 │   ├── collectors/                  # Seis dominios, 32 archivos de agentes .ps1
-│   │   └── <Domain>/AGENTS.md       # Reglas especificas por dominio
 │   └── ui/                          # Banner/menu/estado
 ├── help/                            # Ayuda general y seis mapas por seccion
 ├── config/
@@ -350,7 +348,6 @@ WinSec-Analyzer/
 │   ├── benchmarks/local/           # Packs propios no versionados en Git
 │   ├── mappings/                   # NIST CSF 2.0
 │   └── correlation-rules/          # Cuatro correlaciones
-├── docs/                            # Especificaciones y riesgos
 ├── tests/                           # Pruebas estructurales y Pester
 └── device/                          # Snapshots LOCALES ignorados por Git
     └── inventory.json               # Equipos, nombres visibles y hardware permitido
@@ -415,13 +412,6 @@ politicas del equipo. Ninguna remediacion automatica esta incluida.
 ## Desarrollo, extensibilidad y pruebas
 
 - Catalogo: [`catalog/collectors.json`](catalog/collectors.json)
-- Instrucciones de agentes: [`AGENTS.md`](AGENTS.md) y `AGENTS.md` en cada dominio
-- Arquitectura: [`docs/architecture.md`](docs/architecture.md)
-- JSON: [`docs/DATA-FORMAT.md`](docs/DATA-FORMAT.md)
-- CLI: [`docs/CLI.md`](docs/CLI.md)
-- Seguridad: [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md)
-- Hoja de ruta: [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- Contribuciones: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 Pruebas estructurales independientes de Windows:
 
