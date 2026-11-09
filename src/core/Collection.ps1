@@ -14,6 +14,13 @@
             $m.os.build -ne $os.Build -or $m.os.edition -ne $os.Edition) {
             throw 'No se puede agregar evidencia: la captura no pertenece a la sesion local abierta.'
         }
+        foreach ($field in @('displayVersion','ubr','installationType')) {
+            $saved=Get-WinSecOptionalField $m.os $field
+            $current=Get-WinSecOptionalField $os $field
+            if ($null -ne $saved -and $null -ne $current -and [string]$saved -cne [string]$current) {
+                throw ('El contexto de Windows ha cambiado ('+$field+'). Abre una nueva sesion para crear otro snapshot.')
+            }
+        }
     } else {
         if ($null -ne $Session) { $OutputRoot=$Session.OutputRoot }
         $context=New-WinSecCollectionContext -OS $os -OutputRoot $OutputRoot -Domain $resolved -Collector $Collector -Deep:$Deep -Interactive:($null -ne $Session)
@@ -24,6 +31,9 @@
         }
     }
     $manifest=$context.Manifest
+    $contextWarnings=@(@(Get-WinSecOptionalField $manifest 'warnings')+@(Get-WinSecOptionalField $os 'Warnings') | Where-Object {-not [string]::IsNullOrWhiteSpace([string]$_)} | Select-Object -Unique)
+    if ($manifest -is [System.Collections.IDictionary]) { $manifest['warnings']=$contextWarnings }
+    else { $manifest | Add-Member -NotePropertyName warnings -NotePropertyValue $contextWarnings -Force }
     Write-Host '  Scanning local Windows 11...' -ForegroundColor Cyan
     $index=0
     try {
@@ -46,12 +56,14 @@
             if (-not $Deep -and $manifest.mode -eq 'DEEP') { $manifest.mode='MIXED' }
             [void](Save-WinSecJson -Path $context.Path -Value $manifest)
             Write-WinSecCollectionState -Text ('  [{0}/{1}] Scanning {2}...' -f $index,$entries.Count,(ConvertTo-WinSecControlName $agent.id)) -Session $Session
+            $collectorWarnings=@()
             try {
                 $fn=Get-Command -Name $agent.function -CommandType Function -ErrorAction Stop
-                $payload=& $fn.Name -Deep:$Deep -ErrorAction Stop
+                $payload=& $fn.Name -Deep:$Deep -ErrorAction Stop -WarningAction SilentlyContinue -WarningVariable collectorWarnings
                 if ($null -eq $payload -or $null -eq $payload.status) { throw 'Collector devolvio una estructura invalida.' }
+                $payload=New-WinSecPayload -Data $payload.data -Sources @($payload.sources) -Warnings @(@($payload.warnings)+@($collectorWarnings) | Select-Object -Unique) -Status $payload.status
             } catch {
-                $payload=New-WinSecPayload -Data ([ordered]@{}) -Sources @() -Warnings @($_.Exception.Message) -Status 'ERROR'
+                $payload=New-WinSecPayload -Data ([ordered]@{}) -Sources @() -Warnings @(@($collectorWarnings)+@($_.Exception.Message)) -Status 'ERROR'
             }
             $evidence=[ordered]@{
                 schemaVersion='1'; runId=$manifest.runId; collector=$agent.id; domain=$agent.domain; description=$agent.description
@@ -78,7 +90,7 @@
             [void](Save-WinSecJson -Path $context.Path -Value $manifest)
         }
         $failures=@($manifest.collectors | Where-Object { $_.status -ne 'COMPLETED' })
-        $manifest.status=if ($failures.Count -eq 0) { 'COMPLETED' } else { 'PARTIAL' }
+        $manifest.status=if ($failures.Count -eq 0 -and $contextWarnings.Count -eq 0) { 'COMPLETED' } else { 'PARTIAL' }
         if ($null -eq $Session) { $manifest.finishedAtUtc=(Get-Date).ToUniversalTime().ToString('o') }
         [void](Save-WinSecJson -Path $context.Path -Value $manifest)
         if ($null -ne $Session) { Write-Host '' }

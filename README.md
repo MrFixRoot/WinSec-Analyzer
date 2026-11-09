@@ -94,6 +94,11 @@ Import-Module .\WinSecAnalyzer.psm1 -Force
 Al iniciar el menu se valida Windows 11 y se registra el equipo local en
 `device/inventory.json`: hostname, fabricante, modelo, CPU y RAM. Si una
 fuente falla, se conserva lo disponible y se muestra su advertencia.
+El contexto del SO conserva tambien `displayVersion`, `ubr` e
+`installationType`, tanto en el inventario como en el `manifest.json` de
+cada captura. `ubr` es numerico; los datos opcionales ausentes quedan en
+`null` con su advertencia. El contexto y el dispositivo se marcan `PARTIAL`
+cuando sus consultas generan advertencias.
 No se guardan numeros de serie ni identificadores de CPU. El inventario tambien
 descubre equipos con capturas anteriores, sin crear un scan vacio.
 
@@ -188,6 +193,11 @@ Las demas secciones agregan evidencia al **mismo runId y manifest**.
 Cada collector conserva su JSON individual. Repetir un collector verifica
 su hash y reutiliza lo guardado, sin consultarlo otra vez ni sobrescribirlo.
 Esto incluye intentos parciales o fallidos que quedaron guardados.
+Las advertencias de contexto marcan la captura `PARTIAL`; las advertencias
+de un collector marcan su evidencia `PARTIAL`, conservando los estados
+`ERROR` y `NOT_APPLICABLE` cuando corresponda. Si cambia un dato conocido
+de version, revision o tipo de instalacion, se requiere otra captura para
+evitar mezclar contextos de Windows distintos.
 
 Al cerrar el run se registra `sessionState=CLOSED` y `finishedAtUtc`.
 Una apertura nueva del menu, cambiar de dispositivo o confirmar un reescaneo

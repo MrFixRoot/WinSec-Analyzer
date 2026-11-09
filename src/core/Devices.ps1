@@ -8,8 +8,9 @@ function Get-WinSecDeviceId {
 function Get-WinSecLocalDevice {
     # The OS guard must precede every hardware query. No serials or UUIDs are saved.
     $os=Assert-WinSecWindows11
+    $osMetadata=ConvertTo-WinSecOSMetadata $os
     $hardware=[ordered]@{ manufacturer=$null; model=$null; memoryBytes=$null; logicalProcessors=$null; processors=@() }
-    $warnings=@()
+    $warnings=@($osMetadata.warnings)
     try {
         $system=Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
         $safe=Select-WinSecProperties $system @('Manufacturer','Model','TotalPhysicalMemory','NumberOfLogicalProcessors')
@@ -27,7 +28,7 @@ function Get-WinSecLocalDevice {
     return [pscustomobject]@{
         id=(Get-WinSecDeviceId $env:COMPUTERNAME); host=$env:COMPUTERNAME
         hardware=$hardware; warnings=$warnings
-        os=[ordered]@{ family='Windows11'; edition=$os.Edition; build=$os.Build; arch=$os.Arch; productType=1 }
+        os=$osMetadata; status=$(if ($warnings.Count -gt 0) {'PARTIAL'} else {'COMPLETED'})
     }
 }
 
@@ -86,7 +87,7 @@ function Get-WinSecDeviceInventory {
         if (@($inventory.devices | Where-Object {$_.id -eq $id}).Count -eq 0) {
             $inventory.devices+= [pscustomobject]@{
                 id=$id;host=$directory.Name;name=$directory.Name;hardware=$null;os=$null
-                warnings=@();firstSeenAtUtc=$null;lastSeenAtUtc=$null
+                warnings=@();status=$null;firstSeenAtUtc=$null;lastSeenAtUtc=$null
             }
         }
     }
@@ -133,17 +134,20 @@ function Register-WinSecDevice {
     $inventory=Get-WinSecDeviceInventory $OutputRoot
     $existing=@($inventory.devices | Where-Object {$_.id -eq $LocalDevice.id})
     $now=(Get-Date).ToUniversalTime().ToString('o')
+    $warnings=@($LocalDevice.warnings | Where-Object {-not [string]::IsNullOrWhiteSpace([string]$_)})
+    $status=if ($warnings.Count -gt 0) {'PARTIAL'} else {'COMPLETED'}
     if ($existing.Count -eq 0) {
         $entry=[pscustomobject]@{
             id=$LocalDevice.id;host=$LocalDevice.host;name=$LocalDevice.host
-            hardware=$LocalDevice.hardware;os=$LocalDevice.os;warnings=@($LocalDevice.warnings)
+            hardware=$LocalDevice.hardware;os=$LocalDevice.os;warnings=$warnings;status=$status
             firstSeenAtUtc=$now;lastSeenAtUtc=$now
         }
         $inventory.devices+= $entry
     } else {
         $entry=$existing[0]
         $entry.host=$LocalDevice.host; $entry.hardware=$LocalDevice.hardware; $entry.os=$LocalDevice.os
-        $entry.warnings=@($LocalDevice.warnings); $entry.lastSeenAtUtc=$now
+        $entry.warnings=$warnings; $entry.lastSeenAtUtc=$now
+        $entry | Add-Member -NotePropertyName status -NotePropertyValue $status -Force
         if (-not $entry.firstSeenAtUtc) { $entry.firstSeenAtUtc=$now }
     }
     Save-WinSecDeviceInventory -OutputRoot $OutputRoot -Inventory $inventory

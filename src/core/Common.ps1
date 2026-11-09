@@ -14,13 +14,43 @@ function Assert-WinSecWindows11 {
         throw ('SO no admitido: solamente Windows 11 cliente (ProductType=1, build>=22000). Detectado: ' + $os.Caption + ', build ' + $build)
     }
     $edition = 'Unknown'
+    $displayVersion=$null; $ubr=$null; $installationType=$null; $warnings=@()
     try {
         $reg = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
-        if ($reg.EditionID) { $edition = [string]$reg.EditionID }
-    } catch { }
+        foreach ($name in @('EditionID','DisplayVersion','InstallationType')) {
+            $property=$reg.PSObject.Properties[$name]
+            if ($null -eq $property -or $property.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($property.Value)) {
+                $warnings+=('CurrentVersion.'+$name+': valor no disponible o invalido.')
+                continue
+            }
+            switch ($name) {
+                'EditionID' { $edition=$property.Value.Trim() }
+                'DisplayVersion' { $displayVersion=$property.Value.Trim() }
+                'InstallationType' { $installationType=$property.Value.Trim() }
+            }
+        }
+        $property=$reg.PSObject.Properties['UBR']
+        $revision=0
+        if ($null -ne $property -and [int]::TryParse([string]$property.Value,[ref]$revision) -and $revision -ge 0) { $ubr=$revision }
+        else { $warnings+=('CurrentVersion.UBR: valor no disponible o invalido.') }
+    } catch { $warnings+=('CurrentVersion: '+$_.Exception.Message) }
     return [pscustomobject]@{
         Caption=[string]$os.Caption; Build=$build; Version=[string]$os.Version;
         Edition=$edition; ProductType=[int]$os.ProductType; Arch=[string]$os.OSArchitecture
+        DisplayVersion=$displayVersion; UBR=$ubr; InstallationType=$installationType
+        Status=$(if ($warnings.Count -gt 0) {'PARTIAL'} else {'COMPLETED'}); Warnings=$warnings
+    }
+}
+
+function ConvertTo-WinSecOSMetadata {
+    param($OS)
+    $safe=Select-WinSecProperties -InputObject $OS -Names @('Caption','Build','Version','Edition','Arch','DisplayVersion','UBR','InstallationType','Warnings')
+    $warnings=@($safe['Warnings'] | Where-Object {-not [string]::IsNullOrWhiteSpace([string]$_)})
+    return [ordered]@{
+        family='Windows11'; caption=$safe['Caption']; build=$safe['Build']; version=$safe['Version']
+        edition=$safe['Edition']; arch=$safe['Arch']; productType=1
+        displayVersion=$safe['DisplayVersion']; ubr=$safe['UBR']; installationType=$safe['InstallationType']
+        status=$(if ($warnings.Count -gt 0) {'PARTIAL'} else {'COMPLETED'}); warnings=$warnings
     }
 }
 

@@ -146,10 +146,11 @@ function New-WinSecCollectionContext {
     $runId=[guid]::NewGuid().ToString('N')
     $base=Join-Path (Join-Path (Join-Path $root $osFolder) $hostFolder) ($stamp+'_'+$runId)
     [void](New-Item -ItemType Directory -Path $base -ErrorAction Stop)
+    $osMetadata=ConvertTo-WinSecOSMetadata $OS
     $manifest=[ordered]@{
         schemaVersion='1'; runId=$runId; startedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
         finishedAtUtc=$null; status='RUNNING'; host=$env:COMPUTERNAME
-        os=[ordered]@{ family='Windows11'; caption=$OS.Caption; build=$OS.Build; edition=$OS.Edition; arch=$OS.Arch; productType=1 }
+        os=$osMetadata; warnings=@($osMetadata.warnings)
         elevated=(Test-WinSecElevated); mode=$(if ($Deep) { 'DEEP' } else { 'STANDARD' })
         scope=[ordered]@{ domain=$(if ($Interactive) {'all'} else {$Domain}); collector=$(if ($Interactive) {$null} else {$Collector}) }
         sessionState=$(if ($Interactive) {'OPEN'} else {'CLOSED'}); collectors=@()

@@ -26,6 +26,10 @@ class UiSessionTests(unittest.TestCase):
     def test_analysis_recovery(self):
         self._check_powershell_script("AnalysisRecovery.Tests.ps1")
 
+    @unittest.skipUnless(POWERSHELL, "Windows PowerShell 5.1 is required")
+    def test_os_context_and_warning_status(self):
+        self._check_powershell_script("OSContext.Tests.ps1")
+
     def _check_powershell_script(self, name):
         # A Python child of pwsh otherwise inherits PowerShell 7 module paths.
         environment = {key: value for key, value in os.environ.items()
