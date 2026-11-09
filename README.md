@@ -99,6 +99,9 @@ El contexto del SO conserva tambien `displayVersion`, `ubr` e
 cada captura. `ubr` es numerico; los datos opcionales ausentes quedan en
 `null` con su advertencia. El contexto y el dispositivo se marcan `PARTIAL`
 cuando sus consultas generan advertencias.
+El selector muestra la version junto a cada dispositivo, por ejemplo
+`Windows 11 24H2`. Si falta en el inventario, consulta el ultimo snapshot
+guardado; si tampoco existe alli, muestra `Windows 11 (version unavailable)`.
 No se guardan numeros de serie ni identificadores de CPU. El inventario tambien
 descubre equipos con capturas anteriores, sin crear un scan vacio.
 

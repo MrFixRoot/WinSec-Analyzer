@@ -144,8 +144,16 @@ function Show-WinSecDevicePage {
         $device=$Devices[$i]
         $marker=if ($i -eq $Index) {'>'} else {' '}
         $kind=if ($device.id -eq $LocalDevice.id) {'Local'} else {'Saved'}
-        $count=@(Get-WinSecDeviceSnapshots -OutputRoot $OutputRoot -DeviceId $device.id).Count
-        Write-Host ('  {0} [{1}] {2} | {3} | {4} | {5} snapshots' -f $marker,($i+1),$device.name,$device.host,$kind,$count) -ForegroundColor $(if ($i -eq $Index) {'Cyan'} else {'Gray'})
+        $snapshots=@(Get-WinSecDeviceSnapshots -OutputRoot $OutputRoot -DeviceId $device.id)
+        $displayVersion=Get-WinSecOptionalField (Get-WinSecOptionalField $device 'os') 'displayVersion'
+        if ([string]::IsNullOrWhiteSpace([string]$displayVersion) -and $snapshots.Count -gt 0) {
+            try {
+                $saved=Get-WinSecSnapshotManifest -Snapshot $snapshots[0].FullName
+                $displayVersion=Get-WinSecOptionalField $saved.Manifest.os 'displayVersion'
+            } catch { Add-WinSecWarning -Session $Session -Message ('Saved Windows version unavailable for '+$device.name+': '+$_.Exception.Message) }
+        }
+        $release=if ([string]::IsNullOrWhiteSpace([string]$displayVersion)) {'Windows 11 (version unavailable)'} else {'Windows 11 '+$displayVersion}
+        Write-Host ('  {0} [{1}] {2} | {3} | {4} | {5} | {6} snapshots' -f $marker,($i+1),$device.name,$device.host,$release,$kind,$snapshots.Count) -ForegroundColor $(if ($i -eq $Index) {'Cyan'} else {'Gray'})
     }
     if ($Devices.Count -eq 0) { Write-Host '  No saved devices.' -ForegroundColor DarkGray }
     if (@($Devices | Where-Object {$_.id -eq $LocalDevice.id}).Count -eq 0) {

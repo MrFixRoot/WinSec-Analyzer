@@ -114,6 +114,23 @@ try {
         function Get-WinSecCursor {return $null}
         function Clear-Host {}
         function Show-WinSecBanner {}
+        $displayRoot=Join-Path $testRoot 'display-inventory'
+        $savedHost='SYNTHETIC_SAVED_RELEASE_HOST'
+        $savedVersionPath=Join-Path $displayRoot ('Windows11_SYNTHETIC_22000/'+$savedHost+'/SYNTHETIC_RUN/manifest.json')
+        [void](Save-WinSecJson $savedVersionPath @{schemaVersion='1';runId='SYNTHETIC_RUN';host=$savedHost;collectors=@();os=@{family='Windows11';build=22000;displayVersion='SYNTHETIC_SAVED_RELEASE'}})
+        $savedVersionHash=Get-WinSecHash $savedVersionPath
+        $displayDevices=@(
+            [pscustomobject]@{id=$local.id;host=$local.host;name='SYNTHETIC_CURRENT_DEVICE';os=@{displayVersion='SYNTHETIC_CURRENT_RELEASE'};hardware=$null;warnings=@()}
+            [pscustomobject]@{id=$savedHost;host=$savedHost;name='SYNTHETIC_SAVED_DEVICE';os=$null;hardware=$null;warnings=@()}
+            [pscustomobject]@{id='SYNTHETIC_UNKNOWN';host='SYNTHETIC_UNKNOWN';name='SYNTHETIC_LEGACY_DEVICE';os=@{build=22000};hardware=$null;warnings=@()}
+        )
+        $queriesBefore=$script:queryOrder.Count
+        $versionScreen=@(Show-WinSecDevicePage -Devices $displayDevices -Index 0 -LocalDevice $local -OutputRoot $displayRoot -Session (New-WinSecSession -OutputRoot $displayRoot) 6>&1)
+        $versionText=($versionScreen | ForEach-Object {$_.ToString()}) -join [Environment]::NewLine
+        Assert-Test ($versionText -match 'SYNTHETIC_CURRENT_DEVICE.*Windows 11 SYNTHETIC_CURRENT_RELEASE') 'Each device row must show its saved DisplayVersion.'
+        Assert-Test ($versionText -match 'SYNTHETIC_SAVED_DEVICE.*Windows 11 SYNTHETIC_SAVED_RELEASE') 'A missing inventory OS must fall back to the latest saved snapshot.'
+        Assert-Test ($versionText -match 'SYNTHETIC_LEGACY_DEVICE.*Windows 11 \(version unavailable\)') 'Legacy entries without DisplayVersion must remain usable and show an explicit unknown version.'
+        Assert-Test ($script:queryOrder.Count -eq $queriesBefore -and (Get-WinSecHash $savedVersionPath) -eq $savedVersionHash) 'Rendering saved versions must neither query Windows nor modify snapshots.'
         function Push-Key {param([int]$Code) $script:keys.Enqueue([pscustomobject]@{VirtualKeyCode=$Code;Character=[char]0})}
         function Push-Text {
             param([string]$Text,[switch]$Enter)
